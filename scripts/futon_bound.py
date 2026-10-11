@@ -40,17 +40,19 @@ import torch
 import neurofield as nf
 from train_common import ROOT
 
+# K = N (alpha 1) enters the cost alone, to show how the bound's time grows with
+# K; every other result is at K <= N/2.
 TASKS = {
     "image": {
         "signals": [f"kodim{i:02d}" for i in range(1, 25)],
-        "alphas": (0.125, 0.25, 0.5),
-        "ranks": (16, 32, 64, 128, 256),
+        "alphas": (0.125, 0.25, 0.5, 1.0),
+        "ranks": (32, 64, 128, 256),
         "subsample": 0.1,
     },
     "occupancy": {
         "signals": ["armadillo", "dragon", "happy_buddha", "lucy", "thai_statue"],
-        "alphas": (0.125, 0.25, 0.5),
-        "ranks": (32, 64, 128, 256, 512),
+        "alphas": (0.125, 0.25, 0.5, 1.0),
+        "ranks": (32, 64, 128, 256),
         "subsample": 0.01,
     },
 }
@@ -117,8 +119,20 @@ def train(model: nf.FUTON, data, device, lr: float = LR, epochs: int = EPOCHS,
     return time.perf_counter() - start
 
 
+def warm_up(task: str, device: torch.device) -> None:
+    """A bound and a short Adam run on the task's first signal, untimed, so
+    that no timed one pays for setting up kernels and libraries."""
+    name = TASKS[task]["signals"][0]
+    full = dataset(task, name)
+    sizes, channels = list(full.target.shape[:-1]), full.target.shape[-1]
+    features = features_of(futon(sizes, channels, 0.125, 1), sizes, device)
+    nf.futon_bound(full.target.to(device), features, [8], sweeps=5)
+    train_data = dataset(task, name, TASKS[task]["subsample"])
+    train(futon(sizes, channels, 0.125, 8), train_data, device, epochs=10)
+
+
 def sinc_only(configs: list[dict]) -> list[dict]:
-    """The records' sinc settings; an earlier study also ran a lanczos basis."""
+    """The records' sinc settings; an earlier study also ran a Lanczos basis."""
     return [c for c in configs if c.get("basis", "sinc") == "sinc"]
 
 
@@ -227,6 +241,7 @@ def main() -> None:
     args = parser.parse_args()
     device = torch.device(args.device)
     for task in args.tasks:
+        warm_up(task, device)
         for name in args.signals or TASKS[task]["signals"]:
             if name in TASKS[task]["signals"]:
                 run(task, name, device)
