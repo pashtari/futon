@@ -5,6 +5,8 @@ Public names are also available at the package top level, e.g. ``nf.FUTON``.
 
 from .dip import DIPSkip, DIPUNet
 from .finer import FINER, FinerLayer
+from .finr import FINR
+from .fresh import fresh_distance, fresh_select, fresh_spectrum
 from .futon import (
     FUTON,
     ChebyshevBasis,
@@ -51,6 +53,10 @@ __all__ = [
     "WIRE",
     "FinerLayer",
     "FINER",
+    "FINR",
+    "fresh_spectrum",
+    "fresh_distance",
+    "fresh_select",
     "GaborFilter",
     "MFN",
     "FeatureGrid",

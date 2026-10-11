@@ -11,10 +11,10 @@ Every model of `configs/<task>.yaml` on every signal of the task:
 
 | Task | Runs | Time | Logs |
 | --- | --- | --- | --- |
-| image | 24 Kodak images x 12 models = 288 | ~3.5 h | `logs/image/<image>/<model>/` |
-| occupancy | 5 Stanford shapes x 13 models = 65 | ~25 min | `logs/occupancy/<shape>/<model>/` |
-| nerf | 8 Blender scenes x 13 models = 104 | ~2.5 h per scene | `logs/nerf/<scene>/<model>/` |
-| super_resolution | 100 DIV2K images x 16 models = 1600 | ~1.5 h per image | `logs/super_resolution/<image>/<model>/` |
+| image | 24 Kodak images x 14 models = 336 | ~4 h | `logs/image/<image>/<model>/` |
+| occupancy | 5 Stanford shapes x 15 models = 75 | ~30 min | `logs/occupancy/<shape>/<model>/` |
+| nerf | 8 Blender scenes x 15 models = 120 | ~3 h per scene | `logs/nerf/<scene>/<model>/` |
+| super_resolution | 100 DIV2K images x 18 models = 1800 | ~1.6 h per image | `logs/super_resolution/<image>/<model>/` |
 
 ```bash
 scripts/hpc/train.sh --clusters=accelgor --time=5:00:00 image
@@ -140,8 +140,8 @@ sbatch $common --time=5:00:00 --job-name=nf-timing-2d --wrap \
 # sooner than long ones (a 4 h job sat two days without a planned start), so each
 # NeRF scene runs as two balanced model groups of about an hour of training each.
 # All four jobs write disjoint runs into the same logs/timing/nerf.
-A="Instant-NGP Gauss GA-Planes FINER TensoRF-CP FUTON-lanczos"
-B="MFN WIRE TensoRF-VM SIREN PE-MLP FUTON-sinc RFF"
+A="Instant-NGP Gauss GA-Planes FINER TensoRF-CP FUTON-lanczos FreSh"
+B="MFN WIRE TensoRF-VM SIREN PE-MLP FUTON-sinc RFF F-INR"
 for scene in lego hotdog; do
   sbatch $common --time=1:30:00 --job-name=nf-timing-nerf-$scene-a --wrap \
     "source $VSC_DATA/venvs/neurofield-env/bin/activate \

@@ -1,6 +1,6 @@
 # The model zoo
 
-Twelve architectures share one interface: `Model(in_features, out_features, ...)` maps coordinates `(..., in_features)` in $[-1, 1]$ to `(..., out_features)`. They are re-implementations under one training loop, at settings taken from the authors' code, and the [benchmarks](../experiments/benchmarks.md) compare them at equal parameter counts.
+Thirteen architectures share one interface: `Model(in_features, out_features, ...)` maps coordinates `(..., in_features)` in $[-1, 1]$ to `(..., out_features)`. They are re-implementations under one training loop, at settings taken from the authors' code, and the [benchmarks](../experiments/benchmarks.md) compare them at equal parameter counts.
 
 ## Coordinate networks
 
@@ -16,17 +16,20 @@ MLPs whose prior sits in the first layer or in the activation.
 | FINER | `FINER` | Variable-periodic sines $\sin(\omega (\lvert z \rvert + 1) z)$ | Liu et al., CVPR 2024 |
 | MFN | `MFN` | Multiplicative Gabor filter network: each stage multiplies a Gabor filter of the coordinates into the hidden state | Fathony et al., ICLR 2021 |
 
+FreSh (Kania et al., ICLR 2025) is not an architecture but a choice of SIREN's first-layer frequency: `nf.fresh_select` picks it per signal, before training, as the candidate whose untrained output has the spectrum nearest the signal's, and `nf.SIREN(first_omega=...)` takes it, its later layers keeping `omega`.
+
 `MLP` underlies most of them: a plain ReLU network by default, or a network of custom layers (`layer_class=nf.SineLayer`, `nf.GaussLayer`, `nf.FinerLayer`, `nf.RealGaborLayer`) with their own activations. `WIRE` is the complex-valued network of the paper; the experiments use `RealWIRE`, the real Gabor variant from the same paper and code, which trains about 1.5× faster at equal parameter count and has real weights, so it also quantizes.
 
 ## Grid and tensor models
 
-Learnable feature grids, read by interpolation and decoded by a ReLU MLP.
+Learnable feature grids, read by interpolation and decoded by a ReLU MLP, and a factorization into one network per axis.
 
 | Model | Class | Idea | Reference |
 | --- | --- | --- | --- |
 | Instant-NGP | `InstantNGP`, `HashEncoding` | Multiresolution hash encoding (16 levels, 2 features per level by default) and a bias-free ReLU MLP, mirroring tiny-cuda-nn | Müller et al., SIGGRAPH 2022 |
 | TensoRF | `TensoRF` | Factorized grids: CP (products of line grids) or VM (line-plane products, 3D) | Chen et al., ECCV 2022 |
 | GA-Planes | `GAPlanes`, `MultiVector`, `FeatureGrid` | Line, plane and volume grids combined by an expression such as `"[e1 o e2, e12]"` | Sivgin et al., ICML 2025 |
+| F-INR | `FINR` | One SIREN per coordinate, its outputs combined per channel by a CP or tensor-train decomposition, with no decoder | Vemuri et al., WACV 2026 |
 | Grid INR | `GridINR` | Independent coordinate networks on a grid of overlapping patches, blended with smoothstep weights | |
 
 `FeatureGrid` is the building block: a learnable grid of any dimension sampled with `align_corners=True` on $[-1, 1]$. `MultiVector` combines several with elementwise products, sums and concatenation, and `GAPlanes` and `TensoRF` add the decoder.
@@ -37,7 +40,7 @@ Learnable feature grids, read by interpolation and decoded by a ReLU MLP.
 | --- | --- | --- | --- |
 | FUTON | `FUTON` | A fixed basis per axis, a low-rank CP combiner across axes, and a linear or MLP decoder | Ashtari et al., arXiv 2026 |
 
-The benchmarks run it with the sinc basis (`FUTON-sinc`) and the Lanczos basis (`FUTON-lanczos`). The [FUTON page](futon.md) explains every part.
+The benchmarks run it with the sinc basis and the Lanczos basis, FUTON (sinc) and FUTON (Lanczos) in the results and `FUTON-sinc` and `FUTON-lanczos` in the configs. The [FUTON page](futon.md) explains every part.
 
 ## Deep Image Prior
 

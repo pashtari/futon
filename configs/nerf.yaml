@@ -65,6 +65,15 @@ models:
       omega: 30.0
     train: {lr: 3.0e-4}  # on lego, 1e-4 costs 0.4 dB and 1e-3 about 4
 
+  FreSh:  # Kania et al. (ICLR 2025): the SIREN above, its first omega chosen per scene
+    class: SIREN
+    fresh: {size: 32}  # FreSh's spectrum shells for SIREN radiance fields
+    kwargs:
+      hidden_features: 180
+      hidden_layers: 3
+      omega: 30.0  # the later layers; FreSh picks the first one's
+    train: {lr: 3.0e-4}  # on lego, 1e-4 costs 0.5 dB and 1e-3 4.3
+
   Gauss:
     class: Gauss
     kwargs:
@@ -130,6 +139,24 @@ models:
       hidden_features: 128
       hidden_layers: 2
     train: {lr: 3.0e-2}
+
+  F-INR:  # Vemuri et al. (WACV 2026): SIREN axes and CP
+    class: FINR
+    kwargs:
+      # Its paper fits radiance fields with per-axis hash grids; here, as on
+      # every task, the axes are SIRENs. The budget counts the field's colour
+      # network too. Tuned on lego at the budget: width 32 and rank 39 lead
+      # widths 24 to 80 by 0.8 to 7.2 dB; at width 64, the tensor train its
+      # authors pick for NeRF was 2.9 dB worse than CP and twice as slow.
+      rank: 39
+      hidden_features: 32
+      hidden_layers: 3
+      mode: cp
+      # first omega 100, the model's default from the authors' image code: 300
+      # costs 0.8 dB on lego, and their paper's 30 cost 1.1 dB at width 64
+      grid: false  # samples along rays are scattered
+    # on lego, 3e-4 costs 3.7 dB; at width 64, 1e-4 cost 2.7 and 3e-3 diverged
+    train: {lr: 1.0e-3}
 
   FUTON-sinc:
     class: FUTON

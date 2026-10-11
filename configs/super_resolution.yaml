@@ -90,6 +90,20 @@ models:
       output_activation: tanh
     train: {lr: 1.0e-4}  # every higher rate diverges
 
+  FreSh:  # Kania et al. (ICLR 2025): the SIREN above, its first omega chosen per image
+    class: SIREN
+    # Our adaptation: the spectrum of the low-resolution image, the only view
+    # of the signal the field gets.
+    fresh: {size: 64}
+    kwargs:
+      hidden_features: 407
+      hidden_layers: 4
+      # the later layers keep the SIREN's tuned omega; FreSh's paper keeps them
+      # at 30, which costs 0.25 dB on the tuning images at its best rate, 3e-4
+      omega: 120.0
+      output_activation: tanh
+    train: {lr: 1.0e-4}  # 3e-4 diverges
+
   Gauss:  # FINER image benchmark
     class: Gauss
     kwargs:
@@ -151,6 +165,23 @@ models:
       hidden_layers: 2
       output_activation: tanh
     train: {lr: 1.0e-2}  # 3e-2 fails on smooth images
+
+  F-INR:  # Vemuri et al. (WACV 2026): SIREN axes and CP, as in its image benchmark
+    class: FINR
+    kwargs:
+      rank: 224  # W + 1: a channel's rank is at most W + 1 in 2D
+      # the smallest width that reaches the budget; rank 64 at width 308, the
+      # same size, is 1.6 dB worse
+      hidden_features: 223
+      # as the authors' public config; the four their paper names, at the same
+      # size, cost 0.9 dB
+      hidden_layers: 3
+      mode: cp
+      # first omega 100, the model's default from the authors' image code: the
+      # paper's 30 costs 0.6 dB, 300 2.5 and 1000 9.1; the positional encoding
+      # of their image experiments, at the same size, 0.4 dB
+      output_activation: tanh
+    train: {lr: 3.0e-4}  # 1e-4 costs 0.7 dB; 1e-3 diverges
 
   FUTON-sinc:
     class: FUTON

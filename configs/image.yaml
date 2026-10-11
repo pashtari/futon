@@ -57,6 +57,16 @@ models:
       output_activation: tanh
     train: {lr: 1.0e-3}  # 3e-4 costs 1.9 dB; 3e-3 diverges
 
+  FreSh:  # Kania et al. (ICLR 2025): the SIREN above, its first omega chosen per image
+    class: SIREN
+    fresh: {size: 64}  # FreSh's spectrum shells for images
+    kwargs:
+      hidden_features: 256
+      hidden_layers: 4
+      omega: 30.0  # the later layers; FreSh picks the first one's
+      output_activation: tanh
+    train: {lr: 1.0e-3}  # 3e-4 costs 1.6 dB; 3e-3 diverges
+
   Gauss:  # FINER image benchmark
     class: Gauss
     kwargs:
@@ -120,6 +130,28 @@ models:
       hidden_layers: 2
       output_activation: tanh
     train: {lr: 3.0e-2}
+
+  F-INR:  # Vemuri et al. (WACV 2026): SIREN axes and CP, as in its image benchmark
+    class: FINR
+    kwargs:
+      rank: 140  # W + 1: a channel's rank is at most W + 1 in 2D
+      # deviation: 256 in the reference; 139 meets the budget, and rank 64 at
+      # width 177, the same size, is 0.8 dB worse
+      hidden_features: 139
+      # as the authors' public config; the four their paper names, at the same
+      # size, cost 0.2 dB
+      hidden_layers: 3
+      mode: cp
+      # tuned: the authors' image code has 100 (0.3 dB worse) and their paper
+      # 30 (1.5 dB); 300 ties, and 500 and 1000 lose 0.4 and 1.2 dB. The
+      # positional encoding of their image experiments (positional_encoding 10)
+      # at the same size, width 137 and rank 138, is 0.4 dB worse at its best
+      # first omega, 200, and 0.7 dB at their 100.
+      first_omega: 200.0
+      output_activation: tanh
+    # 3e-4 costs 1.3 dB (1.1 at first omega 300) and 3e-3 6 dB; the reference's
+    # 1e-4, 3 dB
+    train: {lr: 1.0e-3}
 
   FUTON-sinc:
     class: FUTON

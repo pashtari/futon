@@ -61,6 +61,19 @@ models:
       output_activation: tanh
     train: {lr: 1.0e-3}  # the SDF lr 1e-4 is too slow for 2000 epochs; 3e-3 is worse
 
+  FreSh:  # Kania et al. (ICLR 2025): the SIREN above, its first omega chosen per shape
+    class: SIREN
+    # Our adaptation: the 3D spectrum of the occupancy grid, in 32 shells, its
+    # number for SIREN radiance fields: shells stop at half the smallest side,
+    # and lucy's 78 voxels leave too few for the 64 of images.
+    fresh: {size: 32}
+    kwargs:
+      hidden_features: 256
+      hidden_layers: 3
+      omega: 30.0  # the later layers; FreSh picks the first one's
+      output_activation: tanh
+    train: {lr: 1.0e-3}  # 3e-4 costs 0.4 IoU points and 3e-3 25
+
   Gauss:  # FINER benchmark
     class: Gauss
     kwargs:
@@ -140,6 +153,22 @@ models:
       hidden_layers: 2
       output_activation: tanh
     train: {lr: 3.0e-2}
+
+  F-INR:  # Vemuri et al. (WACV 2026): SIREN axes and CP
+    class: FINR
+    kwargs:
+      # Tuned at the budget: width 96 and rank 259 lead widths 32 to 144, by
+      # 0.02 to 5.3 IoU points; at width 128, the tensor train its authors pick
+      # for shapes, rank 15, is 0.05 points below CP, rank 83.
+      rank: 259
+      hidden_features: 96  # deviation: 256 in its paper, 128 in its public SDF config
+      hidden_layers: 3
+      mode: cp
+      # first omega 100, the model's default from the authors' image code: their
+      # paper's 30 costs 0.2 IoU points and 300 0.4, and the SIREN of their
+      # shape code (first omega 30, later layers at 1) 4.7
+      output_activation: tanh
+    train: {lr: 1.0e-3}  # 3e-4 costs 1.9 IoU points and 3e-3 9
 
   FUTON-sinc:
     class: FUTON
