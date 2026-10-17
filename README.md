@@ -16,7 +16,7 @@
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-2ea44f.svg"></a>
 </p>
 
-NeuroField fits a signal as a function of its coordinates. It provides **FUTON**, the model of the paper; **eleven baselines** (SIREN, FINER, WIRE, Gauss, MFN, RFF, PE-MLP, Instant-NGP, TensoRF, GA-Planes, Deep Image Prior) behind the same interface; **coordinate datasets** for images, occupancy volumes, MRI k-space and posed views; **one training loop** with evaluation, quantization and logging; and two applications, **image compression** and **novel view synthesis**. The experiments of the paper are its configs and scripts, run as they are.
+NeuroField fits a signal as a function of its coordinates. It provides **FUTON**, the model of the paper; **thirteen baselines** (SIREN, FreSh, FINER, WIRE, Gauss, MFN, RFF, PE-MLP, Instant-NGP, TensoRF, GA-Planes, F-INR, Deep Image Prior) behind the same interface; **coordinate datasets** for images, occupancy volumes, MRI k-space and posed views; **one training loop** with evaluation, quantization and logging; and two applications, **image compression** and **novel view synthesis**. The experiments of the paper are its configs and scripts, run as they are.
 
 <p align="center">
   <img src="docs/assets/futon_pipeline.svg" width="920" alt="The FUTON pipeline: a fixed basis per axis, a CP combiner across axes, a linear or MLP decoder">
@@ -34,7 +34,7 @@ Most implicit neural representations hide their prior in the nonlinearity: sines
 
 Every model of a task has the same parameter budget, the hyperparameters of its authors' code, and a learning rate chosen on the task. Times are mean training times per signal on an A100, every model retrained alone on the GPU, on two scenes for radiance fields and two images for super-resolution. The [benchmarks page](https://pashtari.github.io/neurofield/experiments/benchmarks/) has every model, metric and error bar.
 
-| Task | Signals | #Params | FUTON-sinc | FUTON-lanczos | Strongest baseline |
+| Task | Signals | #Params | FUTON (sinc) | FUTON (Lanczos) | Strongest baseline |
 | --- | --- | --- | --- | --- | --- |
 | Images (Kodak) | 24 | 195k | **38.54 dB** in 8.1 s | 38.20 dB in **5.6 s** | Instant-NGP, 36.76 dB in 6.3 s |
 | Occupancy (Stanford) | 5 | 132k | **99.90 % IoU** in 10.3 s | **99.90 % IoU** in 7.4 s | Instant-NGP, 99.87 % in 10.3 s |
@@ -48,10 +48,10 @@ Every model of a task has the same parameter budget, the hyperparameters of its 
   <sub>Kodak: PSNR against training time for FUTON and the strongest model of each family (left), and every model's final PSNR against its training time (middle) and its inference throughput in megapixels per second (right).</sub>
 </p>
 <p align="center">
-  <img src="docs/assets/qualitative_kodim19.png" width="920" alt="kodim19: two regions magnified for every featured model">
+  <img src="docs/assets/qualitative_kodim19.png" width="920" alt="kodim19: two regions magnified for every featured model, above each model's error">
 </p>
 <p align="center">
-  <img src="docs/assets/orbit_lego.gif" width="720" alt="The lego scene in orbit: SIREN, Instant-NGP and FUTON-sinc">
+  <img src="docs/assets/orbit_lego.gif" width="720" alt="The lego scene in orbit: SIREN, Instant-NGP and FUTON (sinc)">
 </p>
 
 ## Installation
@@ -112,8 +112,8 @@ Coordinates live in [-1, 1] on every axis, targets in the model's output range, 
 | Family | Models |
 | --- | --- |
 | FUTON | `FUTON` with bases `cosine`, `sinc`, `legendre`, `chebyshev`, `triangle`, `lanczos`; combiners `cp`, `hadamard`, `tr`; decoders `linear`, `mlp` |
-| Coordinate networks | `SIREN`, `FINER`, `Gauss`, `WIRE` / `RealWIRE`, `MFN`, `RFF`, `PEMLP`, and the generic `MLP` |
-| Grid and tensor models | `InstantNGP` / `HashEncoding`, `TensoRF`, `GAPlanes` / `MultiVector` / `FeatureGrid`, `GridINR` |
+| Coordinate networks | `SIREN` (with FreSh's `fresh_select`), `FINER`, `Gauss`, `WIRE` / `RealWIRE`, `MFN`, `RFF`, `PEMLP`, and the generic `MLP` |
+| Grid and tensor models | `InstantNGP` / `HashEncoding`, `TensoRF`, `GAPlanes` / `MultiVector` / `FeatureGrid`, `FINR`, `GridINR` |
 | Deep Image Prior | `DIPUNet`, `DIPSkip` |
 
 **Datasets**: `ImageCoordinateDataset`, `MaskedImageCoordinateDataset`, `OccupancyCoordinateDataset`, `MRICoordinateDataset`, `DIPImageDataset`, and `nf.nerf.BlenderDataset`.

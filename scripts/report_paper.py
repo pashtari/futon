@@ -52,6 +52,11 @@ Writes results/, which holds the paper's figures and tables and nothing else:
     bound/table.{tex,md}             the means per setting, the smallest setting
                                      certified for a target PSNR, the SVD form
                                      and the optimizer checks
+    teaser.pdf                       the paper's first figure: kodim19 after the
+                                     same seconds of training for three models,
+                                     beside their mean PSNR over Kodak against
+                                     time, above every model's final quality
+                                     against its training time on the four tasks
 
 Legends sit outside the data: a row of benchmark panels shares one legend
 strip below it, and a panel of its own carries a frameless legend above its
@@ -62,18 +67,19 @@ third of the text width, a strip of magnifications spans it, and the image and
 super-resolution tables fit it in small type. Ticks fall on whole or half
 numbers, and a band spans one standard error either side, as a table's ± does.
 
---tasks picks what to build, of the four tasks, ablation and bound; a run
+--tasks picks what to build, of the four tasks, ablation, bound and teaser; a run
 builds them all by default.
 
 Tables mark the best value in bold and the second underlined. Drawing the panels
 needs the signals in data/ and a GPU; --no-panels leaves them out, and
---overwrite draws them again, which a changed NeRF view calls for.
+--overwrite draws them again.
 
-The magnified regions are found, and a run prints the centre of every one it
-drew, ready to paste into CENTERS. Setting a signal's centres there fixes them
-by hand, in fractions of the trimmed reference, and SIDES sets how large they
-are. Panels already drawn are reused, so moving a box and running again costs
-seconds and no GPU.
+EXAMPLES lists the signals a task shows. A scene's view and a signal's magnified
+regions are set in VIEWS and CENTERS where given, and found otherwise: the view
+at the median of FUTON's gain over the strongest other model shown, and the
+regions where the models shown disagree most on detail, whoever is closest
+there. SIDES sets how large the regions are. Panels already drawn are reused,
+so drawing a figure again costs seconds and no GPU.
 """
 
 import argparse
@@ -98,10 +104,13 @@ from matplotlib.backends.backend_pgf import LatexError
 from matplotlib.lines import Line2D
 from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextPath
-from matplotlib.patches import Patch, Rectangle
+from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
+from matplotlib.patheffects import Normal, Stroke
 from matplotlib.ticker import (
     FixedLocator,
+    FuncFormatter,
     Locator,
+    MaxNLocator,
     NullFormatter,
     NullLocator,
     StrMethodFormatter,
@@ -140,25 +149,28 @@ TASKS = {
     "nerf": ("psnr", "PSNR (dB)", ("psnr", "ssim", "lpips")),
     "super_resolution": ("psnr", "PSNR (dB)", ("psnr", "ssim", "lpips")),
 }
-EXAMPLES = {  # the two signals each task shows, the ones FUTON gains most on
-    "image": ("kodim01", "kodim17", "kodim19", "kodim21"),
-    "occupancy": ("thai_statue", "armadillo"),
-    "nerf": ("lego", "hotdog", "materials"),
-    "super_resolution": ("0882", "0896"),
+# The signal each task's inference speed and peak memory are measured on, one
+# standing for all since the protocol fixes every batch (see profiled and
+# measured_memory); every model's measurements share it.
+PROFILED = {
+    "image": "kodim01",
+    "occupancy": "thai_statue",
+    "nerf": "lego",
+    "super_resolution": "0882",
 }
-# The test view a scene is rendered from, the one where FUTON gains most of
-# those that show the scene whole: every run records all 200, so the choice is
-# made from the logs rather than by eye.
-VIEWS = {"lego": 184, "hotdog": 136, "materials": 86}
-# Where a magnification may be taken, for the signals whose telling regions the
-# search would pass over: one rectangle per box, as fractions of the trimmed
-# reference (left, top, right, bottom). The best square inside each is still
-# the one found.
-ZONES = {}
+EXAMPLES = {  # the signals each task's qualitative figures show
+    "image": ("kodim01", "kodim09", "kodim17", "kodim19", "kodim21"),
+    "occupancy": ("thai_statue", "armadillo"),
+    "nerf": ("lego", "hotdog", "ship"),
+    "super_resolution": ("0807", "0882"),
+}
+# The test view a scene is drawn from, where its regions are set by hand; any
+# other scene takes the view at the median of FUTON's gain (see example_view).
+VIEWS = {"lego": 175, "hotdog": 135}
 # Centres set by hand, one per magnified region, as fractions of the trimmed
-# reference. A signal named here takes these instead of searching, so this is
-# where to put a region the search will not find. Running the report prints the
-# centres it used for every signal, in this format, to start from.
+# reference; any other signal's regions are found (see regions). The scenes'
+# sit on parts of the object where the models disagree, rather than on the
+# plate's rim or the floor, which the search alone would take.
 CENTERS: dict[str, tuple[tuple[float, float], ...]] = {
     "kodim01": ((0.904, 0.106), (0.592, 0.323)),
     "kodim17": ((0.67, 0.22), (0.16, 0.63)),
@@ -166,11 +178,50 @@ CENTERS: dict[str, tuple[tuple[float, float], ...]] = {
     "kodim21": ((0.15, 0.54), (0.5, 0.6)),
     "thai_statue": ((0.35, 0.8), (0.77, 0.92)),
     "armadillo": ((0.5, 0.5), (0.3, 0.8)),
-    "lego": ((0.356, 0.260), (0.383, 0.678)),
-    "hotdog": ((0.475, 0.210), (0.796, 0.333)),
-    "materials": ((0.407, 0.639), (0.667, 0.741)),
+    # The front wheel in its track and the cab with its light.
+    "lego": ((0.480, 0.772), (0.801, 0.347)),
+    # The bun's top and the mustard on the plate's rim, where the other fields
+    # leave blotches, holes and broken edges.
+    "hotdog": ((0.505, 0.27), (0.46, 0.85)),
     "0882": ((0.50, 0.335), (0.60, 0.665)),  # the butterfly's head, a hindwing
 }
+# The tasks whose figures add each model's |error| beneath its magnifications:
+# images and super-resolution, whose best reconstructions differ too little to
+# see in the magnifications alone. A figure's maps share one scale, so that they
+# compare, saturating at the 90th percentile of every error they show, rounded
+# up to a round number; a super-resolution image's errors span a decade.
+ERRORS = ("image", "super_resolution")
+ERROR_MAP = "magma"  # perceptually uniform, black where a model is exact
+# The paper's first figure. Above, kodim19 as a few models have it after the
+# same seconds of training on an A100, at equal size, its lantern room
+# magnified, beside their mean PSNR over the Kodak images against training
+# time; scripts/snapshots.py keeps the images. Below, every model's final
+# quality against its training time on each task, with FUTON (sinc)'s
+# reconstruction of one of the task's signals set where no marker is.
+TEASER_SIGNAL = "kodim19"
+TEASER_MODELS = ("SIREN", "Instant-NGP", "FUTON-lanczos")  # the rows of pictures
+TEASER_SECONDS = (0.5, 1.0, 2.0, 4.0)
+# The plot beside them adds FUTON (sinc), whose pictures would look like the
+# Lanczos ones, and quotes how much sooner the second of TEASER_RACE reaches
+# the mean PSNR at which the first ends.
+TEASER_CURVES = ("SIREN", "Instant-NGP", "FUTON-sinc", "FUTON-lanczos")
+TEASER_RACE = ("Instant-NGP", "FUTON-lanczos")
+TEASER_CENTER = (0.638, 0.213)  # the lantern room, in fractions of the image
+TEASER_EXAMPLES = {
+    "image": "kodim19",
+    "occupancy": "thai_statue",
+    "nerf": "lego",
+    "super_resolution": "0882",
+}
+TEASER_TITLES = {
+    "image": "Images",
+    "occupancy": "Occupancy",
+    "nerf": "Radiance fields",
+    "super_resolution": "Super-resolution (4×)",
+}
+# The butterfly of 0882, in fractions of the image: top, bottom, left, right.
+TEASER_TRIM = {"super_resolution": (0.12, 0.88, 0.30, 0.80)}
+TEASER_TINT = "#edf3fb"  # behind FUTON's row of magnifications
 UP = {"lucy": 2}  # the Stanford Lucy is z up; the other four shapes are y up
 
 # Categorical hues in a fixed order, and a light-to-dark blue ramp for ordered
@@ -217,9 +268,20 @@ TENSORF = {
 REFERENCE = "Bicubic"
 ROWS = (
     "Nearest", "Bilinear", "Bicubic", "DIP",
-    "RFF", "PE-MLP", "MFN", "SIREN", "Gauss", "WIRE", "FINER", "Instant-NGP",
-    "TensoRF", "GA-Planes", "FUTON-sinc", "FUTON-lanczos",
+    "RFF", "PE-MLP", "MFN", "SIREN", "FreSh", "Gauss", "WIRE", "FINER",
+    "Instant-NGP", "TensoRF", "GA-Planes", "F-INR", "FUTON-sinc", "FUTON-lanczos",
 )  # fmt: skip
+# How the results name a model where one setting tells it from the other
+# variants of its kind, the setting in parentheses: FUTON's basis, and the
+# backbone F-INR and FreSh build on. TensoRF keeps its name, its variant being
+# fixed by the dimension (see TENSORF). Lanczos, a person's name, is
+# capitalized; configs, logs and code keep the short names.
+DISPLAY = {
+    "FreSh": "FreSh (SIREN)",
+    "F-INR": "F-INR (SIREN)",
+    "FUTON-sinc": "FUTON (sinc)",
+    "FUTON-lanczos": "FUTON (Lanczos)",
+}
 # Metric axes are linear, which needs no explaining; IoU saturates, so its
 # curves start here instead, which the ticks show plainly.
 FLOOR = {"occupancy": 99.0}
@@ -257,14 +319,19 @@ SIDES = {"image": 0.075, "occupancy": 0.14, "nerf": 0.20, "super_resolution": 0.
 # talk raises both before drawing; the paper keeps them.
 LABEL_SIZE = 7.0
 LABEL_ROOM = (0.17, 0.19)
-# The smallest a title is set at, between NeurIPS's tiny and scriptsize: a wide
-# reference is drawn narrower rather than let the titles shrink below it.
-LABEL_FLOOR = 6.5
+# The smallest a title or score should be set at, NeurIPS's tiny. The reference
+# is never cut, so a strip whose labels would fall below it is reported instead.
+LABEL_FLOOR = 6.0
 # The widest a reference is drawn, as an aspect ratio: a wider one is scaled
 # down and centred on the rows, so that a panorama does not squeeze the
 # magnifications. None draws every reference at the full height of the rows,
-# as the paper does; the deck caps it.
+# its top and bottom on theirs, as the paper does; the deck caps it.
 REFERENCE_ASPECT: float | None = None
+
+
+def display_name(model: str) -> str:
+    """A model's name as the results print it (see DISPLAY)."""
+    return DISPLAY.get(model, model.replace("lanczos", "Lanczos"))
 
 
 def text_width(text: str, weight: str = "normal") -> float:
@@ -326,17 +393,17 @@ CURVES = {
     },
     "tensor_net": {
         "FUTON-sinc": ("CP, sinc", PALETTE[0], DASHES[0]),
-        "FUTON-lanczos": ("CP, lanczos", PALETTE[0], DASHES[1]),
+        "FUTON-lanczos": ("CP, Lanczos", PALETTE[0], DASHES[1]),
         "FUTON-sinc-TR": ("TR, sinc", PALETTE[2], DASHES[0]),
-        "FUTON-lanczos-TR": ("TR, lanczos", PALETTE[2], DASHES[1]),
+        "FUTON-lanczos-TR": ("TR, Lanczos", PALETTE[2], DASHES[1]),
         "FUTON-sinc-Tucker": ("Tucker, sinc", PALETTE[3], DASHES[0]),
-        "FUTON-lanczos-Tucker": ("Tucker, lanczos", PALETTE[3], DASHES[1]),
+        "FUTON-lanczos-Tucker": ("Tucker, Lanczos", PALETTE[3], DASHES[1]),
     },
     "decoder": {
         "FUTON-sinc": ("MLP, sinc", PALETTE[0], DASHES[0]),
-        "FUTON-lanczos": ("MLP, lanczos", PALETTE[0], DASHES[1]),
+        "FUTON-lanczos": ("MLP, Lanczos", PALETTE[0], DASHES[1]),
         "FUTON-sinc-linear": ("Linear, sinc", PALETTE[1], DASHES[0]),
-        "FUTON-lanczos-linear": ("Linear, lanczos", PALETTE[1], DASHES[1]),
+        "FUTON-lanczos-linear": ("Linear, Lanczos", PALETTE[1], DASHES[1]),
     },
 }
 
@@ -351,7 +418,7 @@ FLOORS = {"tensor_net": 32}
 BOUND_DATASETS = {"image": "Kodak", "occupancy": "Occupancy"}
 BOUND_TARGETS = {"image": (22, 24, 26, 28, 30), "occupancy": (19, 20, 21, 22, 23)}
 # What a run builds: the four tasks, the FUTON ablations and the error bound.
-PARTS = (*TASKS, "ablation", "bound")
+PARTS = (*TASKS, "ablation", "bound", "teaser")
 
 
 def style() -> None:
@@ -609,9 +676,19 @@ def model_config(run: dict[str, Any]) -> dict[str, Any]:
     return config
 
 
+def rebuild(run: dict[str, Any]) -> tuple[type[torch.nn.Module], dict[str, Any]]:
+    """A run's model class and constructor arguments, as it was trained: its
+    config entry, and for FreSh the first-layer frequency its search chose,
+    which the run records beside its setup rather than in it."""
+    model_class, kwargs = build(run["setup"])
+    if run.get("fresh"):
+        kwargs["first_omega"] = run["fresh"]["omega"]
+    return model_class, kwargs
+
+
 def load_model(run: dict[str, Any], in_features: int, out_features: int, device):
     """Rebuild a run's model and load its checkpoint."""
-    model_class, kwargs = build(run["setup"])
+    model_class, kwargs = rebuild(run)
     model = model_class(in_features=in_features, out_features=out_features, **kwargs)
     state = torch.load(run["directory"] / "checkpoint.pt", map_location="cpu")
     model.load_state_dict(state)
@@ -756,6 +833,19 @@ def padded(values: pd.Series, fraction: float = 0.08) -> tuple[float, float]:
     return low - margin, high + margin
 
 
+def legend_handles(reference: bool = False) -> list[Line2D]:
+    """The featured models' lines and markers and the other models' gray dot;
+    ``reference`` adds the dotted level of the untrained reference."""
+    handles = [
+        Line2D([], [], color=color, dashes=dashes or (None, None), marker="o",
+               markerfacecolor=color if filled else "white", label=display_name(model))
+        for model, (color, dashes, filled) in FEATURED.items()
+    ] + [Line2D([], [], color=OTHERS, marker="o", ls="", label="Other models")]  # fmt: skip
+    if reference:
+        handles.append(Line2D([], [], color="0.4", ls=":", lw=0.8, label=REFERENCE))
+    return handles
+
+
 def legend(reference: bool = False) -> plt.Figure:
     """The featured models' lines and markers, and the other models' gray dot.
 
@@ -763,13 +853,7 @@ def legend(reference: bool = False) -> plt.Figure:
     adds the dotted level of the untrained reference, which super-resolution
     draws.
     """
-    handles = [
-        Line2D([], [], color=color, dashes=dashes or (None, None), marker="o",
-               markerfacecolor=color if filled else "white", label=model)
-        for model, (color, dashes, filled) in FEATURED.items()
-    ] + [Line2D([], [], color=OTHERS, marker="o", ls="", label="Other models")]  # fmt: skip
-    if reference:
-        handles.append(Line2D([], [], color="0.4", ls=":", lw=0.8, label=REFERENCE))
+    handles = legend_handles(reference)
     figure = plt.figure(figsize=(WIDTH, 0.2))
     figure.legend(
         handles=handles,
@@ -931,9 +1015,10 @@ def table(
     decimals; values tied at those decimals share a rank. A column of
     ``errors`` follows its value as ``mean+-error``. Consecutive columns of one
     group share a spanning header. Rows follow ``order``, which the ablations
-    give their own, and ``index`` heads them. ``highlight`` tints the two best
-    cells of every ranked column, which reads from the back of a room but would
-    be noise in a printed table.
+    give their own, and ``index`` heads them, each named as
+    :func:`display_name` names it. ``highlight`` tints the two best cells of
+    every ranked column, which reads from the back of a room but would be
+    noise in a printed table.
     """
     models = [model for model in order if model in values.index]
     cells = {}
@@ -954,7 +1039,7 @@ def table(
     def line(model: str, mark: dict[int, str], spread: str) -> list[str]:
         # The mean carries the emphasis; the error follows it, set smaller, so
         # that a column of values reads down the page before it reads across.
-        return [model] + [
+        return [display_name(model)] + [
             mark.get(rank, "{}").format(text) + (spread.format(error) if error else "")
             for text, error, rank in (cells[model, name] for name in spec)
         ]
@@ -1153,7 +1238,7 @@ def field_and_renderer(run: dict, config: dict, dataset, device):
     as fog: a sine network then looks far worse than its PSNR says.
     """
     field = nf.nerf.RadianceField(
-        density_net=build(run["setup"]), aabb=dataset.aabb, **config["field"]
+        density_net=rebuild(run), aabb=dataset.aabb, **config["field"]
     )
     state = torch.load(run["directory"] / "checkpoint.pt", map_location="cpu")
     field.load_state_dict(state)
@@ -1171,14 +1256,15 @@ def field_and_renderer(run: dict, config: dict, dataset, device):
 
 
 def render_nerf(signal: str, runs: list[dict], directory: Path, device) -> None:
-    """One test view of the scene, and each model's render of it."""
+    """One test view of the scene, the one :func:`panels` chose, and each
+    model's render of it."""
     config = model_config(runs[0])
     dataset = nf.nerf.BlenderDataset(
         ROOT / SIGNALS["nerf"].format(signal),
         "test",
         downsample=config["data"]["downsample"],
     )
-    batch = dataset[VIEWS[signal]]
+    batch = dataset[int((directory / "view.txt").read_text())]
     target = (dataset.composite(batch["rgba"]) * 255).round().byte().numpy()
     Image.fromarray(target).save(directory / "truth.png")
     for run in runs:
@@ -1286,15 +1372,69 @@ RENDER = {
 }
 
 
+def margin(scores: pd.DataFrame, task: str) -> pd.Series:
+    """Per row, the better FUTON's score less the strongest other model's, of
+    those in the task's strip, ``scores`` holding a column per model."""
+    shown = STRIP.get(task, tuple(FEATURED))
+    ours = [model for model in shown if model.startswith("FUTON")]
+    others = [model for model in shown if model not in ours]
+    return scores[ours].max(axis=1) - scores[others].max(axis=1)
+
+
+def typical(gain: pd.Series, count: int) -> list:
+    """The ``count`` labels whose gain lies closest to the median gain."""
+    distance = (gain - gain.median()).abs()
+    return list(distance.sort_values(kind="stable").index[:count])
+
+
+def example_view(signal: str, runs: list[dict]) -> int:
+    """The test view a scene is drawn from, unless VIEWS sets it: of the views
+    that show the scene whole, its silhouette clear of the frame by 2% of the
+    side so that a magnification never meets the image's edge, the one whose
+    gain lies closest to their median gain."""
+    if signal in VIEWS:
+        return VIEWS[signal]
+    config = model_config(runs[0])
+    dataset = nf.nerf.BlenderDataset(
+        ROOT / SIGNALS["nerf"].format(signal),
+        "test",
+        downsample=config["data"]["downsample"],
+    )
+    alpha = dataset.images[..., 3] > 0.05  # (views, height, width)
+    band = max(1, round(0.02 * min(alpha.shape[1:])))
+    frame = torch.ones_like(alpha[0])
+    frame[band:-band, band:-band] = False
+    clear = ~(alpha & frame).flatten(1).any(1)
+    whole = [int(view) for view in clear.nonzero().flatten()] or list(range(len(alpha)))
+    psnr = pd.DataFrame(
+        {
+            run["model"]: {view["view"]: view["psnr"] for view in run["test_views"]}
+            for run in runs
+        }
+    )
+    return int(typical(margin(psnr.loc[whole], "nerf"), 1)[0])
+
+
 def panels(
     task: str, signal: str, runs: list[dict], device: str, overwrite: bool
 ) -> Path:
     """The signal and every strip model's reconstruction of it, as PNGs.
 
     Rendering rebuilds each model from its checkpoint, which needs the signal
-    in data/ and a GPU, so the panels are kept and reused.
+    in data/ and a GPU, so the panels are kept and reused. A scene's are kept
+    with the view they show, and drawn again when the rule picks another.
     """
     directory = ROOT / "results" / task / "panels" / signal
+    if task == "nerf":
+        shown = STRIP.get(task, tuple(FEATURED))
+        scene = [run for run in runs if run["data"] == signal and run["model"] in shown]
+        view = example_view(signal, scene)
+        stored = directory / "view.txt"
+        if not stored.exists() or stored.read_text().strip() != str(view):
+            directory.mkdir(parents=True, exist_ok=True)
+            for old in directory.glob("*.png"):  # another view's panels
+                old.unlink()
+            stored.write_text(f"{view}\n")
     missing = {
         model
         for model in STRIP.get(task, tuple(FEATURED))
@@ -1352,58 +1492,31 @@ def detail(gray: np.ndarray, window: int = 5) -> np.ndarray:
     return (gray - mean) ** 2
 
 
-def regions(
-    panel: dict[str, np.ndarray],
-    ours: str,
-    side: int,
-    zones: tuple | None = None,
-) -> list[tuple[int, int]]:
-    """The squares where the models differ most and ``ours`` is closest.
+def regions(panel: dict[str, np.ndarray], side: int) -> list[tuple[int, int]]:
+    """The squares where the models shown disagree most on detail.
 
     A magnification earns its space only where the models disagree, so the
     regions are found rather than set: the spread of the panels about their
     mean, weighted by the detail the reference carries there and summed over
-    every square of the given side. Spread favours no model, which asking
-    where FUTON beats one chosen baseline would; the squares are then kept to
-    those where FUTON is in fact the closest of the panels shown, so that the
-    figure magnifies what it claims.
+    every square of the given side. Spread favours no model, and the squares
+    are taken whoever is closest in them, so that the figure shows where the
+    models differ rather than where FUTON wins; the detail keeps them off the
+    long smooth edges whose blur costs error but tells a reader little.
 
     A render sits on a blank field, where a silhouette a voxel out of place
     costs more error than any surface detail, so there the squares are kept
     inside the signal; a photograph fills its frame and keeps every square. The
     second square stands twice its side clear of the first where the signal
-    leaves room for it, and merely clear of it where it does not. Given
-    ``zones``, each square is instead the best one inside its own rectangle,
-    which says where to look without saying what to take.
+    leaves room for it, and merely clear of it where it does not.
     """
     truth = panel["truth"]
     shown = [name for name in panel if name != "truth"]
     spread = np.var([panel[name].mean(-1) for name in shown], axis=0)
     scores = box_sums(spread * detail(truth.mean(-1)), side)
-
-    error = {
-        name: box_sums(((panel[name] - truth) ** 2).sum(-1), side) for name in shown
-    }
-    leads = error[ours] <= np.min([error[n] for n in shown if n != ours], axis=0)
-    if leads.any():
-        scores = np.where(leads, scores, -np.inf)
     blank = np.abs(truth - truth[0, 0]).sum(-1) <= 0.05
     if blank.mean() > 0.15:  # a render on a blank field, not a photograph
         inside = box_sums((~blank).astype(float), side) >= 0.75 * side**2
         scores = np.where(inside, scores, -np.inf)
-
-    if zones:
-        height, width = truth.shape[:2]
-        found = []
-        for left, top, right, bottom in zones:
-            inside = np.full_like(scores, -np.inf)
-            x, y = round(left * width), round(top * height)
-            rows = slice(y, max(round(bottom * height) - side, y + 1))
-            columns = slice(x, max(round(right * width) - side, x + 1))
-            inside[rows, columns] = scores[rows, columns]
-            row, column = np.unravel_index(np.argmax(inside), inside.shape)
-            found.append((int(column), int(row)))
-        return found
 
     top, left = np.unravel_index(np.argmax(scores), scores.shape)
     found = [(int(left), int(top))]
@@ -1420,12 +1533,30 @@ def regions(
     return found
 
 
+def round_up(value: float) -> float:
+    """The least of 1, 2, 2.5 and 5 times a power of ten not below ``value``."""
+    power = 10.0 ** math.floor(math.log10(value))
+    return next(step * power for step in (1, 2, 2.5, 5, 10) if step * power >= value)
+
+
+def error_scale(plot: plt.Axes, top: float, size: float) -> None:
+    """The error maps' colour scale, drawn in the cell the ground truth leaves."""
+    plot.set_axis_off()
+    plot.imshow(np.linspace(0, 1, 256)[None], cmap=ERROR_MAP, aspect="auto",
+                extent=(0.1, 0.9, 0.44, 0.56))  # fmt: skip
+    plot.set(xlim=(0, 1), ylim=(0, 1))
+    plot.text(0.5, 0.64, "|error|", ha="center", va="bottom", fontsize=size)
+    plot.text(0.1, 0.36, "0", ha="left", va="top", fontsize=size)
+    plot.text(0.9, 0.36, f"{top:g}", ha="right", va="top", fontsize=size)
+
+
 def qualitative(task: str, signal: str, final: pd.DataFrame, directory: Path):
     """The reference with its regions boxed, and every panel's magnification.
 
     One row of magnifications per region, framed in the colour of its box, and
-    the reference beside them spanning the rows, as wide as its aspect ratio
-    makes it so that no panel is padded with white.
+    for the tasks in ERRORS a row of each model's |error| beneath it; the
+    reference beside them spans the rows, as wide as its aspect ratio makes it,
+    so that no panel is padded with white.
     """
     metric, _, _ = TASKS[task]
     models = STRIP.get(task, tuple(FEATURED))
@@ -1438,7 +1569,6 @@ def qualitative(task: str, signal: str, final: pd.DataFrame, directory: Path):
     panel = {name: image[box] for name, image in panel.items()}
     height, width = panel["truth"].shape[:2]
 
-    ours = scores[["FUTON-sinc", "FUTON-lanczos"]].idxmax()
     side = round(SIDES[task] * np.sqrt(width * height))
     if signal in CENTERS:  # set by hand, in fractions of the trimmed reference
         found = [
@@ -1449,58 +1579,89 @@ def qualitative(task: str, signal: str, final: pd.DataFrame, directory: Path):
             for x, y in CENTERS[signal]
         ]
     else:
-        found = regions(panel, ours, side, ZONES.get(signal))
-    centres = ", ".join(
-        f"({(left + side / 2) / width:.3f}, {(top + side / 2) / height:.3f})"
-        for left, top in found
-    )
-    print(f'    "{signal}": ({centres}),  # centres, for CENTERS', flush=True)
+        found = regions(panel, side)
 
-    rows, columns = len(found), len(models) + 1
+    # The reference drops the blank rows a render keeps above and below its
+    # signal, so that the signal itself, not white space, spans the rows; the
+    # magnifications keep the regions as found.
+    ink = np.abs(panel["truth"] - panel["truth"][0, 0]).sum(-1) > 0.05
+    lines = np.flatnonzero(ink.any(axis=1))
+    first = min(lines[0], *(top for _, top in found)) if lines.size else 0
+    last = (
+        max(lines[-1] + 1, *(top + side for _, top in found)) if lines.size else height
+    )
+    reference = panel["truth"][first:last]
+    aspect = width / (last - first)
+
+    # A row per region, stacked as their boxes are, the highest first, and
+    # beneath each, for the tasks in ERRORS, a row of each model's |error|
+    # there, every map on the figure's one scale. A box keeps its colour.
+    errors = None
+    if task in ERRORS:
+        crops = [
+            np.abs(panel[name] - panel["truth"]).mean(-1)[
+                top : top + side, left : left + side
+            ]
+            for name in models
+            for left, top in found
+        ]
+        errors = round_up(float(np.percentile(np.stack(crops), 90)))
+    stacked = sorted(range(len(found)), key=lambda region: found[region][1])
+    lines_of = [(region, kind) for region in stacked
+                for kind in (("crop", "error") if errors else ("crop",))]  # fmt: skip
+    rows, columns = len(lines_of), len(models) + 1
     # Laid out in inches rather than by a gridspec, so that the reference
     # spans the rows exactly, its top and bottom edges on theirs, whatever its
-    # aspect ratio. A magnification is square; the reference is as wide as its
-    # aspect ratio makes it at that height, and a gutter sets it apart from
-    # the magnifications it indexes.
+    # aspect ratio. A magnification is square; the reference is whole, as wide
+    # as its aspect ratio makes it at that height, and a gutter sets it apart
+    # from the magnifications it indexes.
     gap, gutter = 0.06, 0.3  # both in units of one magnification's side
     span = rows + (rows - 1) * gap
-    aspect = width / height
     drawn = aspect if REFERENCE_ASPECT is None else min(aspect, REFERENCE_ASPECT)
     winner = scores[list(models)].idxmax()  # both plotted metrics are larger-better
-    shown = [("Ground truth", "truth", "")] + [
-        (model, model, UNITS[metric].format(scores[model])) for model in models
-    ]
+    # The titles read as the tables' header does: a model with a setting is
+    # named once, over its columns and a rule, as a spanning header, and each
+    # column carries its setting beneath; any other column carries its name
+    # there.
+    shown = [("", "Ground truth", "truth", "")]
+    for model in models:
+        group, _, setting = display_name(model).partition(" (")
+        score = UNITS[metric].format(scores[model])
+        shown.append(
+            (group, setting.removesuffix(")"), model, score)
+            if setting
+            else ("", group, model, score)
+        )
+    spans = []  # (group, first column, last column)
+    for group, run in groupby(enumerate(shown), key=lambda item: item[1][0]):
+        columns_run = [column for column, _ in run]
+        if group:
+            spans.append((group, columns_run[0], columns_run[-1]))
 
-    def fitting(labels: list[str], spacing: float, weight: str = "normal") -> float:
-        """The size, at most LABEL_SIZE, that keeps 8% of ``spacing`` free.
-
-        ``spacing`` is the points between neighbouring centres, and the widest
-        pair of neighbours sets the size, measured in the figure's own font.
-        """
-        widths = [text_width(label, weight) for label in labels]
-        pairs = [(a + b) / 2 for a, b in zip(widths, widths[1:])]
-        return min(LABEL_SIZE, 0.92 * spacing / max(pairs))
-
-    # Titles and scores each as large as their columns allow, the titles no
-    # smaller than LABEL_FLOOR: the magnification that size needs, in inches,
-    # bounds how wide the reference is drawn. The last title may be wider than
-    # its magnification, so the panels leave it the room it overhangs by, and
-    # the strip, title and all, spans WIDTH.
-    titles = [title for title, _, _ in shown]
-    widths = [text_width(title) for title in titles]
-    widest = max((a + b) / 2 for a, b in zip(widths, widths[1:]))
-    least = LABEL_FLOOR * widest / (0.92 * (1 + gap) * 72)
-    fixed = gutter + columns + (columns - 1) * gap  # in magnifications
-    wanted, overhang = drawn, 0.0
-    for _ in range(2):  # the overhang follows the size it allows, so twice
-        room = (WIDTH - overhang) / least - fixed
-        drawn = max(min(wanted, room / span), 0.5)  # at least half as wide as tall
-        unit = (WIDTH - overhang) / (drawn * span + fixed)
-        spacing = (1 + gap) * unit * 72  # points between column centres
-        title_size = fitting(titles, spacing)
-        overhang = max(0.0, widths[-1] * title_size / 72 - unit) / 2
-    score_size = fitting([score for _, _, score in shown if score], spacing, "bold")
+    # Every label keeps to one line and to the width of its magnification, so
+    # that the columns, and with them the whole reference, need not make room
+    # for the longest names. All of a figure's text is set at one size: the
+    # largest, at most LABEL_SIZE, at which the widest title or score spans 98%
+    # of its magnification, which keeps it clear of the edges whatever the side
+    # bearings of its glyphs; the scores measured in bold, as the best one is.
+    unit = WIDTH / (drawn * span + gutter + columns + (columns - 1) * gap)
+    room = 72 * unit  # a magnification's width, in points
+    widest = max(
+        text_width(text, weight)
+        for _, title, _, score in shown
+        for text, weight in ((title, "normal"), (score, "bold"))
+        if text
+    )
+    size = min(LABEL_SIZE, 0.98 * room / widest)
+    if size < LABEL_FLOOR:
+        print(f"    labels of {signal} at {size:.2f}pt, under {LABEL_FLOOR}pt")
+    # Above the panels, in points: the titles' baseline, the rule a cap height
+    # and a hair above them, and the spanning headers' baseline over the rule.
+    cap = 0.7 * size
+    title_base, rule, header_base = 3.0, 3.0 + cap + 1.6, 3.0 + cap + 4.0
     above, below = LABEL_ROOM  # inches kept for the titles and the scores
+    if spans:
+        above = max(above, (header_base + cap + 3.0) / 72)
     tall = span * unit + above + below
     figure = plt.figure(figsize=(WIDTH, tall))
     figure.set_layout_engine("none")
@@ -1514,44 +1675,433 @@ def qualitative(task: str, signal: str, final: pd.DataFrame, directory: Path):
     plot = place(
         0, below + (span * unit - reference_tall) / 2, reference_wide, reference_tall
     )
-    plot.imshow(panel["truth"])
+    plot.imshow(reference)
     plot.set_axis_off()
     for (left, top), color in zip(found, COLORS):
         plot.add_patch(
-            Rectangle((left, top), side, side, fill=False, color=color, linewidth=0.9)
+            Rectangle(
+                (left, top - first),
+                side,
+                side,
+                fill=False,
+                color=color,
+                linewidth=0.9,
+            )
         )
 
-    for column, (title, name, score) in enumerate(shown):
-        for row, (left, top) in enumerate(found):
+    def column_left(column: int) -> float:
+        """The left edge of a column of magnifications, in inches."""
+        return (drawn * span + gutter + column * (1 + gap)) * unit
+
+    def tint(name: str) -> str:
+        """FUTON's labels in its colour, every other one in black."""
+        return PALETTE[0] if name.startswith("FUTON") else "black"
+
+    top_edge = below + span * unit  # the top of the first row, in inches
+    for group, first_column, last_column in spans:
+        left, right = column_left(first_column), column_left(last_column) + unit
+        trimmed = 0.08 * unit  # the rule stops short of the columns' edges
+        height = top_edge + rule / 72
+        figure.add_artist(
+            Line2D(
+                [(left + trimmed) / WIDTH, (right - trimmed) / WIDTH],
+                [height / tall] * 2,
+                transform=figure.transFigure,
+                color=tint(group),
+                linewidth=0.5,
+            )
+        )
+        figure.text(
+            (left + right) / 2 / WIDTH,
+            (top_edge + header_base / 72) / tall,
+            group,
+            ha="center",
+            va="baseline",
+            fontsize=size,
+            color=tint(group),
+        )
+
+    for column, (_, title, name, score) in enumerate(shown):
+        for row, (region, kind) in enumerate(lines_of):
+            left, top = found[region]
             plot = place(
-                (drawn * span + gutter + column * (1 + gap)) * unit,
+                column_left(column),
                 below + (rows - 1 - row) * (1 + gap) * unit,
                 unit,
                 unit,
             )
-            # Nearest keeps a NeRF render's few pixels crisp rather than blurred.
-            plot.imshow(
-                panel[name][top : top + side, left : left + side],
-                interpolation="nearest",
-            )
+            crop = (slice(top, top + side), slice(left, left + side))
+            if kind == "error" and name == "truth":
+                error_scale(plot, errors, size)
+                continue
+            if kind == "error":
+                difference = np.abs(panel[name][crop] - panel["truth"][crop])
+                plot.imshow(difference.mean(-1), cmap=ERROR_MAP, vmin=0, vmax=errors,
+                            interpolation="nearest")  # fmt: skip
+            else:
+                # Nearest keeps a NeRF render's few pixels crisp, not blurred.
+                plot.imshow(panel[name][crop], interpolation="nearest")
             plot.set(xticks=[], yticks=[])
             for spine in plot.spines.values():
-                spine.set(visible=True, color=COLORS[row], linewidth=0.9)
+                spine.set(visible=True, color=COLORS[region], linewidth=0.9)
             if row == 0:
-                plot.set_title(
-                    title,
-                    fontsize=title_size,
-                    pad=3,
-                    color=PALETTE[0] if title.startswith("FUTON") else "black",
-                )
+                plot.set_title(title, fontsize=size, pad=title_base, color=tint(name))
             if row == rows - 1:  # the best score is set bold, as in the tables
                 plot.set_xlabel(
                     score,
-                    fontsize=score_size,
+                    fontsize=size,
                     labelpad=3,
                     fontweight="bold" if name == winner else "normal",
                 )
     return figure
+
+
+def teaser_snapshots(root: Path) -> dict[str, list[tuple[np.ndarray, float]]]:
+    """Each teaser model's reconstructions after TEASER_SECONDS of training,
+    from the snapshots under ``root``, with the PSNR of the whole image."""
+    shots = {}
+    for model in TEASER_MODELS:
+        run = json.loads((root / model / "results.json").read_text())
+        evaluated = [entry for entry in run["history"] if "eval" in entry]
+        scores = {entry["epoch"]: entry["eval"]["psnr"] for entry in evaluated}
+        shots[model] = []
+        for seconds in TEASER_SECONDS:
+            epoch = run["seconds"][str(float(seconds))]
+            image = plt.imread(root / model / f"epoch_{epoch:04d}.png")[..., :3]
+            shots[model].append((image, scores[epoch]))
+    return shots
+
+
+def first_reached(times: np.ndarray, values: np.ndarray, level: float) -> float | None:
+    """When a curve first reaches ``level``, linearly between evaluations;
+    None if it never does."""
+    above = np.flatnonzero(values >= level)
+    if not len(above):
+        return None
+    if (index := above[0]) == 0:
+        return float(times[0])
+    return float(np.interp(level, values[index - 1 : index + 1],
+                           times[index - 1 : index + 1]))  # fmt: skip
+
+
+def teaser_example(task: str, panels: Path) -> np.ndarray | None:
+    """FUTON (sinc)'s reconstruction of the task's teaser example, as its
+    qualitative figure drew it: a render trimmed to its object, a photograph
+    to TEASER_TRIM where one is set; None before the panel is drawn."""
+    path = panels / TEASER_EXAMPLES[task] / "FUTON-sinc.png"
+    if not path.exists():
+        return None
+    image = plt.imread(path)[..., :3]
+    if task in ("occupancy", "nerf"):  # a render on a white field
+        ink = np.abs(image - 1).sum(-1) > 0.08
+        rows, columns = np.flatnonzero(ink.any(1)), np.flatnonzero(ink.any(0))
+        pad = round(0.05 * max(rows[-1] - rows[0], columns[-1] - columns[0]))
+        image = image[max(rows[0] - pad, 0) : rows[-1] + pad,
+                      max(columns[0] - pad, 0) : columns[-1] + pad]  # fmt: skip
+    if task in TEASER_TRIM:
+        top, bottom, left, right = TEASER_TRIM[task]
+        height, width = image.shape[:2]
+        image = image[round(top * height) : round(bottom * height),
+                      round(left * width) : round(right * width)]  # fmt: skip
+    return image
+
+
+def crowded(points: np.ndarray, box: tuple[float, float, float, float]) -> bool:
+    """Whether a marker at any of ``points`` would touch ``box`` (left, bottom,
+    right, top), both in axes fractions, at the size the teaser draws them."""
+    left, bottom, right, top = box
+    return bool(
+        (
+            (points[:, 0] > left - 0.03)
+            & (points[:, 0] < right + 0.03)
+            & (points[:, 1] > bottom - 0.045)
+            & (points[:, 1] < top + 0.045)
+        ).any()
+    )
+
+
+def free_spot(
+    points: np.ndarray,
+    size: tuple[float, float],
+    boxes: Sequence[tuple[float, float, float, float]] = (),
+) -> tuple[float, float] | None:
+    """The lower left corner, in axes fractions, of a box of ``size`` that no
+    marker at ``points`` touches and that overlaps none of ``boxes`` (left,
+    bottom, right, top), as near as it can be to a lower corner or the upper
+    right; None where there is no room."""
+    width, height = size
+    corners = ((0.98 - width, 0.03), (0.02, 0.03), (0.98 - width, 0.97 - height))
+    best = None
+    for x in np.linspace(0.02, 0.98 - width, 40):
+        for y in np.linspace(0.03, 0.97 - height, 40):
+            if crowded(points, (x, y, x + width, y + height)) or any(
+                x < right and left < x + width and y < top and bottom < y + height
+                for left, bottom, right, top in boxes
+            ):
+                continue
+            distance = min(math.hypot(x - cx, y - cy) for cx, cy in corners)
+            if best is None or distance < best[0]:
+                best = (distance, x, y)
+    return None if best is None else best[1:]
+
+
+def teaser(path: Path, snapshots: Path = ROOT / "logs" / "snapshots") -> None:
+    """The paper's first figure (see TEASER_SIGNAL), as ``path``.pdf, from the
+    snapshots that scripts/snapshots.py keeps under ``snapshots``.
+
+    Above, the reference with its region boxed and a row per model of that
+    region after each of TEASER_SECONDS of training, with the PSNR of the whole
+    image then; beside them, TEASER_CURVES' PSNR against training time over
+    all the Kodak images, as the convergence figure draws it, the seconds
+    marked, with how much sooner FUTON reaches the mean PSNR the other fast
+    model ends at. A claim in the first figure should hold for the benchmark,
+    so only the pictures are of one image. Below, every model's final quality
+    against its training time on each task, as its trade-off figure draws it
+    but with time on a log axis, as in the plot above, where a ratio of times
+    is a distance, and IoU on a logit axis, which spreads the saturated scores
+    by their error; each panel holds FUTON (sinc)'s reconstruction of one of
+    the task's signals where no marker is. Times come from the exclusive
+    timing runs.
+    """
+    signal = TEASER_SIGNAL
+    root = snapshots / "image" / signal
+    if not all((root / model / "results.json").exists() for model in TEASER_MODELS):
+        print(f"teaser: no snapshots of {signal}; run scripts/snapshots.py")
+        return
+    shots = teaser_snapshots(root)
+    truth = plt.imread(ROOT / SIGNALS["image"].format(signal))[..., :3]
+    height, width = truth.shape[:2]
+    side = round(0.12 * np.sqrt(width * height))
+    if TEASER_CENTER is None:  # where the models disagree most, midway
+        middle = len(TEASER_SECONDS) // 2
+        panel = {"truth": truth, **{model: shots[model][middle][0] for model in shots}}
+        (left, top), *_ = regions(panel, side)
+    else:
+        left = min(max(round(TEASER_CENTER[0] * width - side / 2), 0), width - side)
+        top = min(max(round(TEASER_CENTER[1] * height - side / 2), 0), height - side)
+    tasks = [task for task in TASKS if (ROOT / "logs" / task).exists()]
+    loaded = {task: load(task) for task in tasks}
+
+    # Laid out in inches, from the bottom: the legend, the row of tasks with
+    # their shared axis label and their titles, and the row of snapshots.
+    legend_room, axis_room, tall_panel = 0.17, 0.36, 0.84
+    title_room, between_rows = 0.16, 0.05
+    unit, gap, label = 0.39, 0.05, 0.58  # a magnification, its gaps' share, labels
+    rows, columns = len(TEASER_MODELS), len(TEASER_SECONDS)
+    span = (rows + (rows - 1) * gap) * unit
+    above, below = 0.16, 0.33  # the magnifications' titles, the curve's axis
+    base = legend_room + axis_room + tall_panel + title_room + between_rows + below
+    tall = base + span + above
+    figure = plt.figure(figsize=(WIDTH, tall))
+    figure.set_layout_engine("none")
+
+    def place(x: float, y: float, w: float, h: float) -> plt.Axes:
+        return figure.add_axes([x / WIDTH, y / tall, w / WIDTH, h / tall])
+
+    plots = []
+    aspect = width / height
+    reference = place(0, base, aspect * span, span)
+    reference.imshow(truth)
+    reference.set_axis_off()
+    reference.add_patch(Rectangle((left, top), side, side, fill=False,
+                                  color=COLORS[0], linewidth=0.9))  # fmt: skip
+    start = aspect * span + 0.05 + label
+    crops = columns * unit + (columns - 1) * gap * unit
+    for row, model in enumerate(TEASER_MODELS):
+        ours = model.startswith("FUTON")
+        y = base + (rows - 1 - row) * (1 + gap) * unit
+        if ours:  # a tint behind FUTON's row, its label and magnifications
+            pad = 0.035
+            figure.patches.append(FancyBboxPatch(
+                ((start - label + 0.02) / WIDTH, (y - pad) / tall),
+                (label - 0.02 + crops + pad) / WIDTH, (unit + 2 * pad) / tall,
+                boxstyle="round,pad=0,rounding_size=0.008",
+                transform=figure.transFigure, facecolor=TEASER_TINT,
+                edgecolor="none", zorder=-1,
+            ))  # fmt: skip
+        figure.text((start - 0.06) / WIDTH, (y + unit / 2) / tall,
+                    display_name(model).replace(" (", "\n("), ha="right",
+                    va="center", multialignment="right", fontsize=LABEL_SIZE,
+                    color=FEATURED[model][0],
+                    fontweight="bold" if ours else "normal")  # fmt: skip
+        for column, (image, score) in enumerate(shots[model]):
+            plot = place(start + column * (1 + gap) * unit, y, unit, unit)
+            plot.imshow(image[top : top + side, left : left + side],
+                        interpolation="lanczos")  # fmt: skip
+            plot.set(xticks=[], yticks=[])
+            for spine in plot.spines.values():
+                spine.set(visible=True, color=COLORS[0], linewidth=0.6)
+            plot.text(0.04, 0.04, f"{score:.1f} dB", transform=plot.transAxes,
+                      ha="left", va="bottom", fontsize=6, color="white",
+                      fontweight="bold" if ours else "normal",
+                      path_effects=[Stroke(linewidth=1.4, foreground="black"),
+                                    Normal()])  # fmt: skip
+            if row == 0:
+                plot.set_title(f"{TEASER_SECONDS[column]:g} s", fontsize=LABEL_SIZE,
+                               pad=2.5)  # fmt: skip
+
+    curve_x = start + crops + 0.44
+    plot = place(curve_x, base, WIDTH - curve_x - 0.04, span)
+    plots.append(plot)
+    # As the convergence figure: each image's level removed, so that the band
+    # is the within-image standard error, and the times averaged per epoch.
+    curve = loaded["image"][2]
+    curve = curve.assign(psnr=comparable(curve, "psnr"))
+    curve = curve[curve["model"].isin(TEASER_CURVES)]
+    means = curve.groupby(["model", "iteration"]).agg(
+        time=("time", "mean"), psnr=("psnr", "mean"), error=("psnr", "sem")
+    )
+    for model in TEASER_CURVES:
+        color, dashes, filled = FEATURED[model]
+        mean = means.loc[model]
+        plot.fill_between(mean["time"], mean["psnr"] - BAND * mean["error"],
+                          mean["psnr"] + BAND * mean["error"], color=color,
+                          alpha=0.2, linewidth=0, zorder=2)  # fmt: skip
+        plot.plot(mean["time"], mean["psnr"], color=color,
+                  dashes=dashes or (None, None), linewidth=1.1, zorder=3)  # fmt: skip
+        plot.plot(mean["time"].iloc[-1], mean["psnr"].iloc[-1], marker="o",
+                  markersize=3.5, markeredgewidth=0.9, color=color,
+                  markerfacecolor=color if filled else "white", clip_on=False,
+                  zorder=4)  # fmt: skip
+    for seconds in TEASER_SECONDS:
+        plot.axvline(seconds, color="0.88", linewidth=0.6, zorder=0)
+    # The pictures are of one image and the curves of all, which says so.
+    images = curve["signal"].nunique()
+    plot.text(0.03, 0.97, f"Mean of {images} Kodak images", transform=plot.transAxes,
+              ha="left", va="top", fontsize=6, color="0.4")  # fmt: skip
+    first, last = means["time"].min(), means["time"].max()
+    plot.set(xscale="log", xlim=(first / 1.15, 1.15 * last))
+    plot.set_xlabel("Training time (s)", labelpad=1.5)
+    plot.set_ylabel("PSNR (dB)", labelpad=1.5)
+    log_ticks(plot.xaxis)
+    floor = 20.0  # leaves the foot of the plot to the head start below
+    quality_ticks(plot, "psnr", floor, math.ceil(means["psnr"].max() + 0.6))
+    # FUTON's head start: the time it takes to the mean PSNR the other fast
+    # model ends at, both times dropped to the axis, their ratio at its foot.
+    rival, futon = TEASER_RACE
+    level, finish = means.loc[rival].iloc[-1][["psnr", "time"]]
+    ours = means.loc[futon]
+    reach = first_reached(ours["time"].to_numpy(), ours["psnr"].to_numpy(), level)
+    if reach is not None:
+        dotted = {"linewidth": 0.5, "dashes": (1.2, 1.4), "zorder": 2}
+        plot.plot([reach, finish], [level, level], color="0.45", **dotted)
+        plot.plot([reach, reach], [floor, level], color=PALETTE[0], alpha=0.8,
+                  **dotted)  # fmt: skip
+        plot.plot([finish, finish], [floor, level], color=FEATURED[rival][0],
+                  alpha=0.8, **dotted)  # fmt: skip
+        plot.annotate("", xy=(reach, floor + 0.9), xytext=(finish, floor + 0.9),
+                      arrowprops={"arrowstyle": "-|>", "color": PALETTE[0],
+                                  "lw": 0.8, "shrinkA": 0, "shrinkB": 0,
+                                  "mutation_scale": 6}, zorder=5)  # fmt: skip
+        plot.text(math.sqrt(reach * finish), floor + 1.25,
+                  f"{finish / reach:.1f}× faster", ha="center", va="bottom",
+                  fontsize=6, color=PALETTE[0])  # fmt: skip
+
+    # The tasks, each panel as wide as the text allows beside its axis labels.
+    label_room, gutter = 0.37, 0.10
+    wide = (WIDTH - len(tasks) * label_room - (len(tasks) - 1) * gutter) / len(tasks)
+    bottom = legend_room + axis_room
+    for index, task in enumerate(tasks):
+        metric, axis_label, _ = TASKS[task]
+        final = loaded[task][1]
+        means = final.groupby("model")[["time", metric]].mean()
+        logit = metric == "iou"
+        if logit:  # the logit scale takes fractions
+            means[metric] /= 100
+        trained = means[means["time"] > 0]
+        x0 = index * (wide + label_room + gutter) + label_room
+        plot = place(x0, bottom, wide, tall_panel)
+        plots.append(plot)
+        low, high = padded(trained[metric], 0.10)
+        if (lowest := FLOOR.get(task, BOTTOM.get(task))) is not None:
+            low = lowest / 100 if logit else lowest
+        if logit:
+            high = 0.9995
+            plot.set_yscale("logit")
+        levels = []
+        if REFERENCE in means.index:
+            levels.append(means.loc[REFERENCE, metric])
+            plot.axhline(levels[0], color="0.45", linestyle=":", linewidth=0.8,
+                         zorder=1)  # fmt: skip
+        others = trained[~trained.index.isin(FEATURED)]
+        shown, under = others[others[metric] >= low], others[others[metric] < low]
+        plot.scatter(shown["time"], shown[metric], s=9, color=OTHERS, linewidth=0,
+                     zorder=2)  # fmt: skip
+        plot.scatter(under["time"], [low] * len(under), s=9, marker="v", color=OTHERS,
+                     linewidth=0, clip_on=False, zorder=2)  # fmt: skip
+        for model, (color, _, filled) in FEATURED.items():
+            if model not in means.index or means.loc[model, metric] < low:
+                continue
+            x, y = means.loc[model, ["time", metric]]
+            if model.startswith("FUTON"):  # a halo, so FUTON is found first
+                plot.scatter(x, y, s=75, color=PALETTE[0], alpha=0.16, linewidth=0,
+                             zorder=3)  # fmt: skip
+            plot.scatter(x, y, s=20 if model.startswith("FUTON") else 15,
+                         facecolor=color if filled else "white", edgecolor=color,
+                         linewidth=0.9, zorder=4)  # fmt: skip
+        plot.set(xscale="log", xlim=(trained["time"].min() / 1.15,
+                                     1.15 * trained["time"].max()))  # fmt: skip
+        log_ticks(plot.xaxis)
+        plot.set_ylim(low, high)
+        if logit:
+            plot.yaxis.set_major_locator(FixedLocator([0.99, 0.995, 0.998, 0.999]))
+            plot.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{100 * v:g}"))
+            plot.yaxis.set_minor_locator(NullLocator())
+        else:
+            plot.yaxis.set_major_locator(MaxNLocator(4, integer=True))
+            plot.yaxis.set_major_formatter(StrMethodFormatter("{x:g}"))
+        plot.set_ylabel(axis_label, labelpad=1.5)
+        plot.set_title(TEASER_TITLES[task], fontsize=7.5, pad=3)
+        to_axes = plot.transAxes.inverted()
+        points = to_axes.transform(plot.transData.transform(
+            np.c_[trained["time"], np.maximum(trained[metric], low)]))  # fmt: skip
+        keep_out = []
+        if levels:  # the reference's level, named at an end no marker touches
+            at = to_axes.transform(plot.transData.transform((1, levels[0])))[1]
+            keep_out.append((0.0, at - 0.03, 1.0, at + 0.03))
+            for x, ha, side, va in ((0.98, "right", 1, "bottom"),
+                                    (0.02, "left", 1, "bottom"),
+                                    (0.98, "right", -1, "top"),
+                                    (0.02, "left", -1, "top")):  # fmt: skip
+                name = plot.text(x, at + 0.015 * side, REFERENCE.lower(),
+                                 transform=plot.transAxes, ha=ha, va=va,
+                                 fontsize=5.5, color="0.4", style="italic")  # fmt: skip
+                box = name.get_window_extent().transformed(to_axes).extents
+                if not crowded(points, box):
+                    keep_out.append(tuple(box))
+                    break
+                name.remove()
+        # The task's example, in the largest size that finds a free spot.
+        example = teaser_example(task, path.parent / task / "panels")
+        if example is None:
+            continue
+        for share in (0.38, 0.36, 0.34, 0.32, 0.30):
+            h = share * tall_panel
+            w = min(h * example.shape[1] / example.shape[0], 0.48 * wide)
+            h = w * example.shape[0] / example.shape[1]
+            spot = free_spot(points, (w / wide, h / tall_panel), keep_out)
+            if spot is not None:
+                break
+        else:
+            print(f"teaser: no room for {task}'s example")
+            continue
+        inset = place(x0 + spot[0] * wide, bottom + spot[1] * tall_panel, w, h)
+        inset.imshow(example, interpolation="lanczos")
+        inset.set(xticks=[], yticks=[])
+        for spine in inset.spines.values():
+            spine.set(visible=True, color="0.55", linewidth=0.4)
+    figure.text(0.5, (legend_room + 0.02) / tall, r"Training time (s)$\,\downarrow$",
+                ha="center", va="bottom", fontsize=8)  # fmt: skip
+    figure.legend(handles=legend_handles(), loc="lower center",
+                  bbox_to_anchor=(0.5, -0.01), ncol=len(FEATURED) + 1, frameon=False,
+                  columnspacing=1.0, handletextpad=0.4, fontsize=7)  # fmt: skip
+    for plot in plots:
+        for side_name in ("left", "bottom"):
+            plot.spines[side_name].set_position(("outward", 3.0))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(path.with_suffix(".pdf"), dpi=600)
+    plt.close(figure)
+    print(f"teaser: {signal}, written to {path.with_suffix('.pdf')}")
 
 
 def study(name: str) -> list[dict]:
@@ -1609,8 +2159,9 @@ def variant_table(
     """
     spec = {"parameters": PARAMS}
     for basis in PAIR:
-        spec[f"time_{basis}"] = (f"FUTON-{basis}", "Training time (s)", False, 1)
-        spec[f"psnr_{basis}"] = (f"FUTON-{basis}", "PSNR (dB)", True, 2)
+        group = display_name(f"FUTON-{basis}")
+        spec[f"time_{basis}"] = (group, "Training time (s)", False, 1)
+        spec[f"psnr_{basis}"] = (group, "PSNR (dB)", True, 2)
 
     values, errors = {}, {}
     for label, template in variants.items():
@@ -1956,7 +2507,7 @@ def bound_cost(frames: dict[str, pd.DataFrame]) -> plt.Figure:
             for i, (key, (color, _)) in enumerate(bars.items()):
                 offset = (i - (len(bars) - 1) / 2) * width
                 plot.bar(position + offset, group[key].mean(), width, color=color)
-            labels.append(f"${resolution(alpha)}$")
+            labels.append(FRACTIONS[alpha])
             positions.append(position)
             position += 1
         centres[task] = (first + position - 1) / 2
@@ -1965,7 +2516,7 @@ def bound_cost(frames: dict[str, pd.DataFrame]) -> plt.Figure:
     log_ticks(plot.yaxis)
     plot.set_xticks(positions, labels)
     plot.tick_params(axis="x", length=0)
-    plot.set(ylabel="Time (s)")
+    plot.set(xlabel="$K / N$", ylabel="Time (s)")
     for task, centre in centres.items():
         plot.text(centre, 1.0, BOUND_DATASETS[task], ha="center", va="bottom",
                   transform=plot.get_xaxis_transform(), fontsize=7)  # fmt: skip
@@ -2259,6 +2810,8 @@ def main() -> None:
         ablation(out_dir / "ablation")
     if "bound" in args.tasks:
         bound(out_dir / "bound")
+    if "teaser" in args.tasks and (ROOT / "logs" / "image").exists():
+        teaser(out_dir / "teaser")
     if "occupancy" in args.tasks and (ROOT / "logs" / "occupancy").exists():
         # For the text: who reaches a high IoU, and how soon.
         print(f"\ntime to {TARGET:g}% IoU on every shape (s):")

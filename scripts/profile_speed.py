@@ -2,8 +2,9 @@
 
 The benchmark's own durations come from jobs that shared their node, and
 rendering is partly bound by kernel launches, so they carry whatever else ran
-beside them. Timing every model in turn inside one job makes the comparison
-even; an exclusive allocation makes it clean:
+beside them. Timing every model inside one job makes the comparison even, the
+models taking turns so that none depends on what ran before it; an exclusive
+allocation makes it clean:
 
     sbatch --clusters=accelgor --exclusive --time=1:00:00 --gpus-per-node=1 \\
       --chdir=$VSC_DATA/projects/neurofield --output=logs/slurm/%x-%j.out \\
@@ -12,7 +13,8 @@ even; an exclusive allocation makes it clean:
 
 Usage:
     python scripts/profile_speed.py
-    python scripts/profile_speed.py --tasks image occupancy --repeats 9
+    python scripts/profile_speed.py --tasks image occupancy --repeats 30
+    python scripts/profile_speed.py --models F-INR FreSh  # add models to the files
 
 Writes logs/speed/<task>.json: each model's median inference time over the
 repeats, the points it evaluated, the rate those give, and the most memory one
@@ -37,16 +39,24 @@ CHUNK = 262_144  # coordinates per forward pass, as configs/occupancy.yaml and
 # configs/super_resolution.yaml evaluate them
 
 
-def timed(call: Callable[[], object], repeats: int) -> float:
-    """Median seconds of a call, after two warm-ups, synchronized on CUDA."""
-    durations = []
-    for _ in range(repeats + 2):
-        torch.cuda.synchronize()
-        start = time.perf_counter()
-        call()
-        torch.cuda.synchronize()
-        durations.append(time.perf_counter() - start)
-    return statistics.median(durations[2:])
+def timed(calls: dict[str, Callable[[], object]], repeats: int) -> dict[str, float]:
+    """Median seconds of each call, after two warm-ups, synchronized on CUDA.
+
+    The calls take turns, each round starting one later, so a model's time
+    depends neither on the model before it nor on when in the job it ran (two
+    identical networks timed one after the other differed by 12 %).
+    """
+    names = list(calls)
+    durations = {name: [] for name in names}
+    for turn in range(repeats + 2):
+        shift = turn % len(names)
+        for name in names[shift:] + names[:shift]:
+            torch.cuda.synchronize()
+            start = time.perf_counter()
+            calls[name]()
+            torch.cuda.synchronize()
+            durations[name].append(time.perf_counter() - start)
+    return {name: statistics.median(times[2:]) for name, times in durations.items()}
 
 
 def peak_memory(call: Callable[[], object], device: torch.device) -> int:
@@ -145,7 +155,10 @@ def main() -> None:
     parser.add_argument(
         "--tasks", nargs="+", default=list(INFERENCE), choices=list(INFERENCE)
     )
-    parser.add_argument("--repeats", type=int, default=5)
+    parser.add_argument(
+        "--models", nargs="+", help="profile these alone, kept beside the others"
+    )
+    parser.add_argument("--repeats", type=int, default=20)
     parser.add_argument("--log-dir", type=Path, default=report.ROOT / "logs")
     parser.add_argument("--out-dir", type=Path, default=report.ROOT / "logs" / "speed")
     parser.add_argument(
@@ -158,35 +171,39 @@ def main() -> None:
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     for task in args.tasks:
-        signal = report.EXAMPLES[task][0]
+        signal = report.PROFILED[task]
         path = report.ROOT / report.SIGNALS[task].format(signal)
         runs = [
             run
             for run in report.read(args.log_dir / task, task)
-            if run["data"] == signal and "interpolation" not in run["setup"]
+            if run["data"] == signal
+            and "interpolation" not in run["setup"]
+            and (args.models is None or run["model"] in args.models)
         ]
         print(f"\n{task} ({signal}), median of {args.repeats}")
-        measured = {}
+        out = args.out_dir / f"{task}.json"
+        measured = json.loads(out.read_text()) if args.models and out.exists() else {}
+        calls, points, memory = {}, {}, {}
         for run in sorted(runs, key=lambda run: run["model"]):
-            call, points = INFERENCE[task](run, path, device)
-            memory = peak_memory(call, device)
-            seconds = timed(call, args.repeats)
-            measured[run["model"]] = {
+            name = run["model"]
+            calls[name], points[name] = INFERENCE[task](run, path, device)
+            memory[name] = peak_memory(calls[name], device)
+        for name, seconds in timed(calls, args.repeats).items():
+            measured[name] = {
                 "seconds": seconds,
-                "points": points,
-                "rate": points / seconds,
-                "memory": memory,
+                "points": points[name],
+                "rate": points[name] / seconds,
+                "memory": memory[name],
             }
             print(
-                f"  {run['model']:14} {1000 * seconds:8.1f} ms"
-                f"  {points / seconds / 1e6:7.2f} M{UNITS[task]}/s"
-                f"  {memory / 1e6:8.1f} MB",
+                f"  {name:14} {1000 * seconds:8.1f} ms"
+                f"  {points[name] / seconds / 1e6:7.2f} M{UNITS[task]}/s"
+                f"  {memory[name] / 1e6:8.1f} MB",
                 flush=True,
             )
-            torch.cuda.empty_cache()
-        (args.out_dir / f"{task}.json").write_text(
-            json.dumps(measured, indent=2, sort_keys=True) + "\n"
-        )
+        del calls
+        torch.cuda.empty_cache()
+        out.write_text(json.dumps(measured, indent=2, sort_keys=True) + "\n")
     print(f"\nWritten to {args.out_dir}")
 
 

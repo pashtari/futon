@@ -4,7 +4,7 @@
 
 <figure markdown="span">
   ![Orbit around the lego scene](../assets/orbit_lego.gif){ width="720" }
-  <figcaption>The lego scene rendered in orbit by SIREN, Instant-NGP and FUTON-sinc at equal parameter count (about 75k), with the test-view PSNR.</figcaption>
+  <figcaption>The lego scene rendered in orbit by SIREN, Instant-NGP and FUTON (sinc) at equal parameter count (about 75k), with the test-view PSNR.</figcaption>
 </figure>
 
 ## Data

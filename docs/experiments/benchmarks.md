@@ -1,10 +1,16 @@
 # Benchmarks
 
-Twelve models on four tasks, at equal parameter count per task; the fourth, super-resolution, adds the deep image prior and three interpolations as references. The tables are `results/<task>/table.md` as `scripts/report_paper.py` writes them from the runs in `logs/`; the figures are the paper's. Bold marks the best value in a column and italics the second; ± is one standard error over the signals, after removing each signal's own level (a paired standard error); IoU, which saturates near 100 % on every shape, takes the plain standard error over the shapes.
+Fourteen models on four tasks, at equal parameter count per task; the fourth, super-resolution, adds the deep image prior and three interpolations as references. The tables are `results/<task>/table.md` as `scripts/report_paper.py` writes them from the runs in `logs/`; the figures are the paper's. Bold marks the best value in a column and italics the second; ± is one standard error over the signals, after removing each signal's own level (a paired standard error); IoU, which saturates near 100 % on every shape, takes the plain standard error over the shapes.
 
-Two notes on the rows. **TensoRF** is the variant its authors recommend for the dimension: CP on images (the only one in 2D) and VM on volumes and radiance fields; both are in the configs. **WIRE** is the real Gabor variant (`nf.RealWIRE`) from the WIRE paper and code.
+Notes on the rows:
 
-Accuracy comes from the benchmark sweeps. Times are measured separately: every model was retrained alone on an A100 after a warm-up pass, on all 24 images and 5 shapes, on the lego and hotdog scenes and on DIV2K images 0801 and 0882, and the tables and figures take their training times from those runs, so a radiance-field or super-resolution time is the mean over its two timed signals. The inference throughputs in the figures come from the same kind of job (`scripts/profile_speed.py`). The sweeps' own times were within 6 % of these on radiance fields and within 12 % on super-resolution; the image and volume sweeps ran beside other jobs, and there Instant-NGP came out 1.7× slower.
+- A name in parentheses is the variant a row runs where its kind has several: FUTON's basis, and the backbone of F-INR and FreSh; the configs call the two FUTONs `FUTON-sinc` and `FUTON-lanczos`.
+- **TensoRF** is the variant its authors recommend for the dimension: CP on images (the only one in 2D) and VM on volumes and radiance fields; both are in the configs.
+- **MFN** is the GaborNet of the two networks of its paper, and **WIRE** the real Gabor variant (`nf.RealWIRE`) from the WIRE paper and code.
+- **F-INR (SIREN)** gives each coordinate its own SIREN, built and initialized as in its authors' image code, and combines them per channel by a CP decomposition. Their settings do not fit the budget, so we tuned at equal size what they leave open: the split between width and rank (in 2D the most rank a width allows, one more than the width; width 96 and rank 259 on volumes, width 32 and rank 39 on radiance fields), the first layer's frequency (200 on images, where their 100 costs 0.3 dB, and 100 elsewhere) and the decomposition, where the tensor train they pick for shapes and radiance fields is level on volumes and 2.9 dB worse on radiance fields. Neither the positional encoding of their image experiments nor the SIREN of their shape code helps at this size. Their paper fits radiance fields with per-axis hash grids; here the axes are SIRENs on every task.
+- **FreSh (SIREN)** is the SIREN row with its first-layer frequency chosen per signal before training, by matching the spectrum of the untrained network's output to the signal's, and the search counts toward its training time. Its paper covers images and radiance fields; on volumes it reads the 3D spectrum of the occupancy grid, and on super-resolution that of the low-resolution image, our two adaptations. On super-resolution, where the SIREN row runs every layer at a tuned frequency of 120, FreSh keeps it in the later layers; its paper's 30 lost 0.25 dB on the tuning images. At inference FreSh runs SIREN's network unchanged, yet the A100 timed it 12 % slower than SIREN on images and 20 % slower on volumes; the difference is the GPU's, not FreSh's, since the two take the same time on another GPU.
+
+Accuracy comes from the benchmark sweeps. Times are measured separately: every model was retrained alone on an A100 after a warm-up pass, on all 24 images and 5 shapes, on the lego and hotdog scenes and on DIV2K images 0801 and 0882, and the tables and figures take their training times from those runs, so a radiance-field or super-resolution time is the mean over its two timed signals. The inference throughputs come from one such job, `scripts/profile_speed.py`, in which the models of a task take turns, each timed as the median of 20 passes. The sweeps' own times were within 6 % of these on radiance fields and within 12 % on super-resolution; the image and volume sweeps ran beside other jobs, and there Instant-NGP came out 1.7× slower.
 
 ## Images
 
@@ -12,18 +18,20 @@ Accuracy comes from the benchmark sweeps. Times are measured separately: every m
 
 | Model | #Params (k) | Training time (s) ↓ | Training memory (MB) ↓ | Inference throughput (MPix/s) ↑ | Inference memory (GB) ↓ | PSNR (dB) ↑ | SSIM ↑ | LPIPS ↓ |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| RFF | 199.7 | 9.5 | 283 | 27.9 | 2.01 | 29.80 ± 0.13 | 0.821 ± 0.008 | 0.301 ± 0.007 |
-| PE-MLP | 196.7 | 11.5 | 285 | 27.2 | 1.24 | 28.03 ± 0.13 | 0.734 ± 0.014 | 0.419 ± 0.007 |
-| MFN | 198.1 | 24.7 | 1118 | 11.7 | 1.98 | 35.62 ± 0.15 | 0.922 ± 0.002 | 0.157 ± 0.004 |
-| SIREN | 198.9 | 12.7 | 404 | 27.7 | _1.21_ | 33.56 ± 0.15 | 0.907 ± 0.003 | 0.199 ± 0.005 |
-| Gauss | 198.9 | 15.0 | 444 | 19.8 | _1.21_ | 31.84 ± 0.22 | 0.865 ± 0.006 | 0.229 ± 0.005 |
-| WIRE | 199.3 | 17.1 | 644 | 16.5 | 1.71 | 33.14 ± 0.41 | 0.892 ± 0.010 | 0.191 ± 0.012 |
-| FINER | 198.9 | 14.3 | 565 | 16.7 | 2.02 | 35.94 ± 0.11 | 0.936 ± 0.003 | 0.130 ± 0.003 |
-| Instant-NGP | 195.3 | _6.3_ | 277 | 58.2 | 2.52 | 36.76 ± 0.12 | 0.938 ± 0.002 | 0.127 ± 0.003 |
-| TensoRF | 202.0 | 9.9 | 287 | 42.8 | 1.48 | 36.59 ± 0.12 | 0.934 ± 0.002 | 0.139 ± 0.003 |
-| GA-Planes | 194.8 | 7.8 | _220_ | _61.3_ | 1.29 | 33.30 ± 0.19 | 0.893 ± 0.004 | 0.209 ± 0.005 |
-| FUTON-sinc | 194.4 | 8.1 | 352 | 30.9 | 2.06 | **38.54** ± 0.10 | **0.955** ± 0.003 | **0.098** ± 0.003 |
-| FUTON-lanczos | 194.4 | **5.6** | **181** | **92.1** | **1.08** | _38.20_ ± 0.10 | _0.952_ ± 0.003 | _0.100_ ± 0.003 |
+| RFF | 199.7 | 9.5 | 283 | 27.1 | 2.01 | 29.80 ± 0.13 | 0.821 ± 0.008 | 0.301 ± 0.007 |
+| PE-MLP | 196.7 | 11.5 | 285 | 30.0 | 1.24 | 28.03 ± 0.12 | 0.734 ± 0.013 | 0.419 ± 0.007 |
+| MFN | 198.1 | 24.7 | 1118 | 12.3 | 1.98 | 35.62 ± 0.16 | 0.922 ± 0.003 | 0.157 ± 0.004 |
+| SIREN | 198.9 | 12.7 | 404 | 27.7 | _1.21_ | 33.56 ± 0.14 | 0.907 ± 0.003 | 0.199 ± 0.005 |
+| FreSh (SIREN) | 198.9 | 16.6 | 404 | 24.3 | 1.22 | 36.05 ± 0.16 | 0.938 ± 0.004 | 0.131 ± 0.005 |
+| Gauss | 198.9 | 15.0 | 444 | 19.4 | _1.21_ | 31.84 ± 0.22 | 0.865 ± 0.006 | 0.229 ± 0.005 |
+| WIRE | 199.3 | 17.1 | 644 | 15.8 | 1.71 | 33.14 ± 0.41 | 0.892 ± 0.010 | 0.191 ± 0.012 |
+| FINER | 198.9 | 14.3 | 565 | 16.9 | 2.02 | 35.94 ± 0.11 | 0.936 ± 0.003 | 0.130 ± 0.003 |
+| Instant-NGP | 195.3 | _6.3_ | 277 | 58.4 | 2.52 | 36.76 ± 0.13 | 0.938 ± 0.002 | 0.127 ± 0.003 |
+| TensoRF | 202.0 | 9.9 | 287 | 44.2 | 1.48 | 36.59 ± 0.12 | 0.934 ± 0.002 | 0.139 ± 0.003 |
+| GA-Planes | 194.8 | 7.8 | _220_ | 61.7 | 1.29 | 33.30 ± 0.19 | 0.893 ± 0.004 | 0.209 ± 0.005 |
+| F-INR (SIREN) | 196.0 | 7.1 | 271 | **115.4** | 2.00 | 29.94 ± 0.13 | 0.807 ± 0.007 | 0.313 ± 0.005 |
+| FUTON (sinc) | 194.4 | 8.1 | 352 | 33.9 | 2.06 | **38.54** ± 0.10 | **0.955** ± 0.004 | **0.098** ± 0.003 |
+| FUTON (Lanczos) | 194.4 | **5.6** | **181** | _89.8_ | **1.08** | _38.20_ ± 0.10 | _0.952_ ± 0.004 | _0.100_ ± 0.003 |
 
 <figure markdown="span">
   ![Kodak: convergence, training-time trade-off and throughput](../assets/results_image.svg){ width="960" }
@@ -33,7 +41,7 @@ Accuracy comes from the benchmark sweeps. Times are measured separately: every m
 <figure markdown="span">
   ![kodim19](../assets/qualitative_kodim19.png)
   ![kodim01](../assets/qualitative_kodim01.png)
-  <figcaption>kodim19 and kodim01: two regions of fine detail magnified for the ground truth and every featured model, with each model's PSNR over the whole image.</figcaption>
+  <figcaption>kodim19 and kodim01: two regions of fine detail magnified for the ground truth and every featured model, above each model's |error| there on one scale per figure, with each model's PSNR over the whole image.</figcaption>
 </figure>
 
 ## Occupancy
@@ -42,18 +50,20 @@ Five Stanford shapes voxelized at 256 samples per unit length and cropped to the
 
 | Model | #Params (k) | Training time (s) ↓ | Training memory (MB) ↓ | Inference throughput (MVox/s) ↑ | Inference memory (GB) ↓ | IoU (%) Armadillo ↑ | IoU (%) Dragon ↑ | IoU (%) Happy Buddha ↑ | IoU (%) Lucy ↑ | IoU (%) Thai Statue ↑ | IoU (%) Mean ↑ |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| RFF | 132.2 | _7.4_ | 221 | 36.3 | 1.36 | 99.85 | 99.84 | 99.68 | 98.76 | 99.66 | 99.56 ± 0.20 |
-| PE-MLP | 131.3 | 9.8 | 230 | 33.3 | 0.84 | 98.96 | 98.53 | 98.96 | 98.21 | 98.19 | 98.57 ± 0.17 |
-| MFN | 133.8 | 19.3 | 805 | 16.0 | 1.33 | 99.16 | 97.99 | 97.93 | 98.64 | 99.12 | 98.57 ± 0.27 |
+| RFF | 132.2 | _7.4_ | 221 | 36.9 | 1.36 | 99.85 | 99.84 | 99.68 | 98.76 | 99.66 | 99.56 ± 0.20 |
+| PE-MLP | 131.3 | 9.8 | 230 | 42.9 | 0.84 | 98.96 | 98.53 | 98.96 | 98.21 | 98.19 | 98.57 ± 0.17 |
+| MFN | 133.8 | 19.3 | 805 | 17.1 | 1.33 | 99.16 | 97.99 | 97.93 | 98.64 | 99.12 | 98.57 ± 0.27 |
 | SIREN | 132.9 | 10.5 | 320 | 38.5 | 0.82 | 99.00 | 99.34 | 99.57 | 99.09 | 98.76 | 99.15 ± 0.14 |
-| Gauss | 132.9 | 12.1 | 359 | 29.7 | 0.82 | 99.70 | 99.75 | 99.59 | 99.62 | 99.41 | 99.61 ± 0.06 |
-| WIRE | 133.4 | 13.8 | 468 | 22.2 | 1.16 | 99.65 | 99.70 | 99.60 | 99.60 | 99.45 | 99.60 ± 0.04 |
-| FINER | 132.9 | 11.7 | 439 | 26.2 | 1.36 | 99.54 | 99.67 | 99.70 | 99.56 | 99.41 | 99.58 ± 0.05 |
+| FreSh (SIREN) | 132.9 | 37.7 | 312 | 31.0 | 0.82 | 99.24 | 99.52 | 99.68 | 99.55 | 99.26 | 99.45 ± 0.09 |
+| Gauss | 132.9 | 12.1 | 359 | 25.5 | 0.82 | 99.70 | 99.75 | 99.59 | 99.62 | 99.41 | 99.61 ± 0.06 |
+| WIRE | 133.4 | 13.8 | 468 | 22.7 | 1.16 | 99.65 | 99.70 | 99.60 | 99.60 | 99.45 | 99.60 ± 0.04 |
+| FINER | 132.9 | 11.7 | 439 | 22.9 | 1.36 | 99.54 | 99.67 | 99.70 | 99.56 | 99.41 | 99.58 ± 0.05 |
 | Instant-NGP | 132.4 | 10.3 | 535 | 27.1 | 3.39 | 99.91 | _99.90_ | 99.81 | **99.90** | 99.81 | 99.87 ± 0.02 |
-| TensoRF | 130.0 | **6.3** | **107** | **91.1** | **0.43** | 99.82 | 99.86 | 99.79 | 99.60 | 99.56 | 99.73 ± 0.06 |
-| GA-Planes | 132.0 | 9.5 | 146 | _74.0_ | _0.55_ | 99.80 | 99.87 | 99.88 | 99.80 | 99.71 | 99.81 ± 0.03 |
-| FUTON-sinc | 131.7 | 10.3 | 327 | 26.1 | 1.33 | **99.95** | **99.91** | **99.92** | 99.87 | **99.86** | **99.90** ± 0.02 |
-| FUTON-lanczos | 131.7 | _7.4_ | _137_ | 68.3 | 0.73 | **99.95** | _99.90_ | **99.92** | _99.88_ | _99.85_ | **99.90** ± 0.02 |
+| TensoRF | 130.0 | **6.3** | **107** | **92.9** | **0.43** | 99.82 | 99.86 | 99.79 | 99.60 | 99.56 | 99.73 ± 0.06 |
+| GA-Planes | 132.0 | 9.5 | 146 | 72.8 | _0.55_ | 99.80 | 99.87 | 99.88 | 99.80 | 99.71 | 99.81 ± 0.03 |
+| F-INR (SIREN) | 131.8 | 10.3 | 242 | 78.2 | 1.38 | 98.63 | 98.91 | 98.96 | 98.03 | 98.18 | 98.54 ± 0.19 |
+| FUTON (sinc) | 131.7 | 10.3 | 327 | 26.3 | 1.33 | **99.95** | **99.91** | **99.92** | 99.87 | **99.86** | **99.90** ± 0.02 |
+| FUTON (Lanczos) | 131.7 | _7.4_ | _137_ | _84.4_ | 0.73 | **99.95** | _99.90_ | **99.92** | _99.88_ | _99.85_ | **99.90** ± 0.02 |
 
 <figure markdown="span">
   ![Occupancy: convergence, training-time trade-off and throughput](../assets/results_occupancy.svg){ width="960" }
@@ -71,20 +81,22 @@ Eight NeRF synthetic (Blender) scenes under FINER's protocol: 200 × 200 views, 
 
 | Model | #Params (k) | Training time (s) ↓ | Training memory (GB) ↓ | Inference FPS ↑ | Inference memory (MB) ↓ | PSNR (dB) ↑ | SSIM ↑ | LPIPS ↓ |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| RFF | 74.5 | 364.0 | 3.36 | **6.3** | 111 | 28.53 ± 0.30 | 0.932 ± 0.004 | 0.077 ± 0.005 |
-| PE-MLP | 75.1 | 400.8 | 3.21 | **6.3** | 92 | 28.35 ± 0.18 | 0.935 ± 0.002 | 0.072 ± 0.004 |
-| MFN | 75.8 | 784.5 | 13.98 | 4.9 | 144 | 28.38 ± 0.15 | 0.933 ± 0.002 | 0.074 ± 0.003 |
-| SIREN | 75.2 | 441.6 | 5.52 | 6.2 | 85 | 28.84 ± 0.13 | 0.937 ± 0.001 | 0.098 ± 0.009 |
-| Gauss | 75.2 | 560.2 | 5.87 | 5.4 | 101 | 27.63 ± 0.15 | 0.923 ± 0.003 | 0.105 ± 0.008 |
-| WIRE | 74.5 | 604.3 | 7.81 | 5.4 | 113 | 28.45 ± 0.15 | 0.931 ± 0.002 | 0.113 ± 0.005 |
-| FINER | 75.2 | 501.9 | 7.64 | 5.5 | 131 | 28.85 ± 0.13 | 0.936 ± 0.001 | 0.116 ± 0.013 |
-| Instant-NGP | 75.0 | 582.2 | 12.77 | 5.4 | 455 | 26.94 ± 0.17 | 0.917 ± 0.005 | 0.100 ± 0.007 |
-| TensoRF | 74.8 | 532.0 | 2.61 | 5.6 | _76_ | 27.76 ± 0.23 | 0.931 ± 0.002 | 0.075 ± 0.005 |
-| GA-Planes | 75.0 | 578.0 | _2.55_ | 5.4 | 81 | 28.04 ± 0.26 | 0.936 ± 0.003 | 0.070 ± 0.004 |
-| FUTON-sinc | 74.1 | _359.5_ | 5.54 | 5.6 | 133 | **28.95** ± 0.27 | **0.943** ± 0.003 | **0.066** ± 0.005 |
-| FUTON-lanczos | 74.1 | **311.7** | **2.21** | 5.4 | **74** | _28.93_ ± 0.25 | **0.943** ± 0.003 | **0.066** ± 0.005 |
+| RFF | 74.5 | 364.0 | 3.36 | 6.4 | 111 | 28.53 ± 0.29 | 0.932 ± 0.003 | 0.077 ± 0.006 |
+| PE-MLP | 75.1 | 400.8 | 3.21 | **6.6** | 92 | 28.35 ± 0.18 | 0.935 ± 0.003 | 0.072 ± 0.005 |
+| MFN | 75.8 | 784.5 | 13.98 | 4.9 | 144 | 28.38 ± 0.16 | 0.933 ± 0.002 | 0.074 ± 0.004 |
+| SIREN | 75.2 | 441.6 | 5.52 | _6.5_ | 85 | 28.84 ± 0.15 | 0.937 ± 0.002 | 0.098 ± 0.008 |
+| FreSh (SIREN) | 75.2 | 428.2 | 5.47 | 6.3 | 79 | 28.58 ± 0.21 | 0.930 ± 0.004 | 0.140 ± 0.017 |
+| Gauss | 75.2 | 560.2 | 5.87 | 5.7 | 101 | 27.63 ± 0.18 | 0.923 ± 0.003 | 0.105 ± 0.008 |
+| WIRE | 74.5 | 604.3 | 7.81 | 5.6 | 113 | 28.45 ± 0.18 | 0.931 ± 0.002 | 0.113 ± 0.005 |
+| FINER | 75.2 | 501.9 | 7.64 | 5.7 | 131 | 28.85 ± 0.14 | 0.936 ± 0.002 | 0.116 ± 0.011 |
+| Instant-NGP | 75.0 | 582.2 | 12.77 | 5.6 | 455 | 26.94 ± 0.18 | 0.917 ± 0.004 | 0.100 ± 0.007 |
+| TensoRF | 74.8 | 532.0 | 2.61 | 5.8 | _76_ | 27.76 ± 0.24 | 0.931 ± 0.003 | 0.075 ± 0.006 |
+| GA-Planes | 75.0 | 578.0 | _2.55_ | 5.7 | 81 | 28.04 ± 0.25 | 0.936 ± 0.003 | 0.070 ± 0.005 |
+| F-INR (SIREN) | 74.7 | 639.1 | 16.55 | 5.1 | 410 | 27.82 ± 0.47 | 0.916 ± 0.011 | 0.116 ± 0.016 |
+| FUTON (sinc) | 74.1 | _359.5_ | 5.54 | 5.8 | 133 | **28.95** ± 0.25 | **0.943** ± 0.003 | **0.066** ± 0.006 |
+| FUTON (Lanczos) | 74.1 | **311.7** | **2.21** | 5.9 | **74** | _28.93_ ± 0.23 | **0.943** ± 0.004 | **0.066** ± 0.005 |
 
-Per scene, the picture is mixed, which the mean hides: FUTON leads on lego, materials, hotdog and ship, and trails FINER on chair and drums, RFF on ficus and SIREN on mic.
+Per scene, the picture is mixed, which the mean hides: FUTON leads on lego, hotdog and ship, and trails FINER on chair and drums, RFF on ficus, F-INR (SIREN) on materials and SIREN on mic.
 
 | Model | Chair | Drums | Ficus | Hotdog | Lego | Materials | Mic | Ship |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -92,14 +104,16 @@ Per scene, the picture is mixed, which the mean hides: FUTON leads on lego, mate
 | PE-MLP | 32.50 | 23.58 | 26.42 | 32.01 | 29.18 | 26.69 | 33.29 | 23.14 |
 | MFN | 33.01 | 23.73 | 27.48 | 32.82 | 28.80 | 25.59 | 33.23 | 22.37 |
 | SIREN | 33.21 | _24.59_ | _27.96_ | 32.84 | 29.22 | 26.58 | **33.82** | 22.51 |
+| FreSh (SIREN) | 32.70 | 24.20 | 27.84 | _33.35_ | 29.88 | 25.42 | 32.86 | 22.43 |
 | Gauss | 31.44 | 23.69 | 26.42 | 32.01 | 27.77 | 25.22 | 32.37 | 22.08 |
 | WIRE | 32.50 | 24.22 | 27.77 | 32.43 | 28.83 | 26.20 | 33.53 | 22.11 |
-| FINER | **33.47** | **24.62** | 27.85 | _33.23_ | 29.58 | 26.19 | 33.41 | 22.42 |
+| FINER | **33.47** | **24.62** | 27.85 | 33.23 | 29.58 | 26.19 | 33.41 | 22.42 |
 | Instant-NGP | 31.18 | 22.46 | 26.03 | 31.20 | 27.07 | 24.62 | 32.28 | 20.67 |
 | TensoRF | 31.74 | 23.90 | 26.15 | 32.26 | 28.23 | 26.05 | 31.14 | 22.65 |
 | GA-Planes | 31.98 | 23.69 | 25.42 | 31.96 | 29.56 | 26.55 | 32.27 | 22.89 |
-| FUTON-sinc | 33.01 | 24.38 | 27.00 | 33.08 | **31.19** | **27.29** | 32.45 | _23.19_ |
-| FUTON-lanczos | 32.97 | 24.09 | 26.82 | **33.61** | _30.89_ | _27.23_ | 32.61 | **23.21** |
+| F-INR (SIREN) | 32.89 | 21.75 | 24.56 | 32.83 | 29.66 | **27.65** | 32.07 | 21.12 |
+| FUTON (sinc) | 33.01 | 24.38 | 27.00 | 33.08 | **31.19** | _27.29_ | 32.45 | _23.19_ |
+| FUTON (Lanczos) | 32.97 | 24.09 | 26.82 | **33.61** | _30.89_ | 27.23 | 32.61 | **23.21** |
 
 Test-view PSNR in dB. `results/nerf/table.md` also lists SSIM and LPIPS per scene.
 
@@ -115,7 +129,7 @@ Test-view PSNR in dB. `results/nerf/table.md` also lists SSIM and LPIPS per scen
 
 <figure markdown="span">
   ![Lego orbit](../assets/orbit_lego.gif){ width="720" }
-  <figcaption>The same scene in orbit: SIREN, Instant-NGP and FUTON-sinc, with their test-view PSNR.</figcaption>
+  <figcaption>The same scene in orbit: SIREN, Instant-NGP and FUTON (sinc), with their test-view PSNR.</figcaption>
 </figure>
 
 ## Super-resolution
@@ -124,22 +138,24 @@ The 100 DIV2K validation images, observed at a quarter of their size. Each image
 
 | Model | #Params (k) | Training time (s) ↓ | Training memory (GB) ↓ | Inference throughput (MPix/s) ↑ | Inference memory (GB) ↓ | PSNR (dB) ↑ | SSIM ↑ | LPIPS ↓ |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Nearest | – | – | – | – | – | 26.73 ± 0.08 | 0.734 ± 0.001 | 0.459 ± 0.005 |
+| Nearest | – | – | – | – | – | 26.73 ± 0.07 | 0.734 ± 0.001 | 0.459 ± 0.005 |
 | Bilinear | – | – | – | – | – | 27.53 ± 0.04 | 0.757 ± 0.001 | 0.368 ± 0.002 |
 | Bicubic | – | – | – | – | – | 28.10 ± 0.04 | 0.775 ± 0.002 | **0.353** ± 0.003 |
-| DIP | 505.3 | 268.5 | 11.40 | _50.0_ | 3.52 | 28.07 ± 0.05 | 0.758 ± 0.002 | 0.417 ± 0.004 |
-| RFF | 500.0 | 105.0 | 2.56 | 13.1 | 1.79 | 27.15 ± 0.09 | 0.735 ± 0.002 | 0.446 ± 0.003 |
-| PE-MLP | 502.1 | 119.8 | 2.56 | 12.9 | 1.34 | 22.61 ± 0.21 | 0.614 ± 0.006 | 0.580 ± 0.005 |
+| DIP | 505.3 | 268.5 | 11.40 | 49.8 | 3.52 | 28.07 ± 0.06 | 0.758 ± 0.002 | 0.417 ± 0.004 |
+| RFF | 500.0 | 105.0 | 2.56 | 13.0 | 1.79 | 27.15 ± 0.09 | 0.735 ± 0.002 | 0.446 ± 0.003 |
+| PE-MLP | 502.1 | 119.8 | 2.56 | 12.8 | 1.34 | 22.61 ± 0.21 | 0.614 ± 0.005 | 0.580 ± 0.004 |
 | MFN | 501.8 | 222.9 | 11.84 | 6.3 | 2.15 | 27.61 ± 0.10 | 0.750 ± 0.002 | 0.428 ± 0.002 |
 | SIREN | 500.6 | 130.7 | 4.26 | 11.9 | _1.31_ | _28.69_ ± 0.07 | _0.779_ ± 0.001 | 0.376 ± 0.002 |
-| Gauss | 500.6 | 152.0 | 4.69 | 10.2 | _1.31_ | 26.23 ± 0.10 | 0.617 ± 0.005 | 0.520 ± 0.007 |
+| FreSh (SIREN) | 500.6 | 134.9 | 4.26 | 12.1 | _1.31_ | 28.56 ± 0.07 | 0.778 ± 0.001 | 0.380 ± 0.002 |
+| Gauss | 500.6 | 152.0 | 4.69 | 10.1 | _1.31_ | 26.23 ± 0.10 | 0.617 ± 0.005 | 0.520 ± 0.007 |
 | WIRE | 502.0 | 171.8 | 6.64 | 9.6 | 1.84 | 26.23 ± 0.07 | 0.709 ± 0.002 | 0.490 ± 0.002 |
-| FINER | 500.6 | 145.9 | 5.96 | 9.2 | 2.17 | 28.37 ± 0.06 | 0.751 ± 0.002 | 0.399 ± 0.003 |
-| Instant-NGP | 505.2 | **30.8** | **1.64** | **66.0** | 1.53 | 28.39 ± 0.06 | 0.770 ± 0.001 | 0.378 ± 0.002 |
-| TensoRF | 500.4 | 80.7 | 2.97 | 28.7 | 1.81 | 27.99 ± 0.04 | 0.763 ± 0.001 | 0.402 ± 0.002 |
-| GA-Planes | 501.3 | 68.8 | 1.79 | 21.8 | **1.19** | 28.26 ± 0.05 | 0.767 ± 0.001 | 0.393 ± 0.002 |
-| FUTON-sinc | 499.3 | 92.8 | 3.39 | 13.7 | 2.18 | **28.83** ± 0.07 | **0.790** ± 0.002 | _0.367_ ± 0.002 |
-| FUTON-lanczos | 499.3 | _47.7_ | _1.69_ | 36.2 | _1.31_ | 28.65 ± 0.06 | _0.779_ ± 0.002 | 0.386 ± 0.002 |
+| FINER | 500.6 | 145.9 | 5.96 | 9.1 | 2.17 | 28.37 ± 0.07 | 0.751 ± 0.001 | 0.399 ± 0.003 |
+| Instant-NGP | 505.2 | _30.8_ | **1.64** | _64.3_ | 1.53 | 28.39 ± 0.07 | 0.770 ± 0.001 | 0.378 ± 0.002 |
+| TensoRF | 500.4 | 80.7 | 2.97 | 27.0 | 1.81 | 27.99 ± 0.04 | 0.763 ± 0.001 | 0.402 ± 0.002 |
+| GA-Planes | 501.3 | 68.8 | 1.79 | 28.2 | **1.19** | 28.26 ± 0.05 | 0.767 ± 0.001 | 0.393 ± 0.002 |
+| F-INR (SIREN) | 501.8 | **19.0** | 2.84 | **80.7** | 2.15 | 24.36 ± 0.16 | 0.648 ± 0.004 | 0.559 ± 0.003 |
+| FUTON (sinc) | 499.3 | 92.8 | 3.39 | 13.3 | 2.18 | **28.83** ± 0.07 | **0.790** ± 0.002 | _0.367_ ± 0.002 |
+| FUTON (Lanczos) | 499.3 | 47.7 | _1.69_ | 35.6 | _1.31_ | 28.65 ± 0.06 | _0.779_ ± 0.002 | 0.386 ± 0.002 |
 
 <figure markdown="span">
   ![DIV2K: convergence, training-time trade-off and throughput](../assets/results_super_resolution.svg){ width="960" }
@@ -148,18 +164,18 @@ The 100 DIV2K validation images, observed at a quarter of their size. Each image
 
 <figure markdown="span">
   ![0882](../assets/qualitative_0882.png)
-  ![0896](../assets/qualitative_0896.png)
-  <figcaption>DIV2K 0882 and 0896: the butterfly's head and a hindwing, and two wing tips of the geese, magnified for the original, bicubic interpolation and the featured fields, with each model's PSNR over the whole image. Bicubic stands in for TensoRF here, the weakest featured model on this task, so that the reference every model is measured against is in view.</figcaption>
+  ![0807](../assets/qualitative_0807.png)
+  <figcaption>DIV2K 0882 and 0807: the butterfly's head and a hindwing, and the two regions of the lakeside where the models disagree most, magnified for the original, bicubic interpolation and the featured fields, above each model's |error| on one scale per figure, with each model's PSNR over the whole image. Bicubic stands in for TensoRF here, the weakest featured model on this task, so that the reference every model is measured against is in view.</figcaption>
 </figure>
 
-Super-resolution is the hardest task here for every model: nothing but the low-resolution image is seen, so the margins are fractions of a decibel and several fields lose to bicubic interpolation. FUTON-sinc beats bicubic on 99 of the 100 images, by 0.72 dB on average and 1.8 dB on 0882, and leads PSNR and SSIM; SIREN (ahead of bicubic on 90 images) and FUTON-lanczos (on 94, in 48 s) follow within 0.2 dB. Instant-NGP, the fastest model to train here at 31 s, FINER and GA-Planes gain 0.15 to 0.3 dB on average but lose to bicubic on more than a third of the images; the deep image prior and TensoRF do not beat it. The deep image prior is still improving when its 2000 steps end: with five times as many it gains 0.5 dB on 0801 and 1.3 dB on 0882, for five times the training time, so its paper's margin over bicubic needs a budget the protocol does not give it. Bicubic keeps the best LPIPS, by 0.015 over FUTON-sinc, which suggests the fields buy their PSNR at edges rather than in texture, the one thing a single low-resolution image cannot teach. PE-MLP is the one model the protocol does not serve: at the learning rate 3e-3 that suits most images it collapses on dark ones under the L1 loss, so the tuning images chose 3e-4, at which it is still climbing when the 2000 steps end, 5.5 dB below bicubic on average and below 20 dB on 14 images.
+Super-resolution is the hardest task here for every model: nothing but the low-resolution image is seen, so the margins are fractions of a decibel and several fields lose to bicubic interpolation. FUTON (sinc) beats bicubic on 99 of the 100 images, by 0.72 dB on average and 1.8 dB on 0882, and leads PSNR and SSIM; SIREN, ahead of bicubic on 90 images, and FUTON (Lanczos), on 94 in 48 s, follow within 0.2 dB, and FreSh (SIREN), on 83, within 0.3 dB. Instant-NGP, FINER and GA-Planes gain 0.15 to 0.3 dB on average but lose to bicubic on more than a third of the images; the deep image prior and TensoRF do not beat it, and F-INR (SIREN), the fastest model to train here at 19 s, ends below it on every image, by 3.7 dB on average. The deep image prior is still improving when its 2000 steps end: with five times as many it gains 0.5 dB on 0801 and 1.3 dB on 0882, for five times the training time, so its paper's margin over bicubic needs a budget the protocol does not give it. Bicubic keeps the best LPIPS, by 0.015 over FUTON (sinc), which suggests the fields buy their PSNR at edges rather than in texture, the one thing a single low-resolution image cannot teach. PE-MLP is the one model the protocol does not serve: at the learning rate 3e-3 that suits most images it collapses on dark ones under the L1 loss, so the tuning images chose 3e-4, at which it is still climbing when the 2000 steps end, 5.5 dB below bicubic on average and below 20 dB on 14 images.
 
 ## Reading the numbers
 
-- **Accuracy.** FUTON leads every column of the image table by a margin well beyond the error bars (1.8 dB over Instant-NGP), and the mean IoU on volumes, where the hash grid is its only close competitor. On radiance fields the mean is a narrow lead over FINER and SIREN, within one standard error; on super-resolution the lead over SIREN is 0.14 dB and holds on 76 of the 100 images.
-- **Speed.** FUTON-lanczos is the fastest model to train on images and radiance fields; on volumes RFF and TensoRF train faster but reach a lower IoU. Instant-NGP, the other strong model, trails it on images (6.3 against 5.6 s), by 1.4× on volumes and 1.9× on radiance fields, and beats it on super-resolution (31 against 48 s), where a step evaluates 260k points through a 500k-parameter model: FUTON's decoder there is a 399-wide hidden layer per point, whereas a hash lookup's cost does not grow with its tables. The hash grid is a PyTorch port of tiny-cuda-nn's, without the fused CUDA kernels, gathering every level in one batched pass; FUTON's Lanczos taps are contracted by fused Triton kernels, and the MLP models run on cuBLAS.
-- **Instant-NGP at inference** is the fastest model on super-resolution and the third on images, but ninth on volumes and in the pack on radiance fields, and the cost of a lookup explains the spread. Per point it gathers the $2^C$ corners of every level, so it costs twice as much in 3D as in 2D (about 30 ns against 15 on the A100 at full batch) and does not grow with the budget, whereas an MLP's cost follows its budget: 81 ns per pixel at 500k parameters on super-resolution, 39 at 195k on images, 31 at 132k on volumes and 26 at 75k on radiance fields. Where the budget is large and the signal is 2D the gathers are the cheaper operation; in 3D they cost as much as the small MLPs and more than the grid and tensor models, which touch a handful of values per point, and a ray marcher feeds the field batches of some ten thousand samples, too few to fill the GPU, so every radiance field renders a view in 160 to 205 ms whatever its arithmetic.
-- **The two bases** trade a little accuracy for speed: Lanczos costs 0.3 dB on images, 0.2 dB on super-resolution and nothing on volumes or radiance fields. It trains about 30 % faster on images and volumes, 13 % faster on radiance fields, where ray marching sets the pace, and twice as fast on super-resolution, where a step evaluates seven times more points than on images and the per-point cost of a dense basis shows. At inference its taps are evaluated by one fused kernel, so it is the fastest model on images and within a few percent of sinc on radiance fields, where a view is rendered in some seventy calls of a few thousand points each and every model is launch-bound.
+- **Accuracy.** FUTON leads PSNR, SSIM and LPIPS on images by a margin well beyond the error bars (1.8 dB over Instant-NGP), and the mean IoU on volumes, where the hash grid is its only close competitor. On radiance fields the mean is a narrow lead over FINER and SIREN, within one standard error; on super-resolution the lead over SIREN is 0.14 dB and holds on 76 of the 100 images.
+- **Speed.** FUTON (Lanczos) is the fastest model to train on images and radiance fields, and on volumes only TensoRF is faster (6.3 against 7.4 s), at a lower IoU. Instant-NGP, the other strong model, trails it on images (6.3 against 5.6 s), by 1.4× on volumes and 1.9× on radiance fields, and beats it on super-resolution (31 against 48 s), where a step evaluates 260k points through a 500k-parameter model: FUTON's decoder there is a 399-wide hidden layer per point, whereas a hash lookup's cost does not grow with its tables. F-INR (SIREN) trains faster still there, in 19 s, but ends below bicubic. The hash grid is a PyTorch port of tiny-cuda-nn's, without the fused CUDA kernels, gathering every level in one batched pass; FUTON's Lanczos taps are contracted by fused Triton kernels, and the MLP models run on cuBLAS.
+- **Instant-NGP at inference** is the fastest model on super-resolution after F-INR (SIREN) and the fourth on images, but ninth on volumes and in the pack on radiance fields, and the cost of a lookup explains the spread. Per point it gathers the $2^C$ corners of every level, so it costs twice as much in 3D as in 2D (about 30 ns against 15 on the A100 at full batch) and does not grow with the budget, whereas an MLP's cost follows its budget: 81 ns per pixel at 500k parameters on super-resolution, 39 at 195k on images, 31 at 132k on volumes and 26 at 75k on radiance fields. Where the budget is large and the signal is 2D the gathers are the cheaper operation; in 3D they cost as much as the small MLPs and more than the grid and tensor models, which touch a handful of values per point, and a ray marcher feeds the field batches of some ten thousand samples, too few to fill the GPU, so every radiance field renders a view in 150 to 205 ms whatever its arithmetic. F-INR (SIREN) is the fastest at inference on images and super-resolution and the third on volumes: on a grid its axis networks run once per row and column, and a point costs only the product of their outputs; on the scattered samples of a radiance field it is among the slowest.
+- **The two bases** trade a little accuracy for speed: Lanczos costs 0.3 dB on images, 0.2 dB on super-resolution and nothing on volumes or radiance fields. It trains about 30 % faster on images and volumes, 13 % faster on radiance fields, where ray marching sets the pace, and twice as fast on super-resolution, where a step evaluates seven times more points than on images and the per-point cost of a dense basis shows. At inference its taps are evaluated by one fused kernel, so it is 2.7 times faster than sinc on images, second only to F-INR (SIREN), and within a few percent of sinc on radiance fields, where a view is rendered in some seventy calls of a few thousand points each and every model is launch-bound.
 
 ## Checks against the literature
 

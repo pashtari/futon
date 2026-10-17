@@ -6,7 +6,7 @@ hide:
 
 # NeuroField
 
-**Neural fields in PyTorch.** A signal is fitted as a function of its coordinates: NeuroField provides FUTON, the Fourier Tensor Network of the paper, eleven baselines behind the same interface, coordinate datasets for images, volumes and posed views, and the training loops and scripts that produce the paper's numbers.
+**Neural fields in PyTorch.** A signal is fitted as a function of its coordinates: NeuroField provides FUTON, the Fourier Tensor Network of the paper, thirteen baselines behind the same interface, coordinate datasets for images, volumes and posed views, and the training loops and scripts that produce the paper's numbers.
 
 <figure markdown="span">
   ![The FUTON pipeline](assets/futon_pipeline.svg){ width="960" }
@@ -92,7 +92,7 @@ Most implicit neural representations hide their prior in the nonlinearity: sines
 
 Every model of a task has the same parameter budget, the hyperparameters of its authors' code, and a learning rate chosen on the task. Times are mean training times per signal on an A100, every model retrained alone on the GPU, on two scenes for radiance fields and two images for super-resolution. See [Benchmarks](experiments/benchmarks.md) for every model, metric and error bar.
 
-| Task | Signals | #Params | FUTON-sinc | FUTON-lanczos | Strongest baseline |
+| Task | Signals | #Params | FUTON (sinc) | FUTON (Lanczos) | Strongest baseline |
 | --- | --- | --- | --- | --- | --- |
 | Images (Kodak) | 24 | 195k | **38.54 dB** in 8.1 s | 38.20 dB in **5.6 s** | Instant-NGP, 36.76 dB in 6.3 s |
 | Occupancy (Stanford) | 5 | 132k | **99.90 % IoU** in 10.3 s | **99.90 % IoU** in 7.4 s | Instant-NGP, 99.87 % in 10.3 s |
@@ -106,7 +106,7 @@ Every model of a task has the same parameter budget, the hyperparameters of its 
 
 <figure markdown="span">
   ![Qualitative comparison on kodim19](assets/qualitative_kodim19.png)
-  <figcaption>kodim19 at about 195k parameters. The two boxed regions are magnified for the ground truth and every featured model; the PSNR is over the whole image.</figcaption>
+  <figcaption>kodim19 at about 195k parameters. The two boxed regions are magnified for the ground truth and every featured model, above each model's |error|; the PSNR is over the whole image.</figcaption>
 </figure>
 
 ## Citation

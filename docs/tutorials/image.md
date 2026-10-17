@@ -49,7 +49,7 @@ tensorf = nf.TensoRF(2, 3, rank=176, resolution=256, mode="cp",
                      hidden_features=256, hidden_layers=2, output_activation=torch.tanh)
 ```
 
-`configs/image.yaml` lists all twelve, with their learning rates and, where a setting departs from the authors' code, a comment saying why. The learning rate matters: FUTON trains at 3e-2, SIREN and FINER at 1e-3 (3e-3 diverges for SIREN), Instant-NGP at 1e-2 with `adam_betas=(0.9, 0.99)` and `adam_eps=1e-15`. Use `nf.count_parameters(model, trainable_only=False)` when you change a size.
+`configs/image.yaml` lists all fourteen, with their learning rates and, where a setting departs from the authors' code, a comment saying why. The learning rate matters: FUTON trains at 3e-2, SIREN and FINER at 1e-3 (3e-3 diverges for SIREN), Instant-NGP at 1e-2 with `adam_betas=(0.9, 0.99)` and `adam_eps=1e-15`. Use `nf.count_parameters(model, trainable_only=False)` when you change a size.
 
 ## Training
 

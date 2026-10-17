@@ -58,7 +58,7 @@ Rank is the lever that keeps paying: at every α, each doubling of β raises the
 
 Tensor-ring and Tucker combiners against the CP one, at the default K, for both bases. A ring of rank $r$ has the size of a CP combiner of rank $r^2$; rank 15 (195,528 parameters) is the closest match to the CP model (194,435). Tucker takes a rank per axis in proportion to its components, $R_c = \gamma K_c$ with $\gamma = 0.162$, the closest match in size: on a 512 × 768 image it projects the axes to 41 and 62 directions and contracts them with a $41 \times 62 \times 62$ core that feeds a 62-wide decoder, 196,003 parameters.
 
-| Combiner | #Params (k) | FUTON-sinc Training time (s) ↓ | FUTON-sinc PSNR (dB) ↑ | FUTON-lanczos Training time (s) ↓ | FUTON-lanczos PSNR (dB) ↑ |
+| Combiner | #Params (k) | FUTON (sinc) Training time (s) ↓ | FUTON (sinc) PSNR (dB) ↑ | FUTON (Lanczos) Training time (s) ↓ | FUTON (Lanczos) PSNR (dB) ↑ |
 | --- | --- | --- | --- | --- | --- |
 | CP | 194.4 | **8.2** | **38.54** ± 0.09 | **6.1** | **38.20** ± 0.06 |
 | TR | 195.5 | 13.0 | _38.44_ ± 0.05 | _10.8_ | _38.08_ ± 0.04 |
@@ -74,7 +74,7 @@ CP wins on both counts: by 0.1 dB and 1.6 to 1.8× in training time over the rin
 
 The paper's model has a linear decoder, which makes FUTON exactly a rank-$R$ CP model of the signal; the benchmarks use a one-layer MLP. The two are compared at equal size: replacing the MLP by a linear map frees 50,400 parameters, which the combiner spends on raising the rank from 224 to 302, 194,189 parameters against the benchmark's 194,435.
 
-| Decoder | #Params (k) | FUTON-sinc Training time (s) ↓ | FUTON-sinc PSNR (dB) ↑ | FUTON-lanczos Training time (s) ↓ | FUTON-lanczos PSNR (dB) ↑ |
+| Decoder | #Params (k) | FUTON (sinc) Training time (s) ↓ | FUTON (sinc) PSNR (dB) ↑ | FUTON (Lanczos) Training time (s) ↓ | FUTON (Lanczos) PSNR (dB) ↑ |
 | --- | --- | --- | --- | --- | --- |
 | MLP, 1 hidden layer (R = 224) | 194.4 | _8.2_ | **38.54** ± 0.16 | _6.2_ | **38.20** ± 0.15 |
 | Linear (R = 302) | 194.2 | **7.6** | _30.40_ ± 0.16 | **4.7** | _29.95_ ± 0.15 |
