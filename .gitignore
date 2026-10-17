@@ -21,6 +21,7 @@ data/
 paper/
 poster/
 slides/
+graphical_abstract/
 /experiments/
 logs/
 results/
