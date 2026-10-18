@@ -31,7 +31,7 @@ def fit(
     )
     net = model_class(in_features=3, out_features=1, **kwargs)
     train_dataset = nf.OccupancyCoordinateDataset(path, **data_kwargs)
-    warm_up(net, train_dataset, device)
+    warm_up(net, train_dataset, device, config["compile"])
     res = nf.train(
         net,
         train_dataset,

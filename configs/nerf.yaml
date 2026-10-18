@@ -20,6 +20,7 @@ train:
   num_steps: 37500  # torch-ngp --iter
   num_rays: 4096  # torch-ngp --num_rays
   max_samples_per_ray: 1024  # torch-ngp --max_steps
+  color_lr: null  # the shared colour network's rate; null keeps each model's
   log_interval: 100
   eval_interval: 2500
   seed: 0

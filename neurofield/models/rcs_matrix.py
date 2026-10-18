@@ -422,6 +422,11 @@ if triton is not None:
                 grad_others = grad_factors.split([other.shape[0] for other in others])
             return grad_values, None, *(grad_others or [None] * len(others))
 
+    # The kernels are fused already, and their launches depend on the sizes:
+    # torch.compile would only turn those into guards, recompiling for every
+    # new batch size when the batches vary, as a radiance field's do.
+    _fused_product = torch.compiler.disable(_RCSProductFn.apply)
+
 else:
     local_taps = None
     _RCSProductFn = None
@@ -492,7 +497,7 @@ def rcs_product(
             dtype = torch.get_autocast_dtype("cuda")
         offsets = accumulate((m.num_cols for m in matrices), initial=0)
         cols = torch.stack([m._columns() + o for m, o in zip(matrices, offsets)])
-        return _RCSProductFn.apply(
+        return _fused_product(
             torch.stack(values).to(dtype), cols, *(other.to(dtype) for other in others)
         )
     return reduce(mul, map(_term, matrices, others))

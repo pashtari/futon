@@ -124,8 +124,8 @@ class SuperResolutionDataset(nf.ImageCoordinateDataset):
 def l1_loss(output: Tensor, target: Tensor, peak: float) -> tuple[Tensor, dict]:
     """Mean absolute error, with the PSNR of the fit for the training log."""
     loss = F.l1_loss(output, target)
-    mse = F.mse_loss(output, target).item()
-    return loss, {"l1": loss.item(), "psnr": 10 * math.log10(peak**2 / mse)}
+    mse = F.mse_loss(output.detach(), target)
+    return loss, {"l1": loss.detach(), "psnr": 10 * torch.log10(peak**2 / mse)}
 
 
 def field_loss(batch: dict[str, Any], model: nn.Module) -> tuple[Tensor, dict]:
@@ -237,9 +237,6 @@ def fit(
         )
         loss_fn = partial(prior_loss, kernels=kernels)
         train["chunk_size"] = None  # a CNN renders the whole image at once
-        network.to(device).train()  # the warm-up pass, for a CNN's batched input
-        network(train_dataset.input[None].to(device)).float().sum().backward()
-        network.zero_grad(set_to_none=True)
     else:
         # FreSh sees what the field is fitted to: the low-resolution image.
         observed = nf.ImageCoordinateDataset(low_resolution(path, scale))
@@ -258,7 +255,7 @@ def fit(
             config["data"]["block"],
         )
         loss_fn = field_loss
-        warm_up(network, train_dataset, device)
+    warm_up(network, train_dataset, device, config["compile"])
     res = nf.train(
         network,
         train_dataset,

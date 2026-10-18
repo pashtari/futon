@@ -44,7 +44,7 @@ dependencies = [
 3d = [
     "PyMCubes>=0.1.6",
     "pycollada>=0.9",  # mcubes.export_mesh writes COLLADA through it
-    "trimesh>=4.11.2",
+    "trimesh==5.1.1",  # voxelizes the benchmark's meshes; others shift IoU by 0.2 points
     "open3d>=0.19.0",
 ]
 nerf = [

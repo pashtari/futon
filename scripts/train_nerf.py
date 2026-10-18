@@ -86,7 +86,7 @@ def fit(
         near=train_dataset.near,
         far=train_dataset.far,
     )
-    warm_up_field(field, train_dataset, device)
+    warm_up_field(field, train_dataset, device, config["compile"])
     res = nf.nerf.train(
         field,
         renderer,

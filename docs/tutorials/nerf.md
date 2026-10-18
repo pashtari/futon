@@ -58,7 +58,7 @@ result = nf.nerf.train(
 )
 ```
 
-Each step updates the occupancy grid, renders 4096 random training rays, composites predictions and targets onto a random background colour, and takes an Adam step (`adam_betas=(0.9, 0.99)`, `adam_eps=1e-15`) with the learning rate decaying exponentially to `lr / 10`. `history` records `step`, `elapsed`, `loss`, the training `psnr` and `num_samples` every `log_interval` steps, and the mean validation metrics under `"eval"` every `eval_interval`. Learning rates in `configs/nerf.yaml` range from 3e-4 (SIREN, FINER) to 3e-2 (FUTON, TensoRF, GA-Planes); a run of 37,500 steps takes FUTON about six minutes on an A100.
+Each step updates the occupancy grid, renders 4096 random training rays, composites predictions and targets onto a random background colour, and takes an Adam step (`adam_betas=(0.9, 0.99)`, `adam_eps=1e-15`) with the learning rate decaying exponentially to `lr / 10`. `history` records `step`, `elapsed`, `loss`, the training `psnr` and `num_samples` every `log_interval` steps, and the mean validation metrics under `"eval"` every `eval_interval`. Learning rates in `configs/nerf.yaml` range from 3e-4 (SIREN, FINER) to 3e-2 (FUTON, TensoRF, GA-Planes); a run of 37,500 steps takes FUTON about six minutes on an A100. `log_dir` receives the field's `checkpoint.pt` and `renderer.pt`, the renderer's state with its occupancy grid: load both to render a saved run as it was scored.
 
 ## Evaluation and rendering
 

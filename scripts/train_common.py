@@ -24,6 +24,7 @@ import argparse
 import gc
 import json
 import re
+import subprocess
 import sys
 import time
 import traceback
@@ -157,33 +158,80 @@ def fresh(
     return {"omega": omega, "seconds": time.perf_counter() - start, "scores": scores}
 
 
+def provenance(device: torch.device) -> dict[str, str]:
+    """The code and hardware behind a result: commit, PyTorch and device.
+
+    The commit is marked ``-dirty`` when tracked files differ from it.
+    """
+    git = ["git", "-C", str(ROOT)]
+    commit = subprocess.run(
+        [*git, "rev-parse", "--short", "HEAD"], capture_output=True, text=True
+    ).stdout.strip()
+    changes = subprocess.run(
+        [*git, "status", "--porcelain", "--untracked-files=no"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    gpu = device.type == "cuda" and torch.cuda.is_available()
+    return {
+        "commit": commit + ("-dirty" if changes else ""),
+        "torch": torch.__version__,
+        "device": torch.cuda.get_device_name(device) if gpu else str(device),
+    }
+
+
 def on_grid(model: torch.nn.Module, dataset: Any, device: torch.device) -> torch.Tensor:
     """A model's output at every point of a dataset's grid, shaped like its target."""
     output = nf.chunked_inference(model, dataset.input, chunk_size=2**18, device=device)
     return output.reshape(dataset.target.shape)
 
 
-def warm_up(model: torch.nn.Module, dataset: Any, device: torch.device) -> None:
+def compile_model(model: torch.nn.Module) -> None:
+    """Compile a model in place with ``torch.compile``.
+
+    A radiance field's two networks are compiled instead, with dynamic shapes,
+    as the samples a batch of rays keeps change from step to step.
+    """
+    if isinstance(model, nf.nerf.RadianceField):
+        for network in (model.density_net, model.color_net):
+            network.compile(dynamic=True)
+    else:
+        model.compile()
+
+
+def warm_up(
+    model: torch.nn.Module, dataset: Any, device: torch.device, compile: bool = False
+) -> None:
     """One forward and backward pass before training is timed.
 
     The first pass through a model compiles and autotunes its kernels, which
     takes the Triton products of FUTON's local bases about three seconds and
     would otherwise land in the training time of a run that trains alone in
-    its process. The pass steps no optimizer and leaves the parameters as
-    they were; ``nf.train`` reseeds before it draws its own batches.
+    its process. With ``compile``, the model is first compiled in place (see
+    :func:`compile_model`), and this pass compiles it; the batch has the
+    leading dimension that ``nf.train``'s loader adds, so that training
+    reuses the graph. The pass steps no optimizer and leaves the parameters
+    as they were; ``nf.train`` reseeds before it draws its own batches.
     """
     model.to(device).train()
-    model(dataset[0]["input"].to(device)).float().sum().backward()
+    if compile:
+        compile_model(model)
+    model(dataset[0]["input"][None].to(device)).float().sum().backward()
     model.zero_grad(set_to_none=True)
 
 
-def warm_up_field(field: torch.nn.Module, dataset: Any, device: torch.device) -> None:
+def warm_up_field(
+    field: torch.nn.Module, dataset: Any, device: torch.device, compile: bool = False
+) -> None:
     """One occupancy update and one rendered ray batch before training is timed.
 
     A throwaway renderer takes the update, so the one that trains starts from
-    the same empty grid as in the sweeps.
+    the same empty grid as in the sweeps. ``compile`` compiles the field's
+    networks first, as :func:`warm_up` does a model.
     """
     field.to(device).train()
+    if compile:
+        compile_model(field)
     renderer = nf.nerf.create_renderer(
         backend="nerfacc" if nf.nerf.is_nerfacc_available() else "pytorch",
         aabb=dataset.aabb,
@@ -231,6 +279,11 @@ def run(
         "--overwrite", action="store_true", help="rerun runs that already finished"
     )
     parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="compile each model with torch.compile before its warm-up pass",
+    )
+    parser.add_argument(
         "--device", default="cuda" if torch.cuda.is_available() else "cpu"
     )
     args = parser.parse_args()
@@ -249,11 +302,13 @@ def run(
             assign(config, setting)
         except KeyError as error:
             parser.error(str(error))
+    config["compile"] = args.compile  # for each fit's warm-up
 
     models = args.models or list(config["models"])
     if unknown := [name for name in models if name not in config["models"]]:
         parser.error(f"unknown models {unknown}; choose from {list(config['models'])}")
     print(f"{task}: {len(args.data)} signals x {len(models)} models")
+    origin = provenance(torch.device(args.device))
 
     failed = []
     for path in args.data:
@@ -287,6 +342,7 @@ def run(
             finally:
                 gc.collect()
                 torch.cuda.empty_cache()
+                torch.compiler.reset()  # each run compiles its own model
 
             result = {
                 **result,  # its "model" is the class name; the config name wins
@@ -296,6 +352,8 @@ def run(
                 "train_time": result["history"][-1]["elapsed"],
                 # Relative to the repository, so a report reads them anywhere.
                 "config": [relative(path) for path in args.config] + args.settings,
+                "compiled": args.compile,
+                "provenance": origin,
             }
             text = json.dumps(result, indent=2, default=str)
             (out / "results.json").write_text(text + "\n")

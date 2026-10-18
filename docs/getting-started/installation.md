@@ -30,7 +30,7 @@ Some tasks need packages that the core does not:
 
 | Extra | Installs | Needed for |
 | --- | --- | --- |
-| `3d` | PyMCubes, pycollada, trimesh, Open3D | Meshes as occupancy volumes (`OccupancyCoordinateDataset` on a mesh file), exporting and rendering reconstructed meshes |
+| `3d` | PyMCubes, pycollada, trimesh, Open3D | Meshes as occupancy volumes (`OccupancyCoordinateDataset` on a mesh file), exporting and rendering reconstructed meshes. trimesh is pinned to 5.1.1, which voxelized the benchmark's meshes: other versions move the grids, and IoU by up to 0.2 points |
 | `nerf` | nerfacc, imageio | CUDA occupancy-grid ray marching (a pure-PyTorch renderer is built in), writing novel-view videos |
 | `dev` | black, pytest, pyinstrument | Formatting, the test suite, profiling |
 | `docs` | mkdocs-material, mkdocstrings | Building this site |

@@ -1,7 +1,9 @@
 """Training losses and differentiable entropy estimates.
 
 Loss functions follow ``loss_fn(batch, model) -> (loss, metrics)``: they run
-the model on ``batch["input"]`` and return scalar loss and logging values.
+the model on ``batch["input"]`` and return a scalar loss and logging values,
+kept as scalar tensors so that :func:`~neurofield.train` reads them only when
+it logs.
 """
 
 import math
@@ -82,7 +84,7 @@ def rate_distortion_loss(
     model: nn.Module,
     alpha: float = 0.0,
     eps: float = 1e-16,
-) -> tuple[Tensor, dict[str, float]]:
+) -> tuple[Tensor, dict[str, Tensor]]:
     """Balance reconstruction MSE with estimated parameter entropy.
 
     The loss is ``MSE + alpha * entropy``, where entropy is the size-weighted
@@ -96,16 +98,16 @@ def rate_distortion_loss(
         eps: Stability constant passed to :func:`laplace_entropy`.
 
     Returns:
-        Scalar loss and float metrics: ``mse``, ``psnr`` (for targets in
-        ``[-1, 1]``), ``loss``, and ``entropy`` when ``alpha > 0``.
+        Scalar loss and metrics as scalar tensors: ``mse``, ``psnr`` (for
+        targets in ``[-1, 1]``), ``loss``, and ``entropy`` when ``alpha > 0``.
     """
     output = model(batch["input"])
     target = batch["target"]
-    metrics: dict[str, float] = {}
+    metrics: dict[str, Tensor] = {}
 
     mse = F.mse_loss(output, target)
-    metrics["mse"] = mse.detach().item()
-    metrics["psnr"] = 10 * math.log10(4.0 / metrics["mse"])
+    metrics["mse"] = mse.detach()
+    metrics["psnr"] = 10 * torch.log10(4.0 / metrics["mse"])
 
     if alpha > 0:
         entropy = 0
@@ -119,18 +121,18 @@ def rate_distortion_loss(
 
         entropy /= total_params
         loss = mse + alpha * entropy
-        metrics["entropy"] = entropy.detach().item()
+        metrics["entropy"] = entropy.detach()
     else:
         loss = mse
 
-    metrics["loss"] = loss.detach().item()
+    metrics["loss"] = loss.detach()
     return loss, metrics
 
 
 def sdf_loss(
     batch: dict[str, Any], model: nn.Module
-) -> tuple[Tensor, dict[str, float]]:
-    """Return L1 signed-distance loss and float metrics ``loss`` and ``l1``.
+) -> tuple[Tensor, dict[str, Tensor]]:
+    """Return L1 signed-distance loss and the metrics ``loss`` and ``l1``.
 
     Evaluates ``model(batch["input"])`` against ``batch["target"]``.
     """
@@ -138,5 +140,5 @@ def sdf_loss(
     target = batch["target"]
 
     loss = F.l1_loss(output, target)
-    value = loss.item()
+    value = loss.detach()
     return loss, {"loss": value, "l1": value}

@@ -77,6 +77,9 @@ def test_image_training_evaluation_and_checkpoint(tmp_path, quantize):
 
     history = results["history"]
     assert len(history) == 6
+    # The loss leaves its metrics on the device; the records hold numbers.
+    assert all(type(entry["mse"]) is float for entry in history)
+    assert 0 < history[0]["elapsed"] <= history[-1]["elapsed"]
     assert history[-1]["mse"] < history[0]["mse"]
     assert np.isfinite(history[-1]["eval"]["psnr"])
     assert (tmp_path / "image_reconstructed.png").exists()

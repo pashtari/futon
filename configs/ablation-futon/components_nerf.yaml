@@ -22,6 +22,7 @@ train:
   num_steps: 37500
   num_rays: 4096
   max_samples_per_ray: 1024
+  color_lr: null
   log_interval: 100
   eval_interval: 2500
   seed: 0

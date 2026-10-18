@@ -178,8 +178,9 @@ def test_blender_train_split_and_radius():
 
 
 @pytest.mark.skipif(not DATA_ROOT.exists(), reason="Blender lego scene not present")
-def test_train_loop_runs_and_loss_is_finite():
-    """A few optimizer steps must run end to end and produce a finite loss."""
+def test_train_loop_runs_and_loss_is_finite(tmp_path):
+    """A few optimizer steps must run end to end and produce a finite loss,
+    and the saved run must restore the occupancy grid it was scored with."""
     torch.manual_seed(0)
     dataset = nf.nerf.BlenderDataset(DATA_ROOT, split="train", downsample=4, skip=4)
     field = _field(DENSITY_NETS["FUTON-lanczos"], aabb=dataset.aabb)
@@ -197,8 +198,16 @@ def test_train_loop_runs_and_loss_is_finite():
         num_rays=256,
         log_interval=5,
         eval_interval=0,
+        log_dir=tmp_path,
     )
 
     assert result["config"]["skipped_steps"] == 0
     assert (result["config"]["peak_memory"] > 0) == (device == "cuda")
     assert math.isfinite(result["history"][-1]["loss"])
+    restored = nf.nerf.create_renderer(
+        backend="pytorch", aabb=dataset.aabb, near=dataset.near, far=dataset.far
+    )
+    restored.load_state_dict(torch.load(tmp_path / "renderer.pt"))
+    assert not restored.binaries.all()  # the warmup update pruned empty cells
+    assert torch.equal(restored.binaries, renderer.binaries.cpu())
+    assert torch.equal(restored.density_grid, renderer.density_grid.cpu())

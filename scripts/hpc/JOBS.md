@@ -29,6 +29,31 @@ scripts/hpc/train.sh --clusters=accelgor --time=2:00:00 --array=801-900 super_re
   --data data/DIV2K/DIV2K_valid_HR/%4a.png
 ```
 
+## Learning rates
+
+Every model trains at one learning rate from {3e-1, 1e-1, 3e-2, 1e-2, 3e-3,
+1e-3, 3e-4, 1e-4}: the best on the task, with both of its neighbours on the
+grid measured. Images and volumes are chosen on all their signals by the mean
+PSNR or IoU, super-resolution on the three DIV2K training images by the mean
+gain over bicubic, radiance fields on lego's validation views (25 of them),
+never on test views. The benchmark's own rates rerun as the benchmark; each
+neighbour runs into `logs/tune-lr/<task>/<lr>/`, and a model whose neighbour
+wins moves one step further until both sides lose:
+
+```bash
+# The image models with a neighbour at 1e-2, one Kodak image per array task:
+models=(WIRE TensoRF GA-Planes FUTON-sinc FUTON-lanczos)
+scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 --array=1-24 image \
+  --data data/Kodak/kodim%2a.png --models "${models[@]}" \
+  --set $(printf "models.%s.train.lr=1.0e-2 " "${models[@]}") --log-dir logs/tune-lr/image/1.0e-2
+```
+
+The radiance fields share one colour network, which by default learns at the
+density network's rate, so that a sine network's colour network learned at
+3e-4. `train.color_lr` gives it a rate of its own; each model is run at 3e-3,
+1e-2 and 3e-2 (and at its own rate where that is lower) before its density
+rate is tuned at the chosen colour rate.
+
 ## FUTON ablations
 
 Four studies on the image task, each a config in `configs/ablation-futon/`

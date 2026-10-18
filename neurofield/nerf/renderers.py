@@ -192,24 +192,22 @@ class PyTorchRenderer(VolumeRenderer):
 
     Attributes:
         density_grid: ``(G, G, G)`` running cell densities, where
-            ``G = grid_resolution``. Non-persistent buffer.
+            ``G = grid_resolution``.
         binaries: Boolean occupancy mask of the same shape, named to match
-            nerfacc's estimator. Non-persistent buffer.
+            nerfacc's estimator.
+
+    Both are buffers in the renderer's state dict, as nerfacc's are, so a
+    saved run renders with the grid it was scored with.
     """
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         resolution = self.grid_resolution
-        # Rebuild occupancy for the scene box instead of restoring a stale grid.
         self.register_buffer(
-            "density_grid",
-            torch.zeros(resolution, resolution, resolution),
-            persistent=False,
+            "density_grid", torch.zeros(resolution, resolution, resolution)
         )
         self.register_buffer(
-            "binaries",
-            torch.ones(resolution, resolution, resolution, dtype=torch.bool),
-            persistent=False,
+            "binaries", torch.ones(resolution, resolution, resolution, dtype=torch.bool)
         )
 
     @torch.no_grad()

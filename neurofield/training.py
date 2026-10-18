@@ -22,18 +22,18 @@ from .utils import _average_dicts, count_parameters, setup_experiment_loggers
 __all__ = ["train", "train_epoch"]
 
 LossFn: TypeAlias = Callable[
-    [dict[str, Any], nn.Module], tuple[Tensor, dict[str, float]]
+    [dict[str, Any], nn.Module], tuple[Tensor, dict[str, float | Tensor]]
 ]
 
 
-def _mse_metrics(mse: Tensor) -> dict[str, float]:
-    """The MSE and the PSNR of targets in ``[-1, 1]``, as floats."""
-    return {"mse": mse.item(), "psnr": (10 * torch.log10(4.0 / mse)).item()}
+def _mse_metrics(mse: Tensor) -> dict[str, Tensor]:
+    """The MSE and the PSNR of targets in ``[-1, 1]``, left on the device."""
+    return {"mse": mse, "psnr": 10 * torch.log10(4.0 / mse)}
 
 
 def _mse_loss(
     batch: dict[str, Any], model: nn.Module
-) -> tuple[Tensor, dict[str, float]]:
+) -> tuple[Tensor, dict[str, Tensor]]:
     """Default reconstruction loss, with PSNR for targets in ``[-1, 1]``."""
     mse = F.mse_loss(model(batch["input"]), batch["target"])
     return mse, _mse_metrics(mse.detach())
@@ -54,7 +54,8 @@ def train_epoch(
     left out (zero off CUDA).
 
     Tensor entries without an underscore-prefixed key are moved to ``device``.
-    ``loss_fn(batch, model)`` returns a scalar loss and float metrics. Optimizer
+    ``loss_fn(batch, model)`` returns a scalar loss and metrics, floats or
+    scalar tensors; tensors are returned as they are, unread. Optimizer
     and scheduler each step once per batch. A block coordinate descent solver,
     :class:`~neurofield.models.futon_solvers.BCD`, fits each batch itself and
     reports its squared error instead, so ``loss_fn`` is not called. The model
@@ -137,6 +138,8 @@ def train(
         eval_dataset: Evaluation dataset; ``None`` or empty uses ``train_dataset``.
         loss_fn: Called as ``loss_fn(batch, model) -> (loss, metrics)``.
             ``None`` uses MSE and logs PSNR assuming targets in ``[-1, 1]``.
+            Metrics may stay scalar tensors: they are read only when logged,
+            so that no step waits for the GPU.
         batch_size: Training batch size.
         num_epochs: Number of training epochs.
         optimizer: Steps once per batch, its learning rate under the cosine
@@ -175,8 +178,9 @@ def train(
         device, drawing its batch and evaluations left out (zero off CUDA),
         ``model_dict`` with final parameters
         (integer codes and scales when quantized), and ``history`` with one
-        record per logged epoch. Records contain last-batch training metrics
-        and averaged evaluation metrics under ``eval`` when evaluated.
+        record per logged epoch. Records contain ``elapsed``, the seconds spent
+        training so far (evaluating and logging left out), last-batch training
+        metrics, and averaged evaluation metrics under ``eval`` when evaluated.
     """
     logger, json_logger = setup_experiment_loggers(log_dir, __name__, mode="w")
     config: dict[str, Any] = {}
@@ -263,11 +267,11 @@ def train(
 
     history: list[dict[str, Any]] = []
 
+    cuda = torch.device(device).type == "cuda"
     elapsed_time = 0.0
     peak_memory = 0
+    start_time = time.perf_counter()
     for epoch in progress_bar:
-        epoch_start_time = time.time()
-
         epoch_results = train_epoch(
             model=model,
             dataloader=train_dataloader,
@@ -279,22 +283,27 @@ def train(
 
         if quantize and quant_interval > 0 and epoch % quant_interval == 0:
             model, _ = uniform_quantize(model, quant_max)
-
-        if torch.device(device).type == "cuda":
-            # CUDA kernels run asynchronously; wait so timings are wall-clock.
-            torch.cuda.synchronize(device)
-        epoch_duration = time.time() - epoch_start_time
-        elapsed_time += epoch_duration
         peak_memory = max(peak_memory, epoch_results.pop("peak_memory"))
 
+        eval_now = eval_interval > 0 and epoch % eval_interval == 0
+        log_now = log_interval > 0 and epoch % log_interval == 0
+        if not (eval_now or log_now):
+            continue  # no host sync, so the GPU never waits for Python
+
+        if cuda:
+            # CUDA kernels run asynchronously; wait so timings are wall-clock.
+            torch.cuda.synchronize(device)
+        elapsed_time += time.perf_counter() - start_time
         results = {
             "epoch": epoch,
             "elapsed": elapsed_time,
-            "duration": epoch_duration,
-            **epoch_results,
+            **{
+                key: value.item() if isinstance(value, Tensor) else value
+                for key, value in epoch_results.items()
+            },
         }
 
-        if eval_interval > 0 and epoch % eval_interval == 0:
+        if eval_now:
             if quantize:
                 eval_model, model_dict = uniform_quantize(
                     copy.deepcopy(model), quant_max
@@ -316,7 +325,7 @@ def train(
             )
             results["eval"] = _average_dicts(eval_results["history"])
 
-        if log_interval > 0 and epoch % log_interval == 0:
+        if log_now:
             bar_metrics = {
                 name: f"{value:.4f}"
                 for name, value in results.items()
@@ -337,6 +346,7 @@ def train(
             )
             json_logger.log(results)
             history.append(results)
+        start_time = time.perf_counter()  # evaluating and logging is not training
 
     logger.info("Training completed")
     logger.info("Peak training memory: %.1f MB", peak_memory / 1e6)

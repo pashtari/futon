@@ -24,6 +24,7 @@ node, so a shared job can write it elsewhere with --out-dir logs/memory.
 
 import argparse
 import json
+import random
 import statistics
 import time
 from collections.abc import Callable
@@ -32,6 +33,7 @@ from pathlib import Path
 import report_paper as report
 import torch
 from report_paper import field_and_renderer
+from train_common import compile_model, provenance
 
 import neurofield as nf
 
@@ -42,15 +44,16 @@ CHUNK = 262_144  # coordinates per forward pass, as configs/occupancy.yaml and
 def timed(calls: dict[str, Callable[[], object]], repeats: int) -> dict[str, float]:
     """Median seconds of each call, after two warm-ups, synchronized on CUDA.
 
-    The calls take turns, each round starting one later, so a model's time
+    The calls take turns in a new random order each round, so a model's time
     depends neither on the model before it nor on when in the job it ran (two
     identical networks timed one after the other differed by 12 %).
     """
     names = list(calls)
     durations = {name: [] for name in names}
-    for turn in range(repeats + 2):
-        shift = turn % len(names)
-        for name in names[shift:] + names[:shift]:
+    order = random.Random(0)
+    for _ in range(repeats + 2):
+        order.shuffle(names)
+        for name in names:
             torch.cuda.synchronize()
             start = time.perf_counter()
             calls[name]()
@@ -70,12 +73,14 @@ def peak_memory(call: Callable[[], object], device: torch.device) -> int:
 
 
 def image_inference(
-    run: dict, path: Path, device, chunk_size: int | None = None
+    run: dict, path: Path, device, compile: bool, chunk_size: int | None = None
 ) -> tuple[Callable, int]:
     """Render the image from its coordinates, as the benchmark scores it: the
     Kodak images in one pass, and the DIV2K ones in chunks of CHUNK pixels."""
     dataset = nf.ImageCoordinateDataset(path)
     model = report.load_model(run, 2, 3, device)
+    if compile:
+        compile_model(model)
     coords = dataset.input.to(device)
     return (
         lambda: nf.chunked_inference(
@@ -85,11 +90,15 @@ def image_inference(
     )
 
 
-def occupancy_inference(run: dict, path: Path, device) -> tuple[Callable, int]:
+def occupancy_inference(
+    run: dict, path: Path, device, compile: bool
+) -> tuple[Callable, int]:
     """Evaluate the whole volume in chunks, as the benchmark scores it."""
     config = report.model_config(run)
     dataset = nf.OccupancyCoordinateDataset(path, **config["data"] | {"subsample": 1.0})
     model = report.load_model(run, 3, 1, device)
+    if compile:
+        compile_model(model)
     coords = dataset.input.to(device)
     return (
         lambda: nf.chunked_inference(model, coords, chunk_size=CHUNK, device=device),
@@ -97,17 +106,21 @@ def occupancy_inference(run: dict, path: Path, device) -> tuple[Callable, int]:
     )
 
 
-def nerf_inference(run: dict, path: Path, device) -> tuple[Callable, int]:
+def nerf_inference(
+    run: dict, path: Path, device, compile: bool
+) -> tuple[Callable, int]:
     """Render one test view, as the benchmark scores it.
 
-    ``field_and_renderer`` rebuilds the occupancy grid from the checkpointed
-    field, so the timing covers rendering alone.
+    ``field_and_renderer`` restores the run's occupancy grid, so the timing
+    covers rendering alone, with the grid the run was scored with.
     """
     config = report.model_config(run)
     dataset = nf.nerf.BlenderDataset(
         path, "test", downsample=config["data"]["downsample"]
     )
     field, renderer = field_and_renderer(run, config, dataset, device)
+    if compile:
+        compile_model(field)
     batch = dataset[0]
     background = dataset.background.to(device)
 
@@ -120,15 +133,19 @@ def nerf_inference(run: dict, path: Path, device) -> tuple[Callable, int]:
     return render, batch["rays_o"][..., 0].numel()
 
 
-def super_resolution_inference(run: dict, path: Path, device) -> tuple[Callable, int]:
+def super_resolution_inference(
+    run: dict, path: Path, device, compile: bool
+) -> tuple[Callable, int]:
     """Render the high-resolution image, as the benchmark scores it.
 
     Deep Image Prior renders it from its fixed noise; the interpolations are
     not timed here, their own evaluation already times PIL alone.
     """
     if run["setup"].get("class") != "DIPSkip":
-        return image_inference(run, path, device, CHUNK)
+        return image_inference(run, path, device, compile, CHUNK)
     model, noise = report.load_dip(run, path, device)
+    if compile:
+        compile_model(model)
     noise = noise.to(device)
     return (
         lambda: nf.chunked_inference(model, noise, device=device),
@@ -159,6 +176,9 @@ def main() -> None:
         "--models", nargs="+", help="profile these alone, kept beside the others"
     )
     parser.add_argument("--repeats", type=int, default=20)
+    parser.add_argument(
+        "--compile", action="store_true", help="compile each model with torch.compile"
+    )
     parser.add_argument("--log-dir", type=Path, default=report.ROOT / "logs")
     parser.add_argument("--out-dir", type=Path, default=report.ROOT / "logs" / "speed")
     parser.add_argument(
@@ -169,6 +189,7 @@ def main() -> None:
     if device.type == "cuda":
         print(torch.cuda.get_device_name(device), flush=True)
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    origin = provenance(device)
 
     for task in args.tasks:
         signal = report.PROFILED[task]
@@ -186,7 +207,8 @@ def main() -> None:
         calls, points, memory = {}, {}, {}
         for run in sorted(runs, key=lambda run: run["model"]):
             name = run["model"]
-            calls[name], points[name] = INFERENCE[task](run, path, device)
+            calls[name], points[name] = INFERENCE[task](run, path, device, args.compile)
+            calls[name]()  # once first: compiling and one-off allocations go unmeasured
             memory[name] = peak_memory(calls[name], device)
         for name, seconds in timed(calls, args.repeats).items():
             measured[name] = {
@@ -194,6 +216,8 @@ def main() -> None:
                 "points": points[name],
                 "rate": points[name] / seconds,
                 "memory": memory[name],
+                "compiled": args.compile,
+                "provenance": origin,  # per model, as --models adds to a file
             }
             print(
                 f"  {name:14} {1000 * seconds:8.1f} ms"

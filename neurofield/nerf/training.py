@@ -35,6 +35,7 @@ def train(
     num_rays: int = 4096,
     max_samples_per_ray: int | None = 1024,
     lr: float = 1e-2,
+    color_lr: float | None = None,
     weight_decay: float = 0.0,
     adam_betas: tuple[float, float] = (0.9, 0.99),
     adam_eps: float = 1e-15,
@@ -63,6 +64,9 @@ def train(
         max_samples_per_ray: Cap on occupied samples per ray, front to back;
             ``None`` disables it. Overrides the renderer's constructor setting.
         lr: Initial learning rate, decayed exponentially to ``0.1 * lr``.
+        color_lr: Initial learning rate of the field's ``color_net``, decayed
+            alike, so that a color network shared by several density networks
+            can keep its own; ``None`` uses ``lr``.
         weight_decay: Adam weight decay.
         adam_betas: Adam moment decay rates.
         adam_eps: Adam epsilon.
@@ -77,8 +81,9 @@ def train(
         log_interval: Steps between history entries. Final and evaluation
             steps are always recorded; non-positive values record only those.
         device: Compute device; ``None`` selects CUDA if available, else CPU.
-        log_dir: Directory for ``log.txt``, ``log.json``, and the field's final
-            ``checkpoint.pt``. ``None`` logs only to the console.
+        log_dir: Directory for ``log.txt``, ``log.json``, the field's final
+            ``checkpoint.pt``, and ``renderer.pt``, the renderer's state with
+            its occupancy grid. ``None`` logs only to the console.
         seed: Seed passed to ``torch.manual_seed`` before training, after the
             supplied field and renderer have already been constructed.
 
@@ -115,6 +120,7 @@ def train(
         "num_rays": num_rays,
         "max_samples_per_ray": max_samples_per_ray,
         "lr": lr,
+        "color_lr": color_lr,
         "weight_decay": weight_decay,
         "adam_betas": tuple(adam_betas),
         "adam_eps": adam_eps,
@@ -132,8 +138,15 @@ def train(
     }
     logger.info("Model: %s (%d params)", config["density_net"], num_parameters)
 
+    groups = [{"params": field.parameters()}]
+    if color_lr is not None:
+        named = field.named_parameters()
+        groups = [
+            {"params": [p for n, p in named if not n.startswith("color_net.")]},
+            {"params": field.color_net.parameters(), "lr": color_lr},
+        ]
     optimizer = torch.optim.Adam(
-        field.parameters(),
+        groups,
         lr=lr,
         betas=adam_betas,
         eps=adam_eps,
@@ -153,10 +166,10 @@ def train(
     resident = torch.cuda.memory_allocated(device) if cuda else 0
     peak_memory = 0
 
+    start_time = time.perf_counter()
     for step in progress:
         if cuda:  # each step's own peak, so that evaluations are left out
             torch.cuda.reset_peak_memory_stats(device)
-        start_time = time.time()
 
         # Step zero initializes nerfacc's initially empty occupancy grid.
         renderer.update_occupancy(field, step - 1)
@@ -184,9 +197,6 @@ def train(
         scheduler.step()
 
         if cuda:
-            torch.cuda.synchronize(device)
-        elapsed += time.time() - start_time
-        if cuda:
             peak = torch.cuda.max_memory_allocated(device) - resident
             peak_memory = max(peak_memory, peak)
 
@@ -198,40 +208,47 @@ def train(
             and eval_interval > 0
             and (step % eval_interval == 0 or step == num_steps)
         )
-        if should_log or should_eval:
-            mse = loss.detach().item()
-            entry: dict[str, Any] = {
-                "step": step,
-                "elapsed": elapsed,
-                "loss": mse,
-                "psnr": 10.0 * torch.log10(torch.tensor(1.0 / max(mse, 1e-12))).item(),
-                "num_samples": result["num_samples"],
+        if not (should_log or should_eval):
+            continue  # no host sync, so the GPU never waits for Python
+
+        if cuda:
+            # CUDA kernels run asynchronously; wait so timings are wall-clock.
+            torch.cuda.synchronize(device)
+        elapsed += time.perf_counter() - start_time
+        mse = loss.detach().item()
+        entry: dict[str, Any] = {
+            "step": step,
+            "elapsed": elapsed,
+            "loss": mse,
+            "psnr": 10.0 * torch.log10(torch.tensor(1.0 / max(mse, 1e-12))).item(),
+            "num_samples": result["num_samples"],
+        }
+        if should_eval:
+            eval_result = evaluate(
+                field,
+                renderer,
+                eval_dataset,
+                indices=eval_indices,
+                metrics=metrics,
+            )
+            entry["eval"] = eval_result["mean"]
+        progress.set_postfix(
+            {
+                key: f"{value:.4f}"
+                for key, value in entry.items()
+                if isinstance(value, float) and key != "elapsed"
             }
-            if should_eval:
-                eval_result = evaluate(
-                    field,
-                    renderer,
-                    eval_dataset,
-                    indices=eval_indices,
-                    metrics=metrics,
-                )
-                entry["eval"] = eval_result["mean"]
-            progress.set_postfix(
-                {
-                    key: f"{value:.4f}"
-                    for key, value in entry.items()
-                    if isinstance(value, float) and key != "elapsed"
-                }
-            )
-            logger.info(
-                "Training - Step [%d/%d] - loss=%.5f psnr=%.2f",
-                step,
-                num_steps,
-                entry["loss"],
-                entry["psnr"],
-            )
-            json_logger.log(entry)
-            history.append(entry)
+        )
+        logger.info(
+            "Training - Step [%d/%d] - loss=%.5f psnr=%.2f",
+            step,
+            num_steps,
+            entry["loss"],
+            entry["psnr"],
+        )
+        json_logger.log(entry)
+        history.append(entry)
+        start_time = time.perf_counter()  # evaluating and logging is not training
 
     logger.info("Training completed in %.1f s", elapsed)
     if skipped_steps:
@@ -247,6 +264,9 @@ def train(
     if log_dir:
         checkpoint_path = os.path.join(log_dir, "checkpoint.pt")
         torch.save(field.state_dict(), checkpoint_path)
+        # The grid decides which samples a render queries, so a render of the
+        # saved field needs the grid the run was scored with.
+        torch.save(renderer.state_dict(), os.path.join(log_dir, "renderer.pt"))
         logger.info("Saved checkpoint to %s", checkpoint_path)
 
     return {"config": config, "model_dict": field.state_dict(), "history": history}

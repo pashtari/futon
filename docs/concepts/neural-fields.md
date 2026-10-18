@@ -49,7 +49,7 @@ Datasets also provide `preprocess` (native values to targets), `postprocess` (mo
 - **Quantization.** With `quantize=True`, evaluation uses a uniformly quantized copy of the model (`quant_max` levels), optional fake-quantization steps run every `quant_interval` epochs, and the final model is quantized in place. See the [compression tutorial](../tutorials/compression.md).
 - **Logging.** `log_dir` receives `log.txt`, `log.json`, the reconstructions of each evaluation, and `checkpoint.pt`; `ckpt_path` loads a state dict before training.
 
-The return value is `{"config", "model_dict", "history"}`: the settings that were logged, the final parameters, and one record per logged epoch with the last batch's training metrics and, when the epoch was evaluated, the mean evaluation metrics under `"eval"`. The records are plain dictionaries, so `pd.DataFrame(result["history"])` gives a learning curve.
+The return value is `{"config", "model_dict", "history"}`: the settings that were logged, the final parameters, and one record per logged epoch with the seconds spent training so far (`elapsed`, evaluations and logging left out), the last batch's training metrics and, when the epoch was evaluated, the mean evaluation metrics under `"eval"`. The records are plain dictionaries, so `pd.DataFrame(result["history"])` gives a learning curve.
 
 ## Evaluation and inference
 

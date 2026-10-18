@@ -1231,11 +1231,11 @@ def render_occupancy(signal: str, runs: list[dict], directory: Path, device) -> 
 def field_and_renderer(run: dict, config: dict, dataset, device):
     """Rebuild a run's radiance field and its renderer, occupancy grid included.
 
-    Only the field is checkpointed, and a fresh renderer starts fully
-    occupied, so the grid is rebuilt from the field as training's warmup did.
-    Without it, the faint density a model leaves in empty space, which the
-    grid pruned when the run was scored, is sampled everywhere and rendered
-    as fog: a sine network then looks far worse than its PSNR says.
+    The grid comes from the run's ``renderer.pt``. Runs from before it was
+    saved checkpointed only the field, so their grid is rebuilt from the field
+    as training's warmup did: a fresh renderer starts fully occupied, and the
+    faint density a model leaves in empty space, which the grid pruned when
+    the run was scored, would be sampled everywhere and rendered as fog.
     """
     field = nf.nerf.RadianceField(
         density_net=rebuild(run), aabb=dataset.aabb, **config["field"]
@@ -1249,6 +1249,10 @@ def field_and_renderer(run: dict, config: dict, dataset, device):
         far=dataset.far,
     )
     field, renderer = field.to(device), renderer.to(device)
+    grid = run["directory"] / "renderer.pt"
+    if grid.exists():
+        renderer.load_state_dict(torch.load(grid, map_location=device))
+        return field, renderer
     with torch.no_grad():
         for step in range(renderer.warmup_steps + renderer.update_interval):
             renderer.update_occupancy(field, step)
