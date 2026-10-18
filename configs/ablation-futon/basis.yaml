@@ -17,7 +17,7 @@ models:
   FUTON-cosine:
     class: FUTON
     kwargs:
-      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 2, W // 2]}]
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
@@ -35,7 +35,7 @@ models:
   FUTON-sinc:
     class: FUTON
     kwargs:
-      basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
+      basis: [sinc, {num_components: [H // 2, W // 2]}]
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh

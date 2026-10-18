@@ -23,7 +23,7 @@ Each benchmark model holds about 195k parameters. FUTON's basis size follows the
 ```python
 futon = nf.FUTON(
     2, 3,
-    basis=("sinc", {"num_components": [H // 2, W // 2], "grid_size": [H, W]}),
+    basis=("sinc", {"num_components": [H // 2, W // 2]}),
     combiner=("cp", {"rank": 224}),
     decoder=("mlp", {"hidden_layers": 1}),
     output_activation=torch.tanh,

@@ -274,14 +274,6 @@ class TestSparseEqualsDense:
         for d, s in zip(dense, sparse):
             assert torch.allclose(s.to_dense(), d, atol=1e-5)
 
-    def test_grid_cache_matches(self):
-        """Dense mode's on-grid lookup table stays exact."""
-        K = 32
-        basis = LanczosBasis(1, K, radius=2, sparse=False, grid_size=K)
-        plain = LanczosBasis(1, K, radius=2, sparse=False)
-        x = torch.cat([torch.linspace(-1, 1, K), torch.rand(50) * 2 - 1]).unsqueeze(-1)
-        assert torch.allclose(basis(x)[0], plain(x)[0], atol=1e-6)
-
 
 class TestCombiners:
     @pytest.mark.parametrize("device", DEVICES)
@@ -306,7 +298,7 @@ class TestCombiners:
         combiner = TuckerCombiner([7, 6, 5], rank=[3, 4, 2])
         assert combiner.core.shape == (3, 4, 2, 4)  # out_features: the largest rank
         features = [torch.randn(10, width) for width in (7, 6, 5)]
-        a, b, c = (linear(f) for linear, f in zip(combiner.linears, features))
+        a, b, c = (f @ factor for factor, f in zip(combiner.factors, features))
         expected = torch.einsum("na,nb,nc,abco->no", a, b, c, combiner.core)
         assert torch.allclose(combiner(features), expected, atol=1e-5)
 
@@ -318,18 +310,6 @@ class TestCombiners:
         dense = LanczosBasis(C, K, radius=2, sparse=False).to(device)(x)
         sparse = LanczosBasis(C, K, radius=2, sparse=True).to(device)(x)
         assert torch.allclose(combiner(sparse), combiner(dense), atol=1e-6)
-
-    @pytest.mark.parametrize("device", DEVICES)
-    def test_cp_with_bias(self, device):
-        torch.manual_seed(0)
-        K, C = 24, 2
-        x = torch.rand(64, C, device=device) * 2 - 1
-        combiner = CPCombiner([K] * C, rank=6, bias=True).to(device)
-        for linear in combiner.linears:
-            nn.init.normal_(linear.bias)
-        dense = LanczosBasis(C, K, radius=2, sparse=False).to(device)(x)
-        sparse = LanczosBasis(C, K, radius=2, sparse=True).to(device)(x)
-        assert torch.allclose(combiner(sparse), combiner(dense), atol=1e-5)
 
     @pytest.mark.parametrize("device", DEVICES)
     def test_gradients_match(self, device):
@@ -404,6 +384,133 @@ class TestFuton:
             opt.step()
             losses.append(loss.item())
         assert losses[-1] < 0.6 * losses[0]
+
+
+def grid_points(sizes, count=None, dtype=torch.float64):
+    """The points of ``linspace(-1, 1, size)`` per axis, as a coordinate dataset
+    has them, or ``count`` of them at random, as a training batch draws them."""
+    axes = [torch.linspace(-1.0, 1.0, size).to(dtype) for size in sizes]
+    points = torch.stack(torch.meshgrid(*axes, indexing="ij"), dim=-1)
+    if count is None:
+        return points
+    points = points.reshape(-1, len(sizes))
+    return points[torch.randperm(len(points))[:count]]
+
+
+def per_point(model, x):
+    """FUTON with each point's dense features of its own, shared with no other."""
+    points = x.reshape(-1, model.in_features)
+    basis = model.basis
+    features = [basis.axis_features(xc, c) for c, xc in enumerate(points.unbind(-1))]
+    out = model.output_activation(model.decoder(model.combiner(features)))
+    return out.reshape(*x.shape[:-1], model.out_features)
+
+
+def shares_rows(model, x):
+    """Whether the basis gives the points of ``x`` shared rows of a table."""
+    features = model.basis(x.reshape(-1, model.in_features))
+    return all(isinstance(f, RCSMatrix) and f.table is not None for f in features)
+
+
+class TestGridEvaluation:
+    """On a grid, a dense basis evaluates each distinct coordinate once."""
+
+    @staticmethod
+    def model(sizes, basis, combiner, device, **basis_kwargs):
+        torch.manual_seed(0)
+        model = FUTON(
+            len(sizes),
+            3,
+            (basis, {"num_components": 8, **basis_kwargs}),
+            combiner,
+            ("mlp", {"hidden_layers": 1}),
+            torch.tanh,
+        )
+        for parameter in model.parameters():  # the biases too, which start at zero
+            nn.init.normal_(parameter, std=0.3)
+        return model.double().to(device)
+
+    @pytest.mark.parametrize("device", DEVICES)
+    @pytest.mark.parametrize("sizes", [(9, 12), (5, 6, 7)])
+    @pytest.mark.parametrize(
+        "combiner",
+        [
+            ("cp", {"rank": 6}),
+            ("tr", {"rank": 3}),
+            ("tucker", {"rank": 4}),
+            "hadamard",
+        ],
+    )
+    @pytest.mark.parametrize("basis", ["cosine", "sinc", "chebyshev", "legendre"])
+    def test_matches_per_point(self, device, basis, combiner, sizes):
+        model = self.model(sizes, basis, combiner, device)
+        x = grid_points(sizes, count=60).to(device)
+        assert shares_rows(model, x)
+        out, ref = model(x), per_point(model, x)
+        torch.testing.assert_close(out, ref, rtol=1e-12, atol=1e-12)
+        params = list(model.parameters())
+        grads = torch.autograd.grad(out.square().sum(), params)
+        expected = torch.autograd.grad(ref.square().sum(), params)
+        for got, want in zip(grads, expected):
+            torch.testing.assert_close(got, want, rtol=1e-10, atol=1e-12)
+
+    @pytest.mark.parametrize("device", DEVICES)
+    @pytest.mark.parametrize(
+        "basis, basis_kwargs",
+        [("sinc", {}), ("lanczos", {"radius": 2, "sparse": False})],
+        ids=["sinc", "dense-lanczos"],
+    )
+    def test_whole_grid(self, device, basis, basis_kwargs):
+        model = self.model((9, 12), basis, ("cp", {"rank": 6}), device, **basis_kwargs)
+        x = grid_points((9, 12)).to(device)
+        out = model(x)
+        assert shares_rows(model, x) and out.shape == (9, 12, 3)
+        torch.testing.assert_close(out, per_point(model, x), rtol=1e-12, atol=1e-12)
+
+    @pytest.mark.parametrize("device", DEVICES)
+    def test_scattered_points_are_evaluated_one_by_one(self, device):
+        model = self.model((9, 12), "sinc", ("cp", {"rank": 6}), device)
+        x = (torch.rand(60, 2, dtype=torch.float64) * 2 - 1).to(device)
+        assert not any(isinstance(f, RCSMatrix) for f in model.basis(x))
+        out, ref = model(x), per_point(model, x)
+        torch.testing.assert_close(out, ref, rtol=1e-12, atol=1e-12)
+
+    @pytest.mark.parametrize("device", DEVICES)
+    @pytest.mark.parametrize("basis", ["triangle", "lanczos"])
+    def test_sparse_bases_keep_their_taps(self, device, basis):
+        model = self.model((9, 12), basis, ("cp", {"rank": 6}), device)
+        x = grid_points((9, 12), count=60).to(device)
+        assert all(f.table is None for f in model.basis(x))
+        out, ref = model(x), per_point(model, x)
+        torch.testing.assert_close(out, ref, rtol=1e-10, atol=1e-12)
+
+    def test_batches_with_a_shape_are_evaluated_one_by_one(self):
+        basis = SincBasis(2, 8)
+        x = grid_points((9, 12))  # (9, 12, 2)
+        assert not any(isinstance(f, RCSMatrix) for f in basis(x))
+        assert all(isinstance(f, RCSMatrix) for f in basis(x.reshape(-1, 2)))
+
+    @pytest.mark.parametrize("device", DEVICES)
+    def test_coordinate_gradients(self, device):
+        model = self.model((9, 12), "sinc", ("cp", {"rank": 6}), device)
+        x = grid_points((9, 12), count=60).to(device).requires_grad_()
+        assert not shares_rows(model, x)
+        (grad,) = torch.autograd.grad(model(x).sum(), x)
+        (expected,) = torch.autograd.grad(per_point(model, x).sum(), x)
+        torch.testing.assert_close(grad, expected)
+
+    @CUDA
+    def test_gradients_reproduce_bitwise(self):
+        torch.manual_seed(0)
+        basis = SincBasis(2, [16, 24]).cuda()
+        combiner = CPCombiner([16, 24], rank=32).cuda()
+        features = basis(grid_points((40, 50), count=4096, dtype=torch.float32).cuda())
+        grads = []
+        for _ in range(2):
+            combiner.zero_grad()
+            combiner(features).square().sum().backward()
+            grads.append([p.grad.clone() for p in combiner.parameters()])
+        assert all(map(torch.equal, *grads))
 
 
 @pytest.mark.parametrize(

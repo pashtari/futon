@@ -52,11 +52,9 @@ class TestMatmul:
         for out in (
             A @ B,
             A.matmul(B),
+            A.mm(B),
             torch.matmul(A, B),
             torch.mm(A, B),
-            torch.matmul(input=A, other=B),
-            torch.matmul(A, other=B),
-            torch.matmul(A, B, out=None),
         ):
             assert torch.allclose(out, ref, atol=1e-5)
 
@@ -97,14 +95,14 @@ class TestMatmul:
         with pytest.raises(ValueError):
             A @ torch.randn(4, 2)
 
-    def test_real_out_kwarg_raises(self):
+    def test_out_kwarg_raises(self):
         A, _, _ = make_rcs(5, 9, 3)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(TypeError):
             torch.matmul(A, torch.randn(9, 4), out=torch.empty(5, 4))
 
     def test_dense_at_rcs_raises(self):
         A, _, _ = make_rcs(3, 5, 2)
-        with pytest.raises((NotImplementedError, RuntimeError)):
+        with pytest.raises(TypeError):
             torch.randn(4, 3) @ A
 
 
@@ -185,6 +183,80 @@ class TestProduct:
             rcs_product(matrices, [others[0], matrices[1]])
 
 
+def make_rows(table_sizes, M, K, R, device="cpu", dtype=torch.float64, seed=0):
+    """One-tap rows of random tables, as FUTON's bases share a grid, and operands."""
+    g = torch.Generator().manual_seed(seed)
+    matrices, others = [], []
+    for size in table_sizes:
+        table = torch.randn(size, K, generator=g, dtype=dtype).to(device)
+        table.requires_grad_()
+        index = torch.randint(size, (M,), generator=g).to(device)
+        ones = torch.ones(M, 1, dtype=dtype, device=device)
+        matrices.append(RCSMatrix(ones, index, size, table=table))
+        others.append(
+            torch.randn(K, R, generator=g, dtype=dtype).to(device).requires_grad_()
+        )
+    return matrices, others
+
+
+class TestTable:
+    """An RCS matrix times a dense table, kept factored."""
+
+    def test_dense_form(self):
+        A, values, start_cols = make_rcs(6, 9, 3)
+        table = torch.randn(9, 4)
+        T = RCSMatrix(values, start_cols, 9, table=table)
+        assert T.shape == (6, 4)
+        assert torch.allclose(T.to_dense(), A.to_dense() @ table, atol=1e-6)
+        B = torch.randn(4, 5)
+        assert torch.allclose(T @ B, A.to_dense() @ table @ B, atol=1e-5)
+
+    @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=CUDA)])
+    @pytest.mark.parametrize(
+        "table_sizes, M", [([12], 300), ([9, 14], 300), ([5, 6, 7], 1000)]
+    )
+    def test_product_matches_dense(self, device, table_sizes, M):
+        matrices, others = make_rows(table_sizes, M, 8, 24, device)
+        inputs = [m.table for m in matrices] + others
+        out = rcs_product(matrices, others)
+        ref = reduce(mul, (m.table[m.start_cols] @ o for m, o in zip(matrices, others)))
+        assert torch.allclose(out, ref, atol=1e-10)
+        grad = torch.randn_like(out)
+        got = torch.autograd.grad(out, inputs, grad)
+        want = torch.autograd.grad(ref, inputs, grad)
+        assert all(torch.allclose(a, b, atol=1e-9) for a, b in zip(got, want))
+
+    @pytest.mark.parametrize("device", ["cpu", pytest.param("cuda", marks=CUDA)])
+    def test_missing_operands_take_the_matrix(self, device):
+        matrices, _ = make_rows([9, 14], 200, 8, 1, device)
+        ref = reduce(mul, (m.table[m.start_cols] for m in matrices))
+        assert torch.allclose(rcs_product(matrices), ref, atol=1e-12)
+        taps, _, _ = make_rcs(200, 8, 3, device)  # without a table: densified
+        taps = RCSMatrix(taps.values.double(), taps.start_cols, 8)
+        first = matrices[0].table[matrices[0].start_cols]
+        out = rcs_product([matrices[0], taps])
+        assert torch.allclose(out, first * taps.to_dense(), atol=1e-12)
+
+    def test_dense_matrices(self):
+        dense, B = torch.randn(7, 5), torch.randn(5, 3)
+        A, _, _ = make_rcs(7, 9, 2)
+        C = torch.randn(9, 3)
+        out = rcs_product([dense, A], [B, C])
+        assert torch.allclose(out, (dense @ B) * (A.to_dense() @ C), atol=1e-5)
+
+    def test_copies_keep_the_table(self):
+        A, values, start_cols = make_rcs(6, 9, 3)
+        T = RCSMatrix(values, start_cols, 9, table=torch.randn(9, 4))
+        clone = copy.deepcopy(T)
+        assert torch.equal(clone.to_dense(), T.to_dense())
+        assert clone.table is not T.table
+
+    def test_rejects_a_table_of_another_height(self):
+        _, values, start_cols = make_rcs(6, 9, 3)
+        with pytest.raises(ValueError):
+            RCSMatrix(values, start_cols, 9, table=torch.randn(8, 4))
+
+
 class TestToDense:
     def test_layout(self):
         A, values, start_cols = make_rcs(6, 12, 4)
@@ -241,8 +313,10 @@ class TestMetadata:
 
     def test_unsupported_op_raises(self):
         A, _, _ = make_rcs(3, 5, 2)
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(TypeError):
             A + 1
+        with pytest.raises(TypeError):
+            torch.add(A, 1)
 
 
 class TestValidation:

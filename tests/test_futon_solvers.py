@@ -92,9 +92,9 @@ def separable(basis):
         2, 1, [8, 6], 1, basis, signed if basis == "triangle" else None, normalize=False
     )
     with torch.no_grad():
-        for linear, k in zip(truth.combiner.linears, (3, 4)):
-            linear.weight.zero_()
-            linear.weight[0, k] = 1
+        for factor, k in zip(truth.combiner.factors, (3, 4)):
+            factor.zero_()
+            factor[k, 0] = 1
         truth.decoder.weight.fill_(1)
     x = grid((40, 50), 1)["input"]
     return truth, {"input": x, "target": truth(x).detach()}
@@ -107,7 +107,6 @@ class TestSolver:
         for combiner, decoder in [
             (("cp", {"rank": 2}), "linear"),  # a decoder with bias
             (("cp", {"rank": 2}), ("mlp", {"hidden_layers": 1})),
-            (("cp", {"rank": 2, "bias": True}), linear),
             (("tr", {"rank": 2}), linear),
         ]:
             with pytest.raises(ValueError):
@@ -120,7 +119,7 @@ class TestSolver:
         solver = LeastSquares(model, ridge=1e-3, momentum=0.5)
         assert isinstance(solver, torch.optim.Optimizer)
         params = solver.param_groups[0]["params"]
-        assert [tuple(p.shape) for p in params] == [(4, 5), (4, 6), (4, 7), (2, 4)]
+        assert [tuple(p.shape) for p in params] == [(5, 4), (6, 4), (7, 4), (2, 4)]
         assert solver.defaults == {"lr": 0.5, "initialize": True, "ridge": 1e-3}
         solver.step(grid((6, 5, 4), 2))
         state = solver.state_dict()
@@ -180,10 +179,10 @@ class TestSolver:
         solver = LeastSquares(model)
         solver.step(batch)
         x = batch["input"]
-        for c, (u, linear) in enumerate(
-            zip((x[:, 0, 0], x[0, :, 1]), model.combiner.linears)
+        for c, (u, factor) in enumerate(
+            zip((x[:, 0, 0], x[0, :, 1]), model.combiner.factors)
         ):
-            response = model.basis.axis_features(u, c) @ linear.weight.T
+            response = model.basis.axis_features(u, c) @ factor
             assert torch.allclose(
                 response.square().mean(0), torch.ones(3, dtype=DOUBLE)
             )
@@ -205,11 +204,11 @@ class TestLeastSquares:
             with torch.no_grad():
                 features = [
                     (
-                        model.basis.axis_features(u, c) @ linear.weight.T
+                        model.basis.axis_features(u, c) @ factor
                         if c != len(solutions)
                         else model.basis.axis_features(u, c)
                     )
-                    for c, (u, linear) in enumerate(zip(fibers, model.combiner.linears))
+                    for c, (u, factor) in enumerate(zip(fibers, model.combiner.factors))
                 ]
                 weight = model.decoder.weight
                 if (
@@ -338,7 +337,7 @@ class TestMultiplicativeUpdate:
         model = futon(2, 3, 6, 4, "triangle", signed, normalize=False)
         solver = MultiplicativeUpdate(model, momentum=0.0)
         blocks = [
-            *(linear.weight for linear in model.combiner.linears),
+            *model.combiner.factors,
             model.decoder.weight,
         ]
         updates, solve = [], solver.solve
@@ -354,9 +353,7 @@ class TestMultiplicativeUpdate:
                 positive = torch.autograd.grad(0.5 * output.square().sum(), block)[0]
             expected = block.detach() * negative / positive
             result = solve(value, right, gram, left)
-            updates.append(
-                (result, expected.T if block is not blocks[-1] else expected)
-            )
+            updates.append((result, expected))
             return result
 
         solver.solve = recording

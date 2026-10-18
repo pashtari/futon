@@ -27,14 +27,14 @@ The benchmark FUTON uses 128 components per axis, CP rank 218 and a one-layer ML
 ```python
 model = nf.FUTON(
     3, 1,
-    basis=("sinc", {"num_components": 128, "grid_size": 256}),
+    basis=("sinc", {"num_components": 128}),
     combiner=("cp", {"rank": 218}),
     decoder=("mlp", {"hidden_layers": 1}),
     output_activation=torch.tanh,
 )
 ```
 
-The Lanczos variant replaces the basis with `("lanczos", {"num_components": 128, "radius": 3})`; it needs no `grid_size` because sparse mode evaluates its six taps directly. `grid_size=256` tabulates the sinc basis on 256 points per axis; coordinates that fall on them are looked up and the rest are evaluated directly, so it is safe whatever size the cropped volume has.
+The Lanczos variant replaces the basis with `("lanczos", {"num_components": 128, "radius": 3})`, whose sparse mode evaluates only its six taps per point and axis. The sinc basis is dense, so on the voxel grid FUTON evaluates it once per distinct coordinate of each axis, whatever size the cropped volume has.
 
 ## Training and evaluation
 

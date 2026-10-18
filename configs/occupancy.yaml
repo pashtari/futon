@@ -173,7 +173,7 @@ models:
   FUTON-sinc:
     class: FUTON
     kwargs:
-      basis: [sinc, {num_components: 128, grid_size: 256}]
+      basis: [sinc, {num_components: 128}]
       combiner: [cp, {rank: 218}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh

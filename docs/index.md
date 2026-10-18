@@ -84,7 +84,7 @@ rgb = model(torch.rand(4096, 2) * 2 - 1)  # coordinates in [-1, 1]^2 -> (4096, 3
 
 Most implicit neural representations hide their prior in the nonlinearity: sines, Gabor wavelets, Gaussians, or a hash-grid lookup in front of a ReLU network. FUTON puts the prior in the parameterization. The signal is expanded in a fixed, analytic basis along each coordinate axis, and the coefficient tensor of that expansion is kept in low-rank canonical polyadic (CP) form. The model is then a shallow, parallel tensor contraction rather than a deep network:
 
-- **Fast.** One point costs $O(CKR)$ for $C$ axes, $K$ basis functions per axis and rank $R$. A compactly supported basis such as Lanczos touches only $2a$ taps per axis, and fused Triton kernels contract them without ever forming the dense features.
+- **Fast.** One point costs $O(CKR)$ for $C$ axes, $K$ basis functions per axis and rank $R$. A compactly supported basis such as Lanczos touches only $2a$ taps per axis, and fused Triton kernels contract them without ever forming the dense features. On a grid, such as an image's pixels, each axis is evaluated once per distinct coordinate and shared by every point on it.
 - **Accurate at equal size.** At matched parameter counts FUTON leads every baseline on the average of each benchmark: Kodak images, Stanford occupancy volumes, Blender radiance fields and DIV2K super-resolution.
 - **Transparent.** With a linear decoder, FUTON *is* a rank-$R$ CP model of the signal in the chosen basis, so bandwidth ($K$) and capacity ($R$) are explicit knobs with a meaning.
 

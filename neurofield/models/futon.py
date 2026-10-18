@@ -4,29 +4,28 @@ FUTON evaluates ``decoder(combiner(basis(x)))`` in three stages:
 
 1. A **basis** maps coordinates ``(N, C)`` in ``[-1, 1]`` to one feature tensor
    ``(N, K_c)`` per axis, where ``K_c = num_components[c]``.
-2. A **combiner** fuses the per-axis features into one ``(N, out_features)``
-   tensor.
+2. A **combiner** projects the features of each axis and combines the
+   projections into one ``(N, out_features)`` tensor.
 3. A **decoder**, ``nn.Linear`` or :class:`MLP`, maps the fused features to the
    output.
 
-All bases share three options:
+Every basis takes ``num_components``, an int shared by all axes or one count
+per axis, and ``normalize``, which L2-normalizes each feature vector (not each
+basis function). The local bases :class:`TriangleBasis` and
+:class:`LanczosBasis` default to sparse mode: each axis returns an
+``(N, K_c)`` :class:`RCSMatrix` that stores only the few nonzero taps per
+point, and the combiners contract it directly.
 
-- ``num_components``: an int shared by all axes, or one count per axis.
-- ``normalize``: L2-normalize each feature vector (not each basis function).
-- ``grid_size``: tabulate each axis on ``linspace(-1, 1, size)`` at
-  construction. Coordinates on the grid read the table and others are evaluated
-  directly. Table lookups carry no coordinate gradients, so leave this ``None``
-  when gradients with respect to ``x`` are needed.
-
-The local bases :class:`TriangleBasis` and :class:`LanczosBasis` default to
-sparse mode: each axis returns an ``(N, K_c)`` :class:`RCSMatrix` that stores
-only the few nonzero taps per point, and the combiners contract it directly.
+On a grid, where every axis of a flat batch repeats its coordinates, a dense
+basis evaluates each distinct coordinate once, and returns each axis as an
+:class:`RCSMatrix` whose rows pick the points' rows of that table: the
+combiners then project the table rather than every point, the same function
+at a fraction of the cost.
 """
 
 import math
 from collections.abc import Callable, Sequence
 from functools import reduce
-from operator import mul
 
 import opt_einsum as oe
 import torch
@@ -36,6 +35,9 @@ from torch import Tensor, nn
 from ..utils import ModuleSpec, build_module
 from .mlp import MLP
 from .rcs_matrix import RCSMatrix, local_taps, rcs_product
+
+# An axis's features: dense, or an RCSMatrix of sparse taps or shared rows.
+Features = Tensor | RCSMatrix
 
 __all__ = [
     "CosineBasis",
@@ -60,23 +62,47 @@ def _broadcast(value: int | Sequence[int], length: int, name: str) -> list[int]:
     return values
 
 
-def _grid_position(x: Tensor, size: int) -> Tensor:
+def _grid_position(x: Tensor, size: int | Tensor) -> Tensor:
     """Map coordinates in ``[-1, 1]`` to continuous indices in ``[0, size - 1]``."""
     return (x + 1) / 2 * (size - 1)
+
+
+def _offsets(x: Tensor, size: int) -> Tensor:
+    """Grid-step offsets ``(*, size)`` from the centers ``linspace(-1, 1, size)``."""
+    centers = torch.arange(size, device=x.device, dtype=x.dtype)
+    return _grid_position(x, size).unsqueeze(-1) - centers
+
+
+def _shared(x: Tensor) -> list[tuple[Tensor, Tensor]] | None:
+    """Each axis's distinct coordinates and the row of every point among them.
+
+    For a flat batch ``(N, C)`` whose axes repeat their coordinates; ``None``
+    for other shapes, for coordinates that need gradients, which shared rows do
+    not carry, and when an axis has more distinct coordinates than half the
+    points, the rule of :class:`~neurofield.models.finr.FINR`.
+    """
+    if x.ndim != 2 or x.requires_grad:
+        return None
+    shared = []
+    for coordinate in x.unbind(-1):
+        values, rows = torch.unique(coordinate, return_inverse=True)
+        if 2 * len(values) > len(coordinate):
+            return None
+        shared.append((values, rows))
+    return shared
+
+
+def _rows(table: Tensor, index: Tensor) -> RCSMatrix:
+    """The ``(N, K)`` matrix whose row ``n`` is ``table[index[n]]``, kept factored."""
+    ones = table.new_ones(len(index), 1)
+    return RCSMatrix(ones, index, len(table), check_invariants=False, table=table)
 
 
 # Bases --------------------------------------------------------------------------------
 
 
 class _Basis(nn.Module):
-    """Base class for coordinate bases.
-
-    Subclasses implement :meth:`_evaluate` for one axis and call
-    :meth:`_build_cache` once the buffers it needs are registered.
-    """
-
-    # Distance, in grid steps, within which a coordinate reads the cached table.
-    _grid_atol = 1e-4
+    """Base class for bases; subclasses implement :meth:`axis_features` for one axis."""
 
     def __init__(
         self,
@@ -94,57 +120,24 @@ class _Basis(nn.Module):
                 f"got {self.num_components}"
             )
         self.normalize = normalize
-        self.grid_size: list[int] | None = None
 
-    def _evaluate(self, x: Tensor, axis: int) -> Tensor:
-        """Evaluate one axis at coordinates ``(*,)``, returning ``(*, K_axis)``."""
+    def axis_features(self, x: Tensor, axis: int) -> Tensor:
+        """The dense features ``(*, K_axis)`` of one axis at coordinates ``(*,)``."""
         raise NotImplementedError
 
     def _normalize(self, features: Tensor) -> Tensor:
         return F.normalize(features, dim=-1) if self.normalize else features
 
-    def _build_cache(self, grid_size: int | Sequence[int] | None) -> None:
-        """Tabulate every axis on a regular grid; ``None`` disables the cache."""
-        if grid_size is None:
-            return
-        self.grid_size = _broadcast(grid_size, self.in_features, "grid_size")
-        for axis, size in enumerate(self.grid_size):
-            table = self._evaluate(torch.linspace(-1.0, 1.0, size), axis)
-            self.register_buffer(f"_cache_{axis}", table, persistent=False)
-
-    def _lookup(self, x: Tensor, axis: int, size: int) -> Tensor:
-        """Read on-grid coordinates from the cache and evaluate the rest."""
-        if size == 1:
-            return self._evaluate(x, axis)
-
-        position = _grid_position(x, size)
-        index = position.round()
-        on_grid = (
-            ((position - index).abs() < self._grid_atol)
-            & (position >= -self._grid_atol)
-            & (position <= size - 1 + self._grid_atol)
-        )
-        features = self.get_buffer(f"_cache_{axis}")[index.clamp(0, size - 1).long()]
-        if not bool(on_grid.all()):
-            off_grid = ~on_grid
-            features[off_grid] = self._evaluate(x[off_grid], axis)
-        return features
-
-    def axis_features(self, x: Tensor, axis: int) -> Tensor:
-        """The dense features ``(*, K_axis)`` of one axis at coordinates ``(*,)``.
-
-        Coordinates on a cached grid read its table; the others are evaluated.
-        """
-        if self.grid_size is None:
-            return self._evaluate(x, axis)
-        return self._lookup(x, axis, self.grid_size[axis])
-
-    def _features(self, x: Tensor) -> tuple[Tensor, ...]:
+    def _features(self, x: Tensor) -> tuple[Features, ...]:
+        shared = _shared(x)
+        if shared is None:
+            return tuple(self.axis_features(xc, c) for c, xc in enumerate(x.unbind(-1)))
         return tuple(
-            self.axis_features(x[..., axis], axis) for axis in range(self.in_features)
+            _rows(self.axis_features(values, c), rows)
+            for c, (values, rows) in enumerate(shared)
         )
 
-    def forward(self, x: Tensor) -> tuple[Tensor, ...]:
+    def forward(self, x: Tensor) -> tuple[Features, ...]:
         if x.shape[-1] != self.in_features:
             raise ValueError(
                 f"Expected last dimension {self.in_features}, got {x.shape[-1]}"
@@ -163,31 +156,16 @@ class CosineBasis(_Basis):
         in_features: Number of coordinate axes ``C``.
         num_components: Number of frequencies ``K_c``, shared or per axis.
         normalize: L2-normalize each feature vector.
-        grid_size: Per-axis cache size; see the module notes.
 
     Shape:
         - Input: :math:`(*, C)`.
         - Output: ``C`` tensors of shape :math:`(*, K_c)`.
     """
 
-    frequencies: Tensor
-
-    def __init__(
-        self,
-        in_features: int,
-        num_components: int | Sequence[int],
-        normalize: bool = True,
-        grid_size: int | Sequence[int] | None = None,
-    ) -> None:
-        super().__init__(in_features, num_components, normalize)
-        frequencies = math.pi * torch.arange(max(self.num_components))
-        self.register_buffer("frequencies", frequencies, persistent=False)
-        self._build_cache(grid_size)
-
-    def _evaluate(self, x: Tensor, axis: int) -> Tensor:
+    def axis_features(self, x: Tensor, axis: int) -> Tensor:
         u = ((x + 1) / 2).unsqueeze(-1)
-        frequencies = self.frequencies[: self.num_components[axis]]
-        return self._normalize(torch.cos(frequencies * u))
+        k = torch.arange(self.num_components[axis], device=x.device, dtype=x.dtype)
+        return self._normalize(torch.cos(math.pi * k * u))
 
 
 class SincBasis(_Basis):
@@ -202,7 +180,6 @@ class SincBasis(_Basis):
         in_features: Number of coordinate axes ``C``.
         num_components: Number of centers ``K_c >= 2``, shared or per axis.
         normalize: L2-normalize each feature vector.
-        grid_size: Per-axis cache size; see the module notes.
 
     Shape:
         - Input: :math:`(*, C)`.
@@ -214,20 +191,11 @@ class SincBasis(_Basis):
         in_features: int,
         num_components: int | Sequence[int],
         normalize: bool = True,
-        grid_size: int | Sequence[int] | None = None,
     ) -> None:
         super().__init__(in_features, num_components, normalize, min_components=2)
-        self.width = [2.0 / (count - 1) for count in self.num_components]
-        for axis, count in enumerate(self.num_components):
-            centers = torch.linspace(-1.0, 1.0, count)
-            self.register_buffer(f"centers_{axis}", centers, persistent=False)
-        self._build_cache(grid_size)
 
-    def _evaluate(self, x: Tensor, axis: int) -> Tensor:
-        centers = self.get_buffer(f"centers_{axis}")
-        return self._normalize(
-            torch.sinc((x.unsqueeze(-1) - centers) / self.width[axis])
-        )
+    def axis_features(self, x: Tensor, axis: int) -> Tensor:
+        return self._normalize(torch.sinc(_offsets(x, self.num_components[axis])))
 
 
 def _chebyshev_to_legendre(count: int) -> Tensor:
@@ -263,30 +231,19 @@ class ChebyshevBasis(_Basis):
         in_features: Number of coordinate axes ``C``.
         num_components: Number of polynomials ``K_c``, shared or per axis.
         normalize: L2-normalize each feature vector.
-        grid_size: Per-axis cache size; see the module notes.
 
     Shape:
         - Input: :math:`(*, C)`.
         - Output: ``C`` tensors of shape :math:`(*, K_c)`.
     """
 
-    def __init__(
-        self,
-        in_features: int,
-        num_components: int | Sequence[int],
-        normalize: bool = True,
-        grid_size: int | Sequence[int] | None = None,
-    ) -> None:
-        super().__init__(in_features, num_components, normalize)
-        self._build_cache(grid_size)
+    def axis_features(self, x: Tensor, axis: int) -> Tensor:
+        return self._normalize(self._polynomials(x, axis))
 
     def _polynomials(self, x: Tensor, axis: int) -> Tensor:
         count = self.num_components[axis]
         degrees = torch.arange(count, dtype=x.dtype, device=x.device)
         return torch.cos(degrees * torch.arccos(x.unsqueeze(-1)))
-
-    def _evaluate(self, x: Tensor, axis: int) -> Tensor:
-        return self._normalize(self._polynomials(x, axis))
 
 
 class LegendreBasis(ChebyshevBasis):
@@ -301,7 +258,6 @@ class LegendreBasis(ChebyshevBasis):
         in_features: Number of coordinate axes ``C``.
         num_components: Number of polynomials ``K_c``, shared or per axis.
         normalize: L2-normalize each feature vector.
-        grid_size: Per-axis cache size; see the module notes.
 
     Shape:
         - Input: :math:`(*, C)`.
@@ -313,12 +269,10 @@ class LegendreBasis(ChebyshevBasis):
         in_features: int,
         num_components: int | Sequence[int],
         normalize: bool = True,
-        grid_size: int | Sequence[int] | None = None,
     ) -> None:
-        _Basis.__init__(self, in_features, num_components, normalize)
+        super().__init__(in_features, num_components, normalize)
         matrix = _chebyshev_to_legendre(max(self.num_components))
         self.register_buffer("_from_chebyshev", matrix, persistent=False)
-        self._build_cache(grid_size)
 
     def _polynomials(self, x: Tensor, axis: int) -> Tensor:
         count = self.num_components[axis]
@@ -344,7 +298,6 @@ class _LocalBasis(_Basis):
         num_components: int | Sequence[int],
         radius: int,
         normalize: bool = True,
-        grid_size: int | Sequence[int] | None = None,
         sparse: bool = True,
     ) -> None:
         if radius < 1:
@@ -354,23 +307,17 @@ class _LocalBasis(_Basis):
         )
         self.radius = int(radius)
         self.sparse = bool(sparse)
-        if not self.sparse:
-            self._build_cache(grid_size)
         # Sparse mode evaluates every axis at once, with per-axis sizes.
         sizes = torch.tensor(self.num_components, dtype=torch.float32)
         self.register_buffer("_sizes", sizes, persistent=False)
-        self.register_buffer("_taps", torch.arange(2.0 * radius), persistent=False)
 
     def _kernel(self, t: Tensor) -> Tensor:
         raise NotImplementedError
 
-    def _evaluate(self, x: Tensor, axis: int) -> Tensor:
-        size = self.num_components[axis]
-        centers = torch.arange(size, device=x.device, dtype=x.dtype)
-        t = _grid_position(x, size).unsqueeze(-1) - centers
-        return self._normalize(self._kernel(t))
+    def axis_features(self, x: Tensor, axis: int) -> Tensor:
+        return self._normalize(self._kernel(_offsets(x, self.num_components[axis])))
 
-    def _features(self, x: Tensor) -> tuple[Tensor, ...]:
+    def _features(self, x: Tensor) -> tuple[Features, ...]:
         if not self.sparse:
             return super()._features(x)
         # Evaluate the 2 * radius taps around each point, on every axis at once.
@@ -385,7 +332,8 @@ class _LocalBasis(_Basis):
             # the clamp lie outside the kernel support and evaluate to zero.
             start = (position.floor() - (self.radius - 1)).clamp_(min=0)
             start = start.minimum(self._sizes - 2 * self.radius)
-            t = (position - start).unsqueeze(-1) - self._taps
+            taps = torch.arange(2 * self.radius, device=x.device, dtype=x.dtype)
+            t = (position - start).unsqueeze(-1) - taps
             values, start = self._normalize(self._kernel(t)), start.long()
         # The clamp keeps the segments in bounds, so skip the synchronizing check.
         return tuple(
@@ -407,7 +355,6 @@ class TriangleBasis(_LocalBasis):
         in_features: Number of coordinate axes ``C``.
         num_components: Number of centers ``K_c >= 2``, shared or per axis.
         normalize: L2-normalize each feature vector.
-        grid_size: Per-axis cache size in dense mode; ignored when sparse.
         sparse: Return :class:`RCSMatrix` features with two taps per point.
 
     Shape:
@@ -419,17 +366,16 @@ class TriangleBasis(_LocalBasis):
         Chen et al., "TensoRF: Tensorial Radiance Fields", ECCV 2022.
     """
 
+    _tap_kernel = 0
+
     def __init__(
         self,
         in_features: int,
         num_components: int | Sequence[int],
         normalize: bool = True,
-        grid_size: int | Sequence[int] | None = None,
         sparse: bool = True,
     ) -> None:
-        super().__init__(in_features, num_components, 1, normalize, grid_size, sparse)
-
-    _tap_kernel = 0
+        super().__init__(in_features, num_components, 1, normalize, sparse)
 
     def _kernel(self, t: Tensor) -> Tensor:
         return (1.0 - t.abs()).clamp(min=0.0)
@@ -450,7 +396,6 @@ class LanczosBasis(_LocalBasis):
         radius: Kernel radius in grid steps: ``2`` gives Lanczos-2 (four taps),
             ``3`` (the default) gives Lanczos-3 (six taps).
         normalize: L2-normalize each feature vector.
-        grid_size: Per-axis cache size in dense mode; ignored when sparse.
         sparse: Return :class:`RCSMatrix` features with ``2 * radius`` taps per
             point.
 
@@ -460,42 +405,33 @@ class LanczosBasis(_LocalBasis):
           :math:`(N, K_c)` RCS matrices in sparse mode.
     """
 
+    _tap_kernel = 1
+
     def __init__(
         self,
         in_features: int,
         num_components: int | Sequence[int],
         radius: int = 3,
         normalize: bool = True,
-        grid_size: int | Sequence[int] | None = None,
         sparse: bool = True,
     ) -> None:
-        super().__init__(
-            in_features, num_components, radius, normalize, grid_size, sparse
-        )
-
-    _tap_kernel = 1
+        super().__init__(in_features, num_components, radius, normalize, sparse)
 
     def _kernel(self, t: Tensor) -> Tensor:
-        return torch.where(
-            t.abs() < self.radius,
-            torch.sinc(t) * torch.sinc(t / self.radius),
-            t.new_zeros(()),
-        )
+        window = torch.sinc(t) * torch.sinc(t / self.radius)
+        return torch.where(t.abs() < self.radius, window, 0.0)
 
 
 # Combiners ----------------------------------------------------------------------------
 
 
-def _project(features: Tensor, linear: nn.Linear) -> Tensor:
-    """Apply ``linear`` to dense or RCS features without densifying the latter."""
-    if isinstance(features, RCSMatrix):
-        out = features @ linear.weight.T
-        return out if linear.bias is None else out + linear.bias
-    return linear(features)
-
-
 class _Combiner(nn.Module):
-    """Base class for combiners; ``in_features[c]`` is the width ``K_c`` of axis ``c``."""
+    """Base class for combiners; ``in_features[c]`` is the width ``K_c`` of axis ``c``.
+
+    The features of an axis are dense, or an :class:`RCSMatrix` of a local
+    basis's taps or of a grid's shared rows; products with ``@`` and
+    :func:`rcs_product` take any of them.
+    """
 
     out_features: int
 
@@ -507,7 +443,7 @@ class _Combiner(nn.Module):
 class HadamardCombiner(_Combiner):
     """Elementwise product of per-axis features that share one width ``K``.
 
-    RCS features are densified before multiplication.
+    One :func:`rcs_product` multiplies them, densifying sparse taps.
 
     Args:
         in_features: Feature width of each axis; all entries must be equal.
@@ -525,26 +461,23 @@ class HadamardCombiner(_Combiner):
             )
         self.out_features = self.in_features[0]
 
-    def forward(self, features: Sequence[Tensor]) -> Tensor:
-        return reduce(
-            mul,
-            (f.to_dense() if isinstance(f, RCSMatrix) else f for f in features),
-        )
+    def forward(self, features: Sequence[Features]) -> Tensor:
+        return rcs_product(features)
 
 
 class CPCombiner(_Combiner):
     r"""Canonical polyadic (CP) combiner.
 
-    Projects each axis to ``rank`` channels and multiplies the projections
-    elementwise. ``linears[c].weight`` stores the transposed CP factor
-    :math:`\mathbf{U}^{(c)\top}` of shape ``(rank, K_c)`` (FUTON paper,
-    Eqs. 10–11). RCS features are projected without densifying, and without
-    bias, one fused :func:`rcs_product` computes the whole combination.
+    Projects each axis to ``rank`` channels with its CP factor
+    :math:`\mathbf{U}^{(c)}`, ``factors[c]`` of shape ``(K_c, rank)`` (FUTON
+    paper, Eqs. 10–11), and multiplies the projections elementwise. One
+    :func:`rcs_product` computes the whole combination, fused for sparse
+    features: a local basis's taps, or a grid's shared rows, whose tables it
+    projects first.
 
     Args:
         in_features: Feature width ``K_c`` of each axis.
         rank: CP rank, which is also the output width.
-        bias: Add a bias to each projection; the paper's model has none.
 
     Shape:
         - Input: ``C`` tensors of shape :math:`(N, K_c)`.
@@ -554,33 +487,22 @@ class CPCombiner(_Combiner):
         Kolda and Bader, "Tensor Decompositions and Applications", SIAM Review 2009.
     """
 
-    def __init__(
-        self, in_features: Sequence[int], rank: int, bias: bool = False
-    ) -> None:
+    def __init__(self, in_features: Sequence[int], rank: int) -> None:
         super().__init__(in_features)
         self.rank = rank
         self.out_features = rank
-        self.linears = nn.ModuleList(
-            nn.Linear(width, rank, bias=bias) for width in self.in_features
+        self.factors = nn.ParameterList(
+            nn.Parameter(torch.empty(width, rank)) for width in self.in_features
         )
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        """Initialize factors with Kaiming-uniform weights and zero biases."""
-        for linear in self.linears:
-            nn.init.kaiming_uniform_(linear.weight)
-            if linear.bias is not None:
-                nn.init.zeros_(linear.bias)
+        """Initialize the factors Kaiming-uniform, with fan-in ``K_c``."""
+        for factor in self.factors:
+            nn.init.kaiming_uniform_(factor.T)
 
-    def forward(self, features: Sequence[Tensor]) -> Tensor:
-        if self.linears[0].bias is None and all(
-            isinstance(feature, RCSMatrix) for feature in features
-        ):
-            return rcs_product(features, [linear.weight.T for linear in self.linears])
-        projections = (
-            _project(feature, linear) for feature, linear in zip(features, self.linears)
-        )
-        return reduce(mul, projections)
+    def forward(self, features: Sequence[Features]) -> Tensor:
+        return rcs_product(features, list(self.factors))
 
 
 class TRCombiner(_Combiner):
@@ -617,32 +539,27 @@ class TRCombiner(_Combiner):
         for core in self.cores:
             nn.init.kaiming_uniform_(core)
 
-    @staticmethod
-    def _transfer(features: Tensor, core: Tensor) -> Tensor:
-        """Contract ``(N, K)`` features with an ``(R, K, R)`` core into ``(N, R, R)``."""
-        if isinstance(features, RCSMatrix):
-            # Fold the rank axes so the contraction is one sparse matmul.
-            rank, width, _ = core.shape
-            flat = features @ core.permute(1, 0, 2).reshape(width, rank * rank)
-            return flat.unflatten(-1, (rank, rank))
-        return torch.einsum("...k,rks->...rs", features, core)
-
-    def forward(self, features: Sequence[Tensor]) -> Tensor:
-        matrices = map(self._transfer, features, self.cores)
+    def forward(self, features: Sequence[Features]) -> Tensor:
+        rank = self.rank
+        # Each axis contracts its features with its core, folded to (K, R * R).
+        matrices = (
+            (f @ core.transpose(0, 1).flatten(1)).unflatten(-1, (rank, rank))
+            for f, core in zip(features, self.cores)
+        )
         return reduce(torch.matmul, matrices).flatten(start_dim=-2)
 
 
 class TuckerCombiner(_Combiner):
     r"""Tucker combiner.
 
-    Projects axis ``c`` to ``rank[c]`` channels, as the CP combiner does, and
+    Projects axis ``c`` to ``rank[c]`` channels with its factor
+    ``factors[c]`` of shape ``(K_c, rank[c])``, as the CP combiner does, and
     contracts the projections with a core of shape
     ``(rank[0], ..., rank[C - 1], out_features)`` instead of multiplying them
     elementwise: with a linear decoder the weight tensor is in Tucker format,
     the core with one factor matrix per axis and the decoder as the last.
     CP is the special case of a superdiagonal core. This extends the paper's
-    CP model. RCS features are projected without densifying, and the core
-    absorbs one projection at a time, largest rank first.
+    CP model. The core absorbs one projection at a time, largest rank first.
 
     Args:
         in_features: Feature width ``K_c`` of each axis.
@@ -667,12 +584,11 @@ class TuckerCombiner(_Combiner):
     ) -> None:
         super().__init__(in_features)
         modes = len(self.in_features)
-        self.rank = [rank] * modes if isinstance(rank, int) else list(rank)
-        if len(self.rank) != modes:
-            raise ValueError(f"Expected {modes} ranks, one per axis, got {self.rank}")
+        self.rank = _broadcast(rank, modes, "rank")
         self.out_features = max(self.rank) if out_features is None else out_features
-        self.linears = nn.ModuleList(
-            nn.Linear(width, r, bias=False) for width, r in zip(in_features, self.rank)
+        self.factors = nn.ParameterList(
+            nn.Parameter(torch.empty(width, r))
+            for width, r in zip(self.in_features, self.rank)
         )
         self.core = nn.Parameter(torch.empty(*self.rank, self.out_features))
         # The core absorbs one projection at a time, largest rank first, so
@@ -692,15 +608,13 @@ class TuckerCombiner(_Combiner):
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        """Initialize the factors and the core with Kaiming-uniform weights."""
-        for linear in self.linears:
-            nn.init.kaiming_uniform_(linear.weight)
+        """Initialize the factors (fan-in ``K_c``) and the core Kaiming-uniform."""
+        for factor in self.factors:
+            nn.init.kaiming_uniform_(factor.T)
         nn.init.kaiming_uniform_(self.core.view(-1, self.out_features))
 
-    def forward(self, features: Sequence[Tensor]) -> Tensor:
-        projections = [
-            _project(feature, linear) for feature, linear in zip(features, self.linears)
-        ]
+    def forward(self, features: Sequence[Features]) -> Tensor:
+        projections = [f @ factor for f, factor in zip(features, self.factors)]
         return self.contract(self.core, *(projections[c] for c in self.order))
 
 
@@ -716,7 +630,7 @@ class FUTON(nn.Module):
 
     - Bases: ``"cosine"``, ``"sinc"``, ``"legendre"``, ``"chebyshev"``,
       ``"triangle"``, ``"lanczos"``.
-    - Combiners: ``"hadamard"``, ``"cp"``, ``"tr"``.
+    - Combiners: ``"hadamard"``, ``"cp"``, ``"tr"``, ``"tucker"``.
     - Decoders: ``"linear"``, ``"mlp"``.
 
     Args:
@@ -736,9 +650,23 @@ class FUTON(nn.Module):
         - Input: :math:`(*, C)` coordinates in ``[-1, 1]``.
         - Output: :math:`(*, \text{out\_features})`.
 
+    Evaluation on a grid:
+        A projection :math:`\mathbf{U}^{(c)\top} \boldsymbol{\varphi}(x_c)`
+        depends on one coordinate alone, so points on a grid, such as the
+        pixels of an image or a batch drawn from them, share it. When every
+        axis repeats its coordinates, a dense basis evaluates each distinct
+        coordinate once and the combiner projects that table, each point
+        gathering its rows, as :class:`~neurofield.models.finr.FINR` does with
+        its networks. This computes the same function and gradients in
+        :math:`O(R \sum_c S_c K_c + NCR)` for :math:`N` points with
+        :math:`S_c` distinct coordinates on axis :math:`c`, instead of
+        :math:`O(NR \sum_c K_c)`. Scattered points, coordinates that need
+        gradients, and local bases in sparse mode, which touch only
+        ``2 * radius`` taps per point, are evaluated point by point.
+
     Relation to the paper:
         The cosine basis, CP combiner, and linear decoder implement Eq. (9):
-        ``combiner.linears[c].weight`` stores :math:`\mathbf{U}^{(c)\top}` and
+        ``combiner.factors[c]`` stores :math:`\mathbf{U}^{(c)}` and
         ``decoder.weight`` stores :math:`\mathbf{V}`; the decoder bias is an
         addition. Coordinates are mapped internally from ``[-1, 1]`` to
         ``[0, 1]``. The basis omits the paper's :math:`\sqrt{2}` factor and
@@ -782,9 +710,9 @@ class FUTON(nn.Module):
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        # Sparse bases expect a flat batch of points.
-        features = self.basis(x.reshape(-1, self.in_features))
-        out = self.output_activation(self.decoder(self.combiner(features)))
+        # The bases take a flat batch, whose points they share or sparsify.
+        points = x.reshape(-1, self.in_features)
+        out = self.output_activation(self.decoder(self.combiner(self.basis(points))))
         return out.reshape(*x.shape[:-1], self.out_features)
 
 

@@ -1,9 +1,10 @@
 """Row-contiguous sparse matrices with differentiable dense multiplication.
 
-Each row stores a contiguous segment of ``L`` values and its starting column.
-:func:`rcs_product` computes ``(A_1 @ B_1) * ... * (A_D @ B_D)``, the
-elementwise product of several sparse-by-dense products (FUTON's CP combiner),
-and ``A @ B`` is its one-matrix case.
+Each row stores a contiguous segment of ``L`` values and its starting column,
+and a dense table on the right can be kept factored. :func:`rcs_product`
+computes ``(A_1 @ B_1) * ... * (A_D @ B_D)``, the elementwise product of several
+sparse-by-dense products (FUTON's CP combiner), and ``A @ B`` is its
+one-matrix case.
 
 On CUDA, Triton kernels compute the product without materializing its ``D``
 factors: each output tile gathers, per matrix, the ``L`` rows of ``B_i`` that
@@ -18,7 +19,6 @@ the number of matrices. Elsewhere, products use CSR during inference and a
 gather-and-contract path when gradients are needed.
 """
 
-import copy
 from collections.abc import Callable, Sequence
 from functools import reduce
 from itertools import accumulate
@@ -36,14 +36,6 @@ except ImportError:
     triton = None
 
 __all__ = ["RCSMatrix", "local_taps", "rcs_product"]
-
-_MATMUL_FUNCS = {
-    torch.matmul,
-    torch.mm,
-    Tensor.matmul,
-    Tensor.mm,
-    Tensor.__matmul__,
-}
 
 # Rows that one program of the backward reduces, and the most programs per column.
 _ROWS_PER_PROGRAM = 512
@@ -435,15 +427,21 @@ else:
     _RCSProductFn = None
 
 
-def rcs_product(matrices: Sequence["RCSMatrix"], others: Sequence[Tensor]) -> Tensor:
+def rcs_product(
+    matrices: Sequence["Tensor | RCSMatrix"],
+    others: Sequence[Tensor | None] | None = None,
+) -> Tensor:
     """Return ``(matrices[0] @ others[0]) * ... * (matrices[-1] @ others[-1])``.
 
-    All matrices need the same number of rows ``M`` and all dense operands the
-    same number of columns ``R``, and ``others[i]`` has ``matrices[i].shape[1]``
-    rows. On CUDA with Triton, matching segment lengths and one dtype, fused
-    kernels compute the ``(M, R)`` product without materializing its factors,
-    for any number of matrices; otherwise each product is computed in turn.
-    Gradients flow to the matrices' ``values`` and to ``others``.
+    A matrix whose operand is ``None``, or every matrix when ``others`` is
+    ``None``, enters the product as it is. Matrices are dense or
+    :class:`RCSMatrix`, whose tables are first folded into their operands; all
+    have the same number of rows ``M`` and all products the same number of
+    columns ``R``. When every matrix is sparse, on CUDA with Triton, with
+    matching segment lengths and one dtype, fused kernels compute the
+    ``(M, R)`` product without materializing its factors, for any number of
+    matrices; otherwise each product is computed in turn. Gradients flow to
+    the matrices' ``values`` and tables and to ``others``.
 
     Example::
 
@@ -451,21 +449,29 @@ def rcs_product(matrices: Sequence["RCSMatrix"], others: Sequence[Tensor]) -> Te
         b = RCSMatrix(torch.rand(5, 2), torch.tensor([2, 0, 1, 1, 0]), 3)
         out = rcs_product([a, b], [torch.randn(4, 8), torch.randn(3, 8)])  # (5, 8)
     """
+    others = [None] * len(matrices) if others is None else list(others)
     if not matrices or len(matrices) != len(others):
         raise ValueError(
             f"expected as many dense operands as matrices, got {len(others)} "
             f"for {len(matrices)}"
         )
+    if any(isinstance(other, RCSMatrix) for other in others):
+        raise TypeError("expected dense operands")
+    # (A T) B = A (T B): a table moves into its operand, or becomes it.
+    for i, (matrix, other) in enumerate(zip(matrices, others)):
+        if isinstance(matrix, RCSMatrix) and matrix.table is not None:
+            others[i] = matrix.table if other is None else matrix.table @ other
+    sparse = all(isinstance(matrix, RCSMatrix) for matrix in matrices)
+    if not sparse or any(other is None for other in others):
+        return reduce(mul, map(_term, matrices, others))
     num_rows = matrices[0].shape[0]
     width = others[0].shape[-1]
     for matrix, other in zip(matrices, others):
-        if not isinstance(matrix, RCSMatrix) or isinstance(other, RCSMatrix):
-            raise TypeError("expected RCS matrices and dense operands")
         if matrix.shape[0] != num_rows:
             raise ValueError(f"expected {num_rows} rows, got {matrix.shape[0]}")
-        if other.ndim != 2 or other.shape != (matrix.shape[1], width):
+        if other.ndim != 2 or other.shape != (matrix.num_cols, width):
             raise ValueError(
-                f"expected an operand of shape ({matrix.shape[1]}, {width}), "
+                f"expected an operand of shape ({matrix.num_cols}, {width}), "
                 f"got {tuple(other.shape)}"
             )
 
@@ -484,44 +490,48 @@ def rcs_product(matrices: Sequence["RCSMatrix"], others: Sequence[Tensor]) -> Te
         # Match matmul autocast, leaving float64 and low-precision inputs alone.
         if dtype == torch.float32 and torch.is_autocast_enabled("cuda"):
             dtype = torch.get_autocast_dtype("cuda")
-        offsets = accumulate((m.shape[1] for m in matrices), initial=0)
+        offsets = accumulate((m.num_cols for m in matrices), initial=0)
         cols = torch.stack([m._columns() + o for m, o in zip(matrices, offsets)])
         return _RCSProductFn.apply(
             torch.stack(values).to(dtype), cols, *(other.to(dtype) for other in others)
         )
-    return reduce(mul, (m._matmul_torch(o) for m, o in zip(matrices, others)))
+    return reduce(mul, map(_term, matrices, others))
 
 
-class RCSMatrix(Tensor):
+def _term(matrix: "Tensor | RCSMatrix", other: Tensor | None) -> Tensor:
+    """One term of :func:`rcs_product`, ``matrix @ other`` or the matrix itself."""
+    if not isinstance(matrix, RCSMatrix):
+        return matrix if other is None else matrix @ other
+    return matrix.to_dense() if other is None else matrix._sparse_matmul(other)
+
+
+class RCSMatrix:
     """Sparse matrix whose rows each store one contiguous segment.
 
-    ``values[i]`` fills ``L`` columns starting at ``start_cols[i]`` in an
-    ``(M, N)`` matrix; all other entries are zero. Shorter segments can be
-    zero-padded. Multiplication by a dense ``(N, K)`` matrix or ``(N,)`` vector
-    uses the compact representation and supports gradients for both operands,
-    including second derivatives; :func:`rcs_product` fuses the elementwise
-    product of several such multiplications. See the module notes for kernel
-    selection.
+    ``values[i]`` fills ``L`` columns starting at ``start_cols[i]`` of an
+    ``(M, N)`` matrix; all other entries are zero, and shorter segments can be
+    zero-padded. With a dense ``(N, K)`` ``table``, the matrix stands for the
+    ``(M, K)`` product of these rows and the table, kept factored, so that
+    products multiply the table first: on a grid, FUTON's bases give each point
+    one tap of one into a table of its axis's distinct coordinates.
 
-    Supported operations are ``A @ B``, ``A.matmul(B)``, ``A.mm(B)``,
-    ``torch.matmul(A, B)``, ``torch.mm(A, B)``, and :meth:`to_dense`.
-    ``matmul`` also accepts ``input=``/``other=`` keywords and ``out=None``.
-    Metadata access, pickling, and deep copying preserve the compact form;
-    other tensor operations raise ``NotImplementedError``.
+    ``A @ B``, ``A.matmul(B)``, ``A.mm(B)``, ``torch.matmul(A, B)`` and
+    ``torch.mm(A, B)`` multiply by a dense ``(K, R)`` matrix or ``(K,)`` vector
+    through :func:`rcs_product`, with gradients for both operands, second
+    derivatives included; :meth:`to_dense` densifies. Other operations raise
+    ``TypeError``. If the storage of ``values`` moves to another device in
+    place (for example through ``module.cuda()``), computation follows it.
 
     Args:
         values: Segment values of shape ``(M, L)``, retained without copying.
         start_cols: Integer start columns of shape ``(M,)`` satisfying
             ``0 <= start_cols[i] <= num_cols - L``. Copied as int64 to the
             device of ``values``; later changes to the argument are ignored.
-        num_cols: Number of columns ``N`` in the represented matrix.
+        num_cols: Number of columns ``N`` of the sparse rows.
         check_invariants: Check the bounds of ``start_cols``, which
             synchronizes with the device once. Callers that guarantee them,
             such as the FUTON bases, skip the check.
-
-    The ``values`` attribute shadows ``Tensor.values``. If its storage moves
-    to another device in place (for example through ``module.cuda()``),
-    computation follows it, while wrapper metadata retains the original device.
+        table: Optional dense ``(N, K)`` factor on the right.
 
     Example::
 
@@ -530,30 +540,7 @@ class RCSMatrix(Tensor):
         product = matrix @ torch.randn(5, 3)  # (4, 3)
     """
 
-    values: Tensor
-    start_cols: Tensor
-
-    @staticmethod
-    def __new__(
-        cls,
-        values: Tensor,
-        start_cols: Tensor,
-        num_cols: int,
-        check_invariants: bool = True,
-    ) -> "RCSMatrix":
-        if values.ndim != 2:
-            raise ValueError(
-                f"values must have shape (M, L), got {tuple(values.shape)}"
-            )
-        if num_cols < 0:
-            raise ValueError(f"num_cols must be non-negative, got {num_cols}")
-        return torch.Tensor._make_wrapper_subclass(
-            cls,
-            (values.shape[0], num_cols),
-            dtype=values.dtype,
-            device=values.device,
-            requires_grad=values.requires_grad,
-        )
+    ndim = 2
 
     def __init__(
         self,
@@ -561,8 +548,19 @@ class RCSMatrix(Tensor):
         start_cols: Tensor,
         num_cols: int,
         check_invariants: bool = True,
+        table: Tensor | None = None,
     ) -> None:
+        if values.ndim != 2:
+            raise ValueError(
+                f"values must have shape (M, L), got {tuple(values.shape)}"
+            )
         num_rows, segment_length = values.shape
+        if num_cols < 0:
+            raise ValueError(f"num_cols must be non-negative, got {num_cols}")
+        if table is not None and (table.ndim != 2 or table.shape[0] != num_cols):
+            raise ValueError(
+                f"table must have shape ({num_cols}, K), got {tuple(table.shape)}"
+            )
         if start_cols.shape != (num_rows,):
             raise ValueError(
                 f"start_cols must have shape ({num_rows},), got {tuple(start_cols.shape)}"
@@ -588,42 +586,53 @@ class RCSMatrix(Tensor):
                 f"start_cols must lie in [0, {num_cols - segment_length}] "
                 f"for L={segment_length}, N={num_cols}"
             )
-
         self.values = values
         self.start_cols = start_cols
-        self._col_idx: Tensor | None = None
+        self.num_cols = num_cols
+        self.table = table
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        width = self.num_cols if self.table is None else self.table.shape[1]
+        return len(self.values), width
+
+    @property
+    def dtype(self) -> torch.dtype:
+        return self.values.dtype
+
+    @property
+    def device(self) -> torch.device:
+        return self.values.device
 
     def _columns(self) -> Tensor:
         """Return the start columns, following any device change of ``values``."""
         if self.start_cols.device != self.values.device:
             self.start_cols = self.start_cols.to(self.values.device)
-            self._col_idx = None
         return self.start_cols
 
     def _column_indices(self) -> Tensor:
-        """Return the ``(M, L)`` column of every stored value, cached."""
+        """Return the ``(M, L)`` column of every stored value."""
         start_cols = self._columns()
-        if self._col_idx is None:
-            self._col_idx = start_cols[:, None] + torch.arange(
-                self.values.shape[1], device=start_cols.device
-            )
-        return self._col_idx
+        return start_cols[:, None] + torch.arange(
+            self.values.shape[1], device=start_cols.device
+        )
 
     def to_dense(self) -> Tensor:
         """Return a dense matrix on the dtype and device of ``values``, retaining gradients."""
-        return self.values.new_zeros(self.shape).scatter_(
-            1, self._column_indices(), self.values
-        )
+        rows = self.values.new_zeros(len(self.values), self.num_cols)
+        rows = rows.scatter_(1, self._column_indices(), self.values)
+        return rows if self.table is None else rows @ self.table
 
-    def _matmul_dense(self, other: Tensor) -> Tensor:
-        """Compute ``self @ other`` using the compact representation."""
+    def __matmul__(self, other: Tensor) -> Tensor:
         if other.ndim == 1:
-            return self._matmul_dense(other.unsqueeze(1)).squeeze(1)
+            return (self @ other.unsqueeze(1)).squeeze(1)
         return rcs_product([self], [other])
 
-    def _matmul_torch(self, other: Tensor) -> Tensor:
-        """Compute ``self @ other`` with PyTorch operations."""
-        num_rows, num_cols = self.shape
+    matmul = mm = __matmul__
+
+    def _sparse_matmul(self, other: Tensor) -> Tensor:
+        """Compute the sparse rows times ``other`` with PyTorch operations."""
+        num_rows, num_cols = len(self.values), self.num_cols
         segment_length = self.values.shape[1]
         grad_needed = torch.is_grad_enabled() and (
             self.values.requires_grad or other.requires_grad
@@ -654,56 +663,18 @@ class RCSMatrix(Tensor):
         args: tuple[Any, ...] = (),
         kwargs: dict[str, Any] | None = None,
     ) -> Any:
-        if kwargs is None:
-            kwargs = {}
-        if func in _MATMUL_FUNCS:
-            remaining = dict(kwargs)
-            out = remaining.pop("out", None)
-            operands = list(args)
-            if not operands and "input" in remaining:
-                operands.append(remaining.pop("input"))
-            if len(operands) == 1 and "other" in remaining:
-                operands.append(remaining.pop("other"))
-            if len(operands) == 2 and not remaining and out is None:
-                left, right = operands
-                if (
-                    isinstance(left, RCSMatrix)
-                    and isinstance(right, Tensor)
-                    and not isinstance(right, RCSMatrix)
-                ):
-                    return left._matmul_dense(right)
-        # Metadata accessors (shape, dtype, device, ...) work on the
-        # storage-less wrapper; data ops fall through to __torch_dispatch__.
-        with torch._C.DisableTorchFunctionSubclass():
-            return func(*args, **kwargs)
-
-    @classmethod
-    def __torch_dispatch__(
-        cls,
-        func: Callable[..., Any],
-        types: tuple[type, ...],
-        args: tuple[Any, ...] = (),
-        kwargs: dict[str, Any] | None = None,
-    ) -> Any:
-        raise NotImplementedError(
-            f"{func} is not supported on the compact RCS form; "
-            "convert with .to_dense() first"
-        )
-
-    def __deepcopy__(self, memo: dict[int, Any]) -> "RCSMatrix":
-        result = RCSMatrix(
-            copy.deepcopy(self.values, memo),
-            copy.deepcopy(self.start_cols, memo),
-            self.shape[1],
-            check_invariants=False,
-        )
-        memo[id(self)] = result
-        return result
+        """``torch.matmul(A, B)`` and ``torch.mm(A, B)``; nothing else."""
+        if func in (torch.matmul, torch.mm) and not kwargs and len(args) == 2:
+            left, right = args
+            if isinstance(left, RCSMatrix) and not isinstance(right, RCSMatrix):
+                return left @ right
+        return NotImplemented
 
     def __repr__(self) -> str:
         num_rows, num_cols = self.shape
+        table = "" if self.table is None else f",\ntable={self.table}"
         return (
             f"RCSMatrix(shape=({num_rows}, {num_cols}), L={self.values.shape[1]}, "
             f"dtype={self.dtype}, device={self.device},\n"
-            f"values={self.values},\nstart_cols={self.start_cols})"
+            f"values={self.values},\nstart_cols={self.start_cols}{table})"
         )

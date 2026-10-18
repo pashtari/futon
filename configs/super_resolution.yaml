@@ -188,7 +188,7 @@ models:
     budget: 500000  # parameters; "budget" below is the largest rank within it
     kwargs:
       # One basis function per low-resolution pixel along each axis.
-      basis: [sinc, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
+      basis: [sinc, {num_components: [H // 4, W // 4]}]
       combiner: [cp, {rank: budget}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh

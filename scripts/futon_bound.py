@@ -83,7 +83,7 @@ def futon(sizes: list[int], channels: int, alpha: float, rank: int) -> nf.FUTON:
     """The paper's FUTON with the benchmark's sinc basis: a CP combiner and a
     linear decoder, no bias."""
     components = [max(2, int(alpha * size)) for size in sizes]
-    basis = ("sinc", {"num_components": components, "grid_size": sizes})
+    basis = ("sinc", {"num_components": components})
     return nf.FUTON(len(sizes), channels, basis, ("cp", {"rank": rank}),
                     ("linear", {"bias": False}))  # fmt: skip
 

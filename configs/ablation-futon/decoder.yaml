@@ -28,7 +28,7 @@ models:
   FUTON-sinc:
     class: FUTON
     kwargs:
-      basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
+      basis: [sinc, {num_components: [H // 2, W // 2]}]
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
@@ -46,7 +46,7 @@ models:
   FUTON-sinc-linear:  # equal size
     class: FUTON
     kwargs:
-      basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
+      basis: [sinc, {num_components: [H // 2, W // 2]}]
       combiner: [cp, {rank: 302}]
       decoder: linear
       output_activation: tanh

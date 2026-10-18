@@ -109,18 +109,17 @@ class BCD(Optimizer):
             isinstance(model, FUTON)
             and isinstance(model.combiner, CPCombiner)
             and isinstance(model.decoder, nn.Linear)
-            and model.combiner.linears[0].bias is None
             and model.decoder.bias is None
         ):
             raise ValueError(
                 "block coordinate descent fits a FUTON with a CP combiner and a"
-                " linear decoder, both without bias"
+                " linear decoder without bias"
             )
         if not 0 <= momentum < 1:
             raise ValueError("momentum must be in [0, 1)")
-        factors = [linear.weight for linear in model.combiner.linears]
         settings = {"lr": 1 - momentum, "initialize": initialize}
-        super().__init__([*factors, model.decoder.weight], settings | defaults)
+        params = [*model.combiner.factors, model.decoder.weight]
+        super().__init__(params, settings | defaults)
         self.model = model
         if initialize:
             self.reset_parameters()
@@ -139,9 +138,9 @@ class BCD(Optimizer):
         output of the signal's order.
         """
         model = self.model
-        for c, linear in enumerate(model.combiner.linears):
-            middle = model.basis.axis_features(linear.weight.new_zeros(1), c)
-            linear.weight.copy_(self._draw(linear.weight) / middle.sum())
+        for c, factor in enumerate(model.combiner.factors):
+            middle = model.basis.axis_features(factor.new_zeros(1), c)
+            factor.copy_(self._draw(factor) / middle.sum())
         weight = model.decoder.weight
         weight.copy_(self._draw(weight) / (2 * weight.shape[1]))
 
@@ -233,9 +232,9 @@ class BCD(Optimizer):
             torch.bincount(inverse, minlength=len(u)).to(x.dtype)[:, None] / count
             for u, inverse in axes
         ]
-        factors = [linear.weight for linear in model.combiner.linears]
+        factors = model.combiner.factors
         weight = model.decoder.weight
-        responses = [phi @ factor.T for phi, factor in zip(features, factors)]
+        responses = [phi @ factor for phi, factor in zip(features, factors)]
         grams = [r.T @ (share * r) for r, share in zip(responses, shares)]
         output = self._output(responses, weight)[index]
         loss = (model.output_activation(output) - y).square().mean()
@@ -262,17 +261,17 @@ class BCD(Optimizer):
             )
             # What the model explains, from the Gram matrices, and what it
             # misses, from the batch; see the class's notes.
-            right = left @ factor.T @ gram + phi.T @ correlation / count
+            right = left @ factor @ gram + phi.T @ correlation / count
             left, right, gram = self._average(factor, left, right, gram)
-            value = self.solve(factor.T, right, gram, left)
+            value = self.solve(factor, right, gram, left)
             # A component scaled in one factor and back in the decoder leaves
             # the model as it was; holding every factor's components at unit
             # mean square keeps the averaged statistics in one scale.
             scale = (value * (left @ value)).sum(0).sqrt()
             scale = torch.where(scale > 0, scale, 1.0)
-            factor.copy_((value / scale).T)
+            factor.copy_(value / scale)
             weight.mul_(scale)
-            responses[c] = phi @ factor.T
+            responses[c] = phi @ factor
             grams[c] = responses[c].T @ (share * responses[c])
             missed = residual(self._output(responses, weight)[index])
         operands = ",".join([f"{letters}d", *(f"{a}r" for a in letters)])

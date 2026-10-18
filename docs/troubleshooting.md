@@ -10,9 +10,6 @@ Coordinates must lie in $[-1, 1]$ on every axis. The coordinate datasets generat
 **`ValueError: num_components must be >= ...`**
 `SincBasis` needs at least two centres per axis, and a local basis needs at least `2 * radius`. With `num_components=[H // 2, W // 2]` this is never an issue for real images; it is for tiny test inputs.
 
-**Gradients with respect to the coordinates are zero.**
-A basis built with `grid_size` reads on-grid coordinates from a table, which carries no coordinate gradient. Leave `grid_size=None` when the loss differentiates through the input, for example an eikonal term.
-
 **`grid_size` on a dataset and `subsample` together.**
 `ImageCoordinateDataset(image, grid_size=...)` evaluates a model on another grid than the image's (for example a finer one) and cannot subsample; it is for evaluation.
 
