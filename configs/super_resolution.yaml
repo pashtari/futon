@@ -192,6 +192,7 @@ models:
       combiner: [cp, {rank: budget}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 1.0e-2}  # 3e-2 fails on smooth images; 3e-3 is 1.1 dB worse
 
   FUTON-lanczos:
@@ -202,4 +203,5 @@ models:
       combiner: [cp, {rank: budget}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 1.0e-2}  # 3e-2 is 0.1 dB worse

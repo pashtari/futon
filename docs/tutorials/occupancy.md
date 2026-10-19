@@ -31,10 +31,11 @@ model = nf.FUTON(
     combiner=("cp", {"rank": 218}),
     decoder=("mlp", {"hidden_layers": 1}),
     output_activation=torch.tanh,
+    grid_size=eval_set.grid_size,  # the cropped voxel grid
 )
 ```
 
-The Lanczos variant replaces the basis with `("lanczos", {"num_components": 128, "radius": 3})`, whose sparse mode evaluates only its six taps per point and axis. The sinc basis is dense, so on the voxel grid FUTON evaluates it once per distinct coordinate of each axis, whatever size the cropped volume has.
+The Lanczos variant replaces the basis with `("lanczos", {"num_components": 128, "radius": 3})`, whose sparse mode evaluates only its six taps per point and axis off a grid. On the voxel grid, which `grid_size` declares and which the crop sizes differently for every shape, either basis is evaluated once per grid coordinate of each axis, and each point reads its rows.
 
 ## Training and evaluation
 
@@ -59,7 +60,7 @@ print(result["history"][-1]["eval"]["iou"])
 
 ## Exporting a mesh
 
-With the `3d` extra, `eval_set.save(volume, path)` smooths the occupancy, runs marching cubes, writes a `.dae` mesh and renders it to a `.png` through a hidden Open3D window:
+With the `3d` extra, `eval_set.save(volume, path)` smooths the occupancy, runs marching cubes, writes a `.dae` mesh and renders it offscreen to a `.png` with Open3D:
 
 ```python
 volume = nf.chunked_inference(model, eval_set.input, chunk_size=262144)

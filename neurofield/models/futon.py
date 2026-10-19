@@ -16,7 +16,8 @@ basis function). The local bases :class:`TriangleBasis` and
 :class:`Taps`, only the few nonzero features of each point.
 
 On a grid, where every axis of a flat batch repeats its coordinates, a basis
-evaluates each distinct coordinate once and returns each axis as
+evaluates each distinct coordinate once, or each coordinate of the grid that
+:class:`FUTON`'s ``grid_size`` declares, and returns each axis as
 :class:`SharedRows` of that table: the combiners then project the table
 rather than every point, the same function at a fraction of the cost. Both
 kinds multiply like ``(N, K_c)`` matrices, so every combiner treats every axis
@@ -72,6 +73,7 @@ def _offsets(x: Tensor, size: int) -> Tensor:
     return _grid_position(x, size).unsqueeze(-1) - centers
 
 
+@torch.compiler.disable()  # sizes that depend on the data; compiled, a graph per axis
 def _shared(x: Tensor) -> list[tuple[Tensor, Tensor]] | None:
     """Each axis's distinct coordinates and the row of every point among them.
 
@@ -92,22 +94,22 @@ def _shared(x: Tensor) -> list[tuple[Tensor, Tensor]] | None:
 
 
 class SharedRows(NamedTuple):
-    """An axis's features on a grid: ``(N, K)``, row ``n`` being ``table[index[n]]``.
+    """An axis's features on a grid: ``(N, K)``, row ``n`` being ``table[rows[n]]``.
 
-    ``table`` holds the features of the axis's ``S`` distinct coordinates and
-    ``index`` the row of each point, so a product with a factor projects ``S``
-    rows rather than ``N``.
+    ``table`` holds the features of ``S`` coordinates of the axis, its distinct
+    ones or those of its grid, and ``rows`` the row of each point, so a product
+    with a factor projects ``S`` rows rather than ``N``.
     """
 
     table: Tensor
-    index: Tensor
+    rows: Tensor
 
     def __matmul__(self, other: Tensor) -> Tensor:
-        return (self.table @ other)[self.index]
+        return (self.table @ other)[self.rows]
 
     def dense(self) -> Tensor:
         """The ``(N, K)`` features."""
-        return self.table[self.index]
+        return self.table[self.rows]
 
 
 class Taps(NamedTuple):
@@ -171,17 +173,43 @@ class _Basis(nn.Module):
         """The dense features ``(*, K_axis)`` of one axis at coordinates ``(*,)``."""
         raise NotImplementedError
 
-    def forward(self, x: Tensor) -> tuple[Features, ...]:
+    def forward(
+        self, x: Tensor, grid_size: Sequence[int] | None = None
+    ) -> tuple[Features, ...]:
+        """Each axis's features at ``x``, which lies on the grid ``grid_size`` if
+        given (see :class:`FUTON`)."""
         if x.shape[-1] != self.in_features:
             raise ValueError(
                 f"Expected last dimension {self.in_features}, got {x.shape[-1]}"
             )
+        if grid_size is not None and not x.requires_grad:
+            return self._on_grid(x, grid_size)
         shared = _shared(x)
         if shared is None:
             return tuple(self._scattered(xc, c) for c, xc in enumerate(x.unbind(-1)))
         return tuple(
             SharedRows(self.axis_features(values, c), rows)
             for c, (values, rows) in enumerate(shared)
+        )
+
+    def _on_grid(self, x: Tensor, grid_size: Sequence[int]) -> tuple[SharedRows, ...]:
+        """Each axis's features on the grid ``linspace(-1, 1, size)``, and the row
+        of every point there: what :func:`_shared` searches each batch for,
+        which a known grid makes a rounding, with no sort or synchronization.
+
+        The features come first, so that each row is computed next to the
+        gather that reads it, which the compiler then recomputes for the
+        backward pass rather than saves.
+        """
+        tables = [
+            self.axis_features(
+                torch.linspace(-1, 1, size, device=x.device, dtype=x.dtype), c
+            )
+            for c, size in enumerate(grid_size)
+        ]
+        return tuple(
+            SharedRows(table, _grid_position(xc, size).round().long())
+            for table, xc, size in zip(tables, x.unbind(-1), grid_size)
         )
 
     def _scattered(self, x: Tensor, axis: int) -> Features:
@@ -302,6 +330,8 @@ class LegendreBasis(ChebyshevBasis):
         - Input: :math:`(*, C)`.
         - Output: ``C`` tensors of shape :math:`(*, K_c)`.
     """
+
+    _from_chebyshev: Tensor
 
     def __init__(
         self,
@@ -653,7 +683,8 @@ class FUTON(nn.Module):
         in_features: Number of coordinate axes ``C``.
         out_features: Number of output channels.
         basis: Basis spec, built as ``basis(in_features, **kwargs)``. Custom
-            bases must expose ``num_components``, one count per axis.
+            bases must expose ``num_components``, one count per axis, and are
+            called as ``basis(x, grid_size)``.
         combiner: Combiner spec, built as
             ``combiner(basis.num_components, **kwargs)``. Custom combiners must
             expose ``out_features``.
@@ -661,6 +692,12 @@ class FUTON(nn.Module):
             ``decoder(combiner.out_features, out_features, **kwargs)``.
         output_activation: Callable applied to the output; ``None`` uses the
             identity.
+        grid_size: Sizes of the grid ``linspace(-1, 1, size)``, shared or per
+            axis, that every input lies on, as a coordinate dataset's points do.
+            The basis then reads each point's row of its features on that grid
+            rather than finding the distinct coordinates of each batch. A point
+            off the grid would read its nearest grid point, so leave it ``None``
+            for other inputs, such as a radiance field's samples.
 
     Shape:
         - Input: :math:`(*, C)` coordinates in ``[-1, 1]``.
@@ -677,8 +714,11 @@ class FUTON(nn.Module):
         :math:`O(R \sum_c S_c K_c + NCR)` for :math:`N` points with
         :math:`S_c` distinct coordinates on axis :math:`c`, instead of
         :math:`O(NR \sum_c K_c)`, or :math:`O(NRL)` for a local basis's
-        :math:`L` taps. Scattered points and coordinates that need gradients
-        are evaluated point by point.
+        :math:`L` taps. With ``grid_size``, the table covers the declared grid
+        and each point's row is its index there, which spares searching every
+        batch for its distinct coordinates, a sort and a synchronization per
+        axis. Scattered points and coordinates that need gradients are
+        evaluated point by point.
 
     Relation to the paper:
         The cosine basis, CP combiner, and linear decoder implement Eq. (9):
@@ -712,10 +752,14 @@ class FUTON(nn.Module):
         combiner: ModuleSpec,
         decoder: ModuleSpec,
         output_activation: Callable[[Tensor], Tensor] | None = None,
+        grid_size: int | Sequence[int] | None = None,
     ) -> None:
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
+        if grid_size is not None:
+            grid_size = _broadcast(grid_size, in_features, "grid_size")
+        self.grid_size = grid_size
         self.basis = build_module(basis, BASES, in_features)
         self.combiner = build_module(combiner, COMBINERS, self.basis.num_components)
         self.decoder = build_module(
@@ -728,7 +772,8 @@ class FUTON(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         # The bases take a flat batch, whose points they share or sparsify.
         points = x.reshape(-1, self.in_features)
-        out = self.output_activation(self.decoder(self.combiner(self.basis(points))))
+        features = self.basis(points, self.grid_size)
+        out = self.output_activation(self.decoder(self.combiner(features)))
         return out.reshape(*x.shape[:-1], self.out_features)
 
 

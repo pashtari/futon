@@ -4,7 +4,7 @@ The library is built from small interfaces. This page shows the contract of each
 
 ## A basis
 
-`FUTON` builds the basis as `basis(in_features, **kwargs)` and only requires a module that exposes `num_components`, a list with one count per axis, and returns one `(N, K_c)` feature tensor per axis from `(N, C)` coordinates. A Gaussian bump basis in a dozen lines:
+`FUTON` builds the basis as `basis(in_features, **kwargs)` and only requires a module that exposes `num_components`, a list with one count per axis, and returns one `(N, K_c)` feature tensor per axis from `(N, C)` coordinates. `FUTON` calls it as `basis(x, grid_size)`, where `grid_size` is the grid the coordinates lie on, or `None`, which a basis may ignore. A Gaussian bump basis in a dozen lines:
 
 ```python
 import torch
@@ -22,7 +22,7 @@ class GaussianBasis(nn.Module):
         self.width = width
         self.register_buffer("centers", torch.linspace(-1.0, 1.0, num_components))
 
-    def forward(self, x):  # (N, C) -> C tensors of shape (N, K)
+    def forward(self, x, grid_size=None):  # (N, C) -> C tensors of shape (N, K)
         return tuple(
             torch.exp(-(((x[:, c, None] - self.centers) / self.width) ** 2))
             for c in range(self.in_features)

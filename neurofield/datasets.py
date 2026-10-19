@@ -510,6 +510,10 @@ class OccupancyCoordinateDataset(ImageCoordinateDataset):
         the render alone, without the ``.dae``.
         """
         import mcubes
+
+        # Imported in Jupyter, Open3D enables its web visualizer, which offscreen
+        # renders do not use, and announces it.
+        os.environ.setdefault("OPEN3D_DISABLE_WEB_VISUALIZER", "true")
         import open3d as o3d
 
         dae_path = Path(path).with_suffix(".dae")
@@ -529,8 +533,11 @@ class OccupancyCoordinateDataset(ImageCoordinateDataset):
         geometry.compute_vertex_normals()
         material = o3d.visualization.rendering.MaterialRecord()
         material.shader = "defaultLit"
+        # Quietly: each renderer announces its EGL context.
+        quiet = o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Warning)
         try:
-            renderer = o3d.visualization.rendering.OffscreenRenderer(size, size)
+            with quiet:
+                renderer = o3d.visualization.rendering.OffscreenRenderer(size, size)
         except RuntimeError as error:  # a machine without EGL or a GPU
             warnings.warn(f"No renderer ({error}); no {png_path.name}.")
             return

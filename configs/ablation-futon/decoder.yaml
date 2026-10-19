@@ -23,6 +23,7 @@ models:
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc:
@@ -32,6 +33,7 @@ models:
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-linear:  # equal size
@@ -41,6 +43,7 @@ models:
       combiner: [cp, {rank: 302}]
       decoder: linear
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-linear:  # equal size
@@ -50,4 +53,5 @@ models:
       combiner: [cp, {rank: 302}]
       decoder: linear
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}

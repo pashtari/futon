@@ -85,7 +85,7 @@ def futon(sizes: list[int], channels: int, alpha: float, rank: int) -> nf.FUTON:
     components = [max(2, int(alpha * size)) for size in sizes]
     basis = ("sinc", {"num_components": components})
     return nf.FUTON(len(sizes), channels, basis, ("cp", {"rank": rank}),
-                    ("linear", {"bias": False}))  # fmt: skip
+                    ("linear", {"bias": False}), grid_size=sizes)  # fmt: skip
 
 
 def features_of(model: nf.FUTON, sizes: list[int], device) -> list[torch.Tensor]:

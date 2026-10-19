@@ -31,8 +31,8 @@ nerfacc builds its CUDA extension on first use and needs `nvcc` for that. Withou
 **`ModuleNotFoundError: trimesh` (or `mcubes`, `open3d`).**
 Meshes as occupancy volumes, mesh export and offscreen rendering need the `3d` extra: `pip install -e ".[3d]"`. Point clouds in `.xyz` format load without it.
 
-**Rendering a mesh hangs or fails on a machine without a display.**
-`OccupancyCoordinateDataset.save` renders through a hidden Open3D window, which needs a display. Train with `save_reconstruction=False` (as `scripts/train_occupancy.py` does) and rebuild the mesh from `checkpoint.pt` on a machine with a display.
+**No `.png` from `OccupancyCoordinateDataset.save`.**
+It renders offscreen with Open3D, which needs EGL and a GPU driver but no display. Where the renderer cannot start, `save` warns and writes the mesh alone.
 
 **LPIPS downloads weights on first use.**
 `nf.lpips` loads the VGG (or AlexNet) backbone through torchmetrics, which fetches the weights once. On a machine without internet access, run one evaluation on a connected one first, with the same cache directory.

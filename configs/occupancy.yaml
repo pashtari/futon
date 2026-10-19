@@ -178,6 +178,7 @@ models:
       combiner: [cp, {rank: 218}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [D, H, W]  # the voxel grid, cropped to the shape
     train: {lr: 1.0e-2}
 
   FUTON-lanczos:
@@ -187,4 +188,5 @@ models:
       combiner: [cp, {rank: 218}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [D, H, W]  # the voxel grid, cropped to the shape
     train: {lr: 1.0e-2}

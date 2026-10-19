@@ -21,6 +21,7 @@ models:
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos:
@@ -30,6 +31,7 @@ models:
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc:
@@ -39,6 +41,7 @@ models:
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-triangle:
@@ -48,6 +51,7 @@ models:
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-chebyshev:
@@ -57,6 +61,7 @@ models:
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-legendre:
@@ -66,4 +71,5 @@ models:
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}

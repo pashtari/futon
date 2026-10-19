@@ -26,6 +26,7 @@ models:
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc:
@@ -35,6 +36,7 @@ models:
       combiner: [cp, {rank: 224}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-TR:
@@ -44,6 +46,7 @@ models:
       combiner: [tr, {rank: 15}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-TR:
@@ -53,6 +56,7 @@ models:
       combiner: [tr, {rank: 15}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-Tucker:
@@ -62,6 +66,7 @@ models:
       combiner: [tucker, {rank: ["H // 2 * 162 // 1000", "W // 2 * 162 // 1000"]}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-Tucker:
@@ -71,4 +76,5 @@ models:
       combiner: [tucker, {rank: ["H // 2 * 162 // 1000", "W // 2 * 162 // 1000"]}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}

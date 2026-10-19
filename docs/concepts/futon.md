@@ -41,7 +41,7 @@ This is the three-stage pipeline `decoder(combiner(basis(x)))`:
 
 A point costs $O(R \sum_c K_c)$, linear in the spectral resolution and in the number of axes. A local basis (below) reduces the basis term to the $2a$ nonzero taps per axis, $O(aRC)$.
 
-On a grid the projections $\boldsymbol{U}^{(c)\top} \boldsymbol{\varphi}(x_c)$ are shared, since each depends on one coordinate alone. When every axis of a batch repeats its coordinates, as an image's pixels or any batch drawn from them do, `FUTON` evaluates and projects each distinct coordinate once and every point gathers its rows: $N$ points with $S_c$ distinct coordinates per axis cost $O(R \sum_c S_c K_c + NCR)$ instead of $O(NR \sum_c K_c)$, for the same function and gradients. Every basis does this, the local ones too; scattered points, such as a radiance field's samples, and coordinates that need gradients are evaluated point by point.
+On a grid the projections $\boldsymbol{U}^{(c)\top} \boldsymbol{\varphi}(x_c)$ are shared, since each depends on one coordinate alone. When every axis of a batch repeats its coordinates, as an image's pixels or any batch drawn from them do, `FUTON` evaluates and projects each distinct coordinate once and every point gathers its rows: $N$ points with $S_c$ distinct coordinates per axis cost $O(R \sum_c S_c K_c + NCR)$ instead of $O(NR \sum_c K_c)$, for the same function and gradients. Every basis does this, the local ones too; scattered points, such as a radiance field's samples, and coordinates that need gradients are evaluated point by point. Given `grid_size`, the sizes of the grid every input lies on, such as a coordinate dataset's `grid_size`, each point's row is its index on that grid, found by rounding instead of by searching every batch for its distinct coordinates, which costs a sort and a GPU synchronization per axis and a break in the compiled graph. A point off the declared grid would read its nearest grid point's row, so `grid_size` stays unset for any other inputs.
 
 ```python
 model = nf.FUTON(
@@ -54,7 +54,7 @@ model = nf.FUTON(
 )
 ```
 
-Each stage accepts a registry key, a `(key, kwargs)` pair, a module class, or a module instance, resolved by `nf.build_module`. The basis is built as `basis(in_features, **kwargs)`, the combiner as `combiner(basis.num_components, **kwargs)`, and the decoder as `decoder(combiner.out_features, out_features, **kwargs)`, so custom stages only need to expose `num_components` (a basis) or `out_features` (a combiner); see [custom components](../tutorials/custom-components.md).
+Each stage accepts a registry key, a `(key, kwargs)` pair, a module class, or a module instance, resolved by `nf.build_module`. The basis is built as `basis(in_features, **kwargs)`, the combiner as `combiner(basis.num_components, **kwargs)`, and the decoder as `decoder(combiner.out_features, out_features, **kwargs)`, so custom stages only need to expose `num_components` (a basis, which `FUTON` calls as `basis(x, grid_size)`) or `out_features` (a combiner); see [custom components](../tutorials/custom-components.md).
 
 ## Bases
 

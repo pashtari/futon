@@ -24,6 +24,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 64"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.125-b0.25:
@@ -33,6 +34,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 32"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.125-b0.5:
@@ -42,6 +44,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 16"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.125-b1:
@@ -51,6 +54,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 8"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.125-b2:
@@ -60,6 +64,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.25-b0.125:
@@ -69,6 +74,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 32"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.25-b0.25:
@@ -78,6 +84,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 16"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.25-b0.5:
@@ -87,6 +94,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 8"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.25-b1:
@@ -96,6 +104,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.25-b2:
@@ -105,6 +114,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 2"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.5-b0.125:
@@ -114,6 +124,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 16"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.5-b0.25:
@@ -123,6 +134,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 8"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.5-b0.5:
@@ -132,6 +144,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.5-b1:
@@ -141,6 +154,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 2"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a0.5-b2:
@@ -150,6 +164,7 @@ models:
       combiner: [cp, {rank: "min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a1-b0.125:
@@ -159,6 +174,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 8"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a1-b0.25:
@@ -168,6 +184,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a1-b0.5:
@@ -177,6 +194,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 2"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a1-b1:
@@ -186,6 +204,7 @@ models:
       combiner: [cp, {rank: "min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a1-b2:
@@ -195,6 +214,7 @@ models:
       combiner: [cp, {rank: "2 * min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a2-b0.125:
@@ -204,6 +224,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a2-b0.25:
@@ -213,6 +234,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 2"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a2-b0.5:
@@ -222,6 +244,7 @@ models:
       combiner: [cp, {rank: "min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a2-b1:
@@ -231,6 +254,7 @@ models:
       combiner: [cp, {rank: "2 * min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-lanczos-a2-b2:
@@ -240,6 +264,7 @@ models:
       combiner: [cp, {rank: "4 * min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.125-b0.125:
@@ -249,6 +274,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 64"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.125-b0.25:
@@ -258,6 +284,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 32"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.125-b0.5:
@@ -267,6 +294,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 16"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.125-b1:
@@ -276,6 +304,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 8"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.125-b2:
@@ -285,6 +314,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.25-b0.125:
@@ -294,6 +324,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 32"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.25-b0.25:
@@ -303,6 +334,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 16"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.25-b0.5:
@@ -312,6 +344,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 8"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.25-b1:
@@ -321,6 +354,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.25-b2:
@@ -330,6 +364,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 2"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.5-b0.125:
@@ -339,6 +374,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 16"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.5-b0.25:
@@ -348,6 +384,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 8"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.5-b0.5:
@@ -357,6 +394,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.5-b1:
@@ -366,6 +404,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 2"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a0.5-b2:
@@ -375,6 +414,7 @@ models:
       combiner: [cp, {rank: "min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a1-b0.125:
@@ -384,6 +424,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 8"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a1-b0.25:
@@ -393,6 +434,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a1-b0.5:
@@ -402,6 +444,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 2"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a1-b1:
@@ -411,6 +454,7 @@ models:
       combiner: [cp, {rank: "min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a1-b2:
@@ -420,6 +464,7 @@ models:
       combiner: [cp, {rank: "2 * min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a2-b0.125:
@@ -429,6 +474,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a2-b0.25:
@@ -438,6 +484,7 @@ models:
       combiner: [cp, {rank: "min(H, W) // 2"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a2-b0.5:
@@ -447,6 +494,7 @@ models:
       combiner: [cp, {rank: "min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a2-b1:
@@ -456,6 +504,7 @@ models:
       combiner: [cp, {rank: "2 * min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}
 
   FUTON-sinc-a2-b2:
@@ -465,4 +514,5 @@ models:
       combiner: [cp, {rank: "4 * min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
+      grid_size: [H, W]
     train: {lr: 3.0e-2}

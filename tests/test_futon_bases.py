@@ -388,7 +388,7 @@ class TestFuton:
 def grid_points(sizes, count=None, dtype=torch.float64):
     """The points of ``linspace(-1, 1, size)`` per axis, as a coordinate dataset
     has them, or ``count`` of them at random, as a training batch draws them."""
-    axes = [torch.linspace(-1.0, 1.0, size).to(dtype) for size in sizes]
+    axes = [torch.linspace(-1.0, 1.0, size, dtype=dtype) for size in sizes]
     points = torch.stack(torch.meshgrid(*axes, indexing="ij"), dim=-1)
     if count is None:
         return points
@@ -407,15 +407,16 @@ def per_point(model, x):
 
 def shares_rows(model, x):
     """Whether the basis gives the points of ``x`` shared rows of a table."""
-    features = model.basis(x.reshape(-1, model.in_features))
+    features = model.basis(x.reshape(-1, model.in_features), model.grid_size)
     return all(isinstance(f, SharedRows) for f in features)
 
 
 class TestGridEvaluation:
-    """On a grid, a basis evaluates each distinct coordinate once."""
+    """On a grid, a basis evaluates each distinct coordinate once, or each
+    coordinate of the grid that ``grid_size`` declares."""
 
     @staticmethod
-    def model(sizes, basis, combiner, device, **basis_kwargs):
+    def model(sizes, basis, combiner, device, declared=False, **basis_kwargs):
         torch.manual_seed(0)
         model = FUTON(
             len(sizes),
@@ -424,6 +425,7 @@ class TestGridEvaluation:
             combiner,
             ("mlp", {"hidden_layers": 1}),
             torch.tanh,
+            grid_size=sizes if declared else None,
         )
         for parameter in model.parameters():  # the biases too, which start at zero
             nn.init.normal_(parameter, std=0.3)
@@ -443,8 +445,9 @@ class TestGridEvaluation:
     @pytest.mark.parametrize(
         "basis", ["cosine", "sinc", "chebyshev", "legendre", "triangle", "lanczos"]
     )
-    def test_matches_per_point(self, device, basis, combiner, sizes):
-        model = self.model(sizes, basis, combiner, device)
+    @pytest.mark.parametrize("declared", [False, True], ids=["found", "declared"])
+    def test_matches_per_point(self, device, basis, combiner, sizes, declared):
+        model = self.model(sizes, basis, combiner, device, declared)
         x = grid_points(sizes, count=60).to(device)
         assert shares_rows(model, x)
         out, ref = model(x), per_point(model, x)
@@ -461,8 +464,10 @@ class TestGridEvaluation:
         [("sinc", {}), ("lanczos", {"radius": 2, "sparse": False})],
         ids=["sinc", "dense-lanczos"],
     )
-    def test_whole_grid(self, device, basis, basis_kwargs):
-        model = self.model((9, 12), basis, ("cp", {"rank": 6}), device, **basis_kwargs)
+    @pytest.mark.parametrize("declared", [False, True], ids=["found", "declared"])
+    def test_whole_grid(self, device, basis, basis_kwargs, declared):
+        cp = ("cp", {"rank": 6})
+        model = self.model((9, 12), basis, cp, device, declared, **basis_kwargs)
         x = grid_points((9, 12)).to(device)
         out = model(x)
         assert shares_rows(model, x) and out.shape == (9, 12, 3)
@@ -497,8 +502,9 @@ class TestGridEvaluation:
         assert all(isinstance(f, SharedRows) for f in basis(x.reshape(-1, 2)))
 
     @pytest.mark.parametrize("device", DEVICES)
-    def test_coordinate_gradients(self, device):
-        model = self.model((9, 12), "sinc", ("cp", {"rank": 6}), device)
+    @pytest.mark.parametrize("declared", [False, True], ids=["found", "declared"])
+    def test_coordinate_gradients(self, device, declared):
+        model = self.model((9, 12), "sinc", ("cp", {"rank": 6}), device, declared)
         x = grid_points((9, 12), count=60).to(device).requires_grad_()
         assert not shares_rows(model, x)
         (grad,) = torch.autograd.grad(model(x).sum(), x)
@@ -564,6 +570,12 @@ class TestValidation:
         with pytest.raises(ValueError):
             basis(torch.rand(8, 2))
 
+    def test_grid_size_per_axis(self):
+        basis, cp = ("sinc", {"num_components": 8}), ("cp", {"rank": 4})
+        assert FUTON(3, 1, basis, cp, "linear", grid_size=16).grid_size == [16] * 3
+        with pytest.raises(ValueError):
+            FUTON(2, 3, basis, cp, "linear", grid_size=[16, 16, 16])
+
     def test_registry(self):
         from neurofield.models.futon import BASES
 
@@ -619,3 +631,61 @@ def test_compiled_taps_match_eager():
     expected = torch.autograd.grad(ref.square().sum(), params)
     for got, want in zip(grads, expected):
         torch.testing.assert_close(got, want, rtol=1e-10, atol=1e-12)
+
+
+@CUDA
+def test_declared_grid_compiles_to_one_graph():
+    """On a declared grid, rows are rounded rather than searched for, so the
+    whole forward pass is one graph, which matches eager evaluation."""
+    sizes = (40, 50)
+    model = FUTON(
+        2,
+        3,
+        ("sinc", {"num_components": 16}),
+        ("cp", {"rank": 8}),
+        ("mlp", {"hidden_layers": 1}),
+        torch.tanh,
+        grid_size=sizes,
+    )
+    model = model.double().cuda()
+    x = grid_points(sizes, count=500).cuda()
+    compiled = torch.compile(model, fullgraph=True)
+    out, ref = compiled(x), model(x)
+    torch.testing.assert_close(out, ref, rtol=1e-10, atol=1e-12)
+    params = list(model.parameters())
+    grads = torch.autograd.grad(out.square().sum(), params)
+    expected = torch.autograd.grad(ref.square().sum(), params)
+    for got, want in zip(grads, expected):
+        torch.testing.assert_close(got, want, rtol=1e-10, atol=1e-12)
+
+
+@CUDA
+def test_declared_grid_keeps_the_memory_of_a_step():
+    """Compiled, a declared grid saves no more for the backward pass than the
+    search does: Lanczos in 3D, whose long kernel, computed after the rows,
+    once made the compiler save two gathered projections instead of
+    recomputing them."""
+    sizes = (40, 50, 30)
+    x = grid_points(sizes, count=20000, dtype=torch.float32).cuda()
+    peaks = {}
+    for declared in (False, True):
+        torch.manual_seed(0)
+        model = FUTON(
+            3,
+            1,
+            ("lanczos", {"num_components": 16}),
+            ("cp", {"rank": 64}),
+            ("mlp", {"hidden_layers": 1}),
+            torch.tanh,
+            grid_size=sizes if declared else None,
+        ).cuda()
+        compiled = torch.compile(model)
+        for _ in range(2):
+            compiled(x).square().sum().backward()
+        torch.cuda.synchronize()
+        base = torch.cuda.memory_allocated()
+        torch.cuda.reset_peak_memory_stats()
+        compiled(x).square().sum().backward()
+        peaks[declared] = torch.cuda.max_memory_allocated() - base
+        torch.compiler.reset()
+    assert peaks[True] <= 1.05 * peaks[False], peaks

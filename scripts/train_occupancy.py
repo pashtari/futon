@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from train_common import ROOT, build, fresh, on_grid, record, run, warm_up
+from train_common import ROOT, build, fresh, on_grid, record, resolve, run, warm_up
 
 import neurofield as nf
 
@@ -19,9 +19,10 @@ DATA = sorted((ROOT / "data" / "occupancy").glob("*.ply"))
 def fit(
     config: dict, model: dict, path: Path, out: Path, device: torch.device
 ) -> dict[str, Any]:
-    model_class, kwargs = build(model)
     data_kwargs = {**config["data"], "item_id": path.stem}
     volume = nf.OccupancyCoordinateDataset(path, **{**data_kwargs, "subsample": 1.0})
+    # Sizes such as FUTON's grid_size, [D, H, W], follow the cropped volume.
+    model_class, kwargs = build(resolve(model, **dict(zip("DHW", volume.grid_size))))
     search = fresh(
         model,
         kwargs,
