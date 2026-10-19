@@ -52,7 +52,7 @@ Runs are keyed by model name inside the log directory. After changing a model's 
 Learning rates in the configs come from the grid {3e-1, 1e-1, 3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4}, and the comments beside them record what the neighbours cost. Sine networks (SIREN, FINER) are the most sensitive; FUTON tolerates 1e-2 to 3e-2 across tasks.
 
 **Training times differ from the tables.**
-Times recorded during a sweep carry whatever else ran beside it; the tables take theirs from runs of each model alone on an A100, and the [reproduction page](experiments/reproduce.md) explains how `scripts/profile_speed.py` times inference the same way.
+Times recorded during a sweep carry whatever else ran beside it; the tables take their training and inference times, and peak memories, from separate runs of each compiled model, each run twice with the faster kept, as the [reproduction page](experiments/reproduce.md) explains.
 
 ## Models
 

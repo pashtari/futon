@@ -23,6 +23,9 @@ Writes results/, which holds the paper's figures and tables and nothing else:
                                      standard error: occupancy adds every shape's
                                      IoU, and NeRF every scene's metrics under a
                                      super column
+    super_resolution/table_held_out.{tex,md}  the table without the three
+                                     validation images the protocol was
+                                     developed on
     <task>/qualitative_<signal>.pdf  the signal with two regions boxed, and those
                                      regions magnified for the ground truth and
                                      every featured model (for super-resolution,
@@ -52,11 +55,9 @@ Writes results/, which holds the paper's figures and tables and nothing else:
     bound/table.{tex,md}             the means per setting, the smallest setting
                                      certified for a target PSNR, the SVD form
                                      and the optimizer checks
-    teaser.pdf                       the paper's first figure: kodim19 after the
-                                     same seconds of training for three models,
-                                     beside their mean PSNR over Kodak against
-                                     time, above every model's final quality
-                                     against its training time on the four tasks
+    tuning/<task>.{tex,md}           every model's score at each learning rate
+                                     tried, by which its rate was chosen, the
+                                     best in bold
 
 Legends sit outside the data: a row of benchmark panels shares one legend
 strip below it, and a panel of its own carries a frameless legend above its
@@ -67,8 +68,8 @@ third of the text width, a strip of magnifications spans it, and the image and
 super-resolution tables fit it in small type. Ticks fall on whole or half
 numbers, and a band spans one standard error either side, as a table's ± does.
 
---tasks picks what to build, of the four tasks, ablation, bound and teaser; a run
-builds them all by default.
+--tasks picks what to build, of the four tasks, ablation, bound and tuning; a
+run builds them all by default.
 
 Tables mark the best value in bold and the second underlined. Drawing the panels
 needs the signals in data/ and a GPU; --no-panels leaves them out, and
@@ -86,6 +87,7 @@ import argparse
 import json
 import math
 import re
+import statistics
 import warnings
 from collections.abc import Sequence
 from itertools import groupby
@@ -104,13 +106,10 @@ from matplotlib.backends.backend_pgf import LatexError
 from matplotlib.lines import Line2D
 from matplotlib.font_manager import FontProperties
 from matplotlib.textpath import TextPath
-from matplotlib.patches import FancyBboxPatch, Patch, Rectangle
-from matplotlib.patheffects import Normal, Stroke
+from matplotlib.patches import Patch, Rectangle
 from matplotlib.ticker import (
     FixedLocator,
-    FuncFormatter,
     Locator,
-    MaxNLocator,
     NullFormatter,
     NullLocator,
     StrMethodFormatter,
@@ -149,9 +148,12 @@ TASKS = {
     "nerf": ("psnr", "PSNR (dB)", ("psnr", "ssim", "lpips")),
     "super_resolution": ("psnr", "PSNR (dB)", ("psnr", "ssim", "lpips")),
 }
-# The signal each task's inference speed and peak memory are measured on, one
-# standing for all since the protocol fixes every batch (see profiled and
-# measured_memory); every model's measurements share it.
+# The validation images super-resolution's protocol was developed on, which a
+# second table leaves out.
+DEVELOPED_ON = ("0801", "0804", "0882")
+# The signal each task's inference speed and peak memory are read from, one
+# standing for all since the protocol fixes every batch (see profiled); every
+# model's measurements share it.
 PROFILED = {
     "image": "kodim01",
     "occupancy": "thai_statue",
@@ -192,36 +194,6 @@ CENTERS: dict[str, tuple[tuple[float, float], ...]] = {
 # up to a round number; a super-resolution image's errors span a decade.
 ERRORS = ("image", "super_resolution")
 ERROR_MAP = "magma"  # perceptually uniform, black where a model is exact
-# The paper's first figure. Above, kodim19 as a few models have it after the
-# same seconds of training on an A100, at equal size, its lantern room
-# magnified, beside their mean PSNR over the Kodak images against training
-# time; scripts/snapshots.py keeps the images. Below, every model's final
-# quality against its training time on each task, with FUTON (sinc)'s
-# reconstruction of one of the task's signals set where no marker is.
-TEASER_SIGNAL = "kodim19"
-TEASER_MODELS = ("SIREN", "Instant-NGP", "FUTON-lanczos")  # the rows of pictures
-TEASER_SECONDS = (0.5, 1.0, 2.0, 4.0)
-# The plot beside them adds FUTON (sinc), whose pictures would look like the
-# Lanczos ones, and quotes how much sooner the second of TEASER_RACE reaches
-# the mean PSNR at which the first ends.
-TEASER_CURVES = ("SIREN", "Instant-NGP", "FUTON-sinc", "FUTON-lanczos")
-TEASER_RACE = ("Instant-NGP", "FUTON-lanczos")
-TEASER_CENTER = (0.638, 0.213)  # the lantern room, in fractions of the image
-TEASER_EXAMPLES = {
-    "image": "kodim19",
-    "occupancy": "thai_statue",
-    "nerf": "lego",
-    "super_resolution": "0882",
-}
-TEASER_TITLES = {
-    "image": "Images",
-    "occupancy": "Occupancy",
-    "nerf": "Radiance fields",
-    "super_resolution": "Super-resolution (4×)",
-}
-# The butterfly of 0882, in fractions of the image: top, bottom, left, right.
-TEASER_TRIM = {"super_resolution": (0.12, 0.88, 0.30, 0.80)}
-TEASER_TINT = "#edf3fb"  # behind FUTON's row of magnifications
 UP = {"lucy": 2}  # the Stanford Lucy is z up; the other four shapes are y up
 
 # Categorical hues in a fixed order, and a light-to-dark blue ramp for ordered
@@ -418,7 +390,17 @@ FLOORS = {"tensor_net": 32}
 BOUND_DATASETS = {"image": "Kodak", "occupancy": "Occupancy"}
 BOUND_TARGETS = {"image": (22, 24, 26, 28, 30), "occupancy": (19, 20, 21, 22, 23)}
 # What a run builds: the four tasks, the FUTON ablations and the error bound.
-PARTS = (*TASKS, "ablation", "bound", "teaser")
+PARTS = (*TASKS, "ablation", "bound", "tuning")
+# Every learning rate comes from this grid, and what a task's rates were chosen
+# by: its metric, on which signals.
+LEARNING_RATES = (3e-1, 1e-1, 3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4)
+TUNED_BY = {
+    "image": "PSNR (dB), the mean over the 24 Kodak images",
+    "occupancy": "IoU (%), the mean over the five shapes",
+    "nerf": "PSNR (dB) on 25 validation views of lego",
+    "super_resolution": "PSNR gain over bicubic (dB), the mean over the DIV2K "
+    "training images 0395, 0431 and 0777",
+}
 
 
 def style() -> None:
@@ -554,23 +536,36 @@ def curves(runs: list[dict[str, Any]]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def timed(runs: list[dict[str, Any]], task: str) -> list[dict[str, Any]]:
-    """The runs with their times taken from the exclusive-node timing runs.
+def timing_runs(task: str) -> dict[tuple[str, str], dict[str, Any]]:
+    """The task's timing runs by signal and model: the faster of each pair.
 
-    Accuracy comes from the sweeps, whose jobs shared their nodes, so their
-    times carry whatever else ran beside them. logs/timing/<task> holds the
-    same runs trained alone on an exclusive node, after a warm-up pass; where
-    such a run exists, its training time and the elapsed time of every
-    evaluation replace the sweep's, while the metrics stay the sweep's (they
-    agree where training is deterministic, and radiance fields are not). The
+    logs/timing/<task> holds every model compiled and retrained one at a time
+    in its job, after a warm-up pass that compiles it, and each job ran twice,
+    the second time into repeat/. The jobs shared their nodes, and what else
+    runs on a node can only add time, so the faster of the two runs is kept.
+    """
+    fastest: dict[tuple[str, str], dict[str, Any]] = {}
+    for run in read(ROOT / "logs" / "timing" / task, task):
+        key = run["data"], run["model"]
+        if key not in fastest or run["train_time"] < fastest[key]["train_time"]:
+            fastest[key] = run
+    return fastest
+
+
+def timed(runs: list[dict[str, Any]], task: str) -> list[dict[str, Any]]:
+    """The runs with their times taken from the timing runs.
+
+    Accuracy comes from the sweeps, whose times carry whatever else ran beside
+    them, and the eager models they trained; where a timing run exists (see
+    :func:`timing_runs`), its training time and the elapsed time of every
+    evaluation replace the sweep's, while the metrics stay the sweep's. The
     other runs lose their times, so that every time in the tables and figures
-    is a clean one and the mean over signals is taken over the timed ones.
+    is a timing run's and the mean over signals is taken over the timed ones.
     Without timing runs, the sweep's times stand.
     """
-    directory = ROOT / "logs" / "timing" / task
-    if not directory.exists():
+    clean = timing_runs(task)
+    if not clean:
         return runs
-    clean = {(run["data"], run["model"]): run for run in read(directory, task)}
 
     def retimed(run: dict[str, Any]) -> dict[str, Any]:
         timing = clean.get((run["data"], run["model"]))
@@ -590,52 +585,51 @@ def timed(runs: list[dict[str, Any]], task: str) -> list[dict[str, Any]]:
     return [retimed(run) for run in runs]
 
 
+def points(task: str) -> int:
+    """The pixels or voxels of the task's profiled signal."""
+    path = ROOT / SIGNALS[task].format(PROFILED[task])
+    if task == "occupancy":
+        data = yaml.safe_load((ROOT / "configs" / "occupancy.yaml").read_text())
+        return math.prod(nf.OccupancyCoordinateDataset(path, **data["data"]).grid_size)
+    width, height = Image.open(path).size
+    return width * height
+
+
 def profiled(final: pd.DataFrame, task: str) -> pd.DataFrame:
-    """Each model's inference throughput, from the exclusive-node profile.
+    """Each model's inference throughput and peak memories, from its timing
+    run on the profiled signal.
 
-    scripts/profile_speed.py times every model on one signal per task in one
-    allocation. Throughput is in millions of pixels or voxels per second, and
-    for radiance fields in rendered views per second (FPS); a model without a
-    profile has none.
+    A timing run (see :func:`timing_runs`) also times its evaluations: their
+    median, for a radiance field that of its 200 test views, gives millions of
+    pixels or voxels per second, and for a radiance field rendered views per
+    second (FPS). Training steps and evaluations record their peak memory
+    beyond the data and parameters already on the device, here in GB. One
+    signal stands for all, since the protocol fixes every batch and a scene
+    only changes how many samples its rays keep.
     """
-    path = ROOT / "logs" / "speed" / f"{task}.json"
-    profile = json.loads(path.read_text()) if path.exists() else {}
-    rates = {
-        "TensoRF" if model == TENSORF[task] else model: (
-            1 / entry["seconds"] if task == "nerf" else entry["rate"] / 1e6
+    size = points(task) if task != "nerf" else 1
+    speed, train_memory, infer_memory = {}, {}, {}
+    for (signal, _), run in timing_runs(task).items():
+        if signal != PROFILED[task]:
+            continue
+        name = "TensoRF" if run["model"] == TENSORF[task] else run["model"]
+        evaluations = (
+            run["test_views"]
+            if task == "nerf"
+            else [entry["eval"] for entry in run["history"] if "eval" in entry]
         )
-        for model, entry in profile.items()
-    }
-    return final.assign(speed=final["model"].map(rates))
-
-
-def measured_memory(final: pd.DataFrame, task: str) -> pd.DataFrame:
-    """Each model's peak memory of training and of inference, in GB.
-
-    logs/memory/<task>/ holds a short run of every model on the profiled
-    signal, long enough for a training step to reach its peak, and
-    logs/memory/<task>.json scripts/profile_speed.py's inference of that signal.
-    Both record the most a step or an inference allocated beyond the data and
-    parameters already on the device. One signal stands for all, since the
-    protocol fixes every batch and a scene only changes how many samples its
-    rays keep.
-    """
-    directory = ROOT / "logs" / "memory"
-
-    def name(model: str) -> str:
-        return "TensoRF" if model == TENSORF[task] else model
-
-    training = {  # the interpolations train nothing, so they record no peak
-        name(run["model"]): run["peak_memory"]
-        for run in read(directory / task, task)
-        if "peak_memory" in run
-    }
-    path = directory / f"{task}.json"
-    profile = json.loads(path.read_text()) if path.exists() else {}
-    inference = {name(model): entry["memory"] for model, entry in profile.items()}
+        seconds = statistics.median(entry["duration"] for entry in evaluations)
+        speed[name] = 1 / seconds if task == "nerf" else size / seconds / 1e6
+        peaks = [
+            entry["peak_memory"] for entry in evaluations if "peak_memory" in entry
+        ]
+        if peaks:  # the interpolations run on the CPU and train nothing
+            infer_memory[name] = statistics.median(peaks) / 1e9
+            train_memory[name] = run["peak_memory"] / 1e9
     return final.assign(
-        train_memory=final["model"].map(training) / 1e9,
-        infer_memory=final["model"].map(inference) / 1e9,
+        speed=final["model"].map(speed),
+        train_memory=final["model"].map(train_memory),
+        infer_memory=final["model"].map(infer_memory),
     )
 
 
@@ -659,7 +653,7 @@ def load(task: str) -> tuple[list[dict[str, Any]], pd.DataFrame, pd.DataFrame]:
         for run in timed(runs, task)
         if run["model"] not in others
     ]
-    return runs, measured_memory(profiled(results(runs), task), task), curves(runs)
+    return runs, profiled(results(runs), task), curves(runs)
 
 
 def model_config(run: dict[str, Any]) -> dict[str, Any]:
@@ -1760,354 +1754,6 @@ def qualitative(task: str, signal: str, final: pd.DataFrame, directory: Path):
     return figure
 
 
-def teaser_snapshots(root: Path) -> dict[str, list[tuple[np.ndarray, float]]]:
-    """Each teaser model's reconstructions after TEASER_SECONDS of training,
-    from the snapshots under ``root``, with the PSNR of the whole image."""
-    shots = {}
-    for model in TEASER_MODELS:
-        run = json.loads((root / model / "results.json").read_text())
-        evaluated = [entry for entry in run["history"] if "eval" in entry]
-        scores = {entry["epoch"]: entry["eval"]["psnr"] for entry in evaluated}
-        shots[model] = []
-        for seconds in TEASER_SECONDS:
-            epoch = run["seconds"][str(float(seconds))]
-            image = plt.imread(root / model / f"epoch_{epoch:04d}.png")[..., :3]
-            shots[model].append((image, scores[epoch]))
-    return shots
-
-
-def first_reached(times: np.ndarray, values: np.ndarray, level: float) -> float | None:
-    """When a curve first reaches ``level``, linearly between evaluations;
-    None if it never does."""
-    above = np.flatnonzero(values >= level)
-    if not len(above):
-        return None
-    if (index := above[0]) == 0:
-        return float(times[0])
-    return float(np.interp(level, values[index - 1 : index + 1],
-                           times[index - 1 : index + 1]))  # fmt: skip
-
-
-def teaser_example(task: str, panels: Path) -> np.ndarray | None:
-    """FUTON (sinc)'s reconstruction of the task's teaser example, as its
-    qualitative figure drew it: a render trimmed to its object, a photograph
-    to TEASER_TRIM where one is set; None before the panel is drawn."""
-    path = panels / TEASER_EXAMPLES[task] / "FUTON-sinc.png"
-    if not path.exists():
-        return None
-    image = plt.imread(path)[..., :3]
-    if task in ("occupancy", "nerf"):  # a render on a white field
-        ink = np.abs(image - 1).sum(-1) > 0.08
-        rows, columns = np.flatnonzero(ink.any(1)), np.flatnonzero(ink.any(0))
-        pad = round(0.05 * max(rows[-1] - rows[0], columns[-1] - columns[0]))
-        image = image[max(rows[0] - pad, 0) : rows[-1] + pad,
-                      max(columns[0] - pad, 0) : columns[-1] + pad]  # fmt: skip
-    if task in TEASER_TRIM:
-        top, bottom, left, right = TEASER_TRIM[task]
-        height, width = image.shape[:2]
-        image = image[round(top * height) : round(bottom * height),
-                      round(left * width) : round(right * width)]  # fmt: skip
-    return image
-
-
-def crowded(points: np.ndarray, box: tuple[float, float, float, float]) -> bool:
-    """Whether a marker at any of ``points`` would touch ``box`` (left, bottom,
-    right, top), both in axes fractions, at the size the teaser draws them."""
-    left, bottom, right, top = box
-    return bool(
-        (
-            (points[:, 0] > left - 0.03)
-            & (points[:, 0] < right + 0.03)
-            & (points[:, 1] > bottom - 0.045)
-            & (points[:, 1] < top + 0.045)
-        ).any()
-    )
-
-
-def free_spot(
-    points: np.ndarray,
-    size: tuple[float, float],
-    boxes: Sequence[tuple[float, float, float, float]] = (),
-) -> tuple[float, float] | None:
-    """The lower left corner, in axes fractions, of a box of ``size`` that no
-    marker at ``points`` touches and that overlaps none of ``boxes`` (left,
-    bottom, right, top), as near as it can be to a lower corner or the upper
-    right; None where there is no room."""
-    width, height = size
-    corners = ((0.98 - width, 0.03), (0.02, 0.03), (0.98 - width, 0.97 - height))
-    best = None
-    for x in np.linspace(0.02, 0.98 - width, 40):
-        for y in np.linspace(0.03, 0.97 - height, 40):
-            if crowded(points, (x, y, x + width, y + height)) or any(
-                x < right and left < x + width and y < top and bottom < y + height
-                for left, bottom, right, top in boxes
-            ):
-                continue
-            distance = min(math.hypot(x - cx, y - cy) for cx, cy in corners)
-            if best is None or distance < best[0]:
-                best = (distance, x, y)
-    return None if best is None else best[1:]
-
-
-def teaser(path: Path, snapshots: Path = ROOT / "logs" / "snapshots") -> None:
-    """The paper's first figure (see TEASER_SIGNAL), as ``path``.pdf, from the
-    snapshots that scripts/snapshots.py keeps under ``snapshots``.
-
-    Above, the reference with its region boxed and a row per model of that
-    region after each of TEASER_SECONDS of training, with the PSNR of the whole
-    image then; beside them, TEASER_CURVES' PSNR against training time over
-    all the Kodak images, as the convergence figure draws it, the seconds
-    marked, with how much sooner FUTON reaches the mean PSNR the other fast
-    model ends at. A claim in the first figure should hold for the benchmark,
-    so only the pictures are of one image. Below, every model's final quality
-    against its training time on each task, as its trade-off figure draws it
-    but with time on a log axis, as in the plot above, where a ratio of times
-    is a distance, and IoU on a logit axis, which spreads the saturated scores
-    by their error; each panel holds FUTON (sinc)'s reconstruction of one of
-    the task's signals where no marker is. Times come from the exclusive
-    timing runs.
-    """
-    signal = TEASER_SIGNAL
-    root = snapshots / "image" / signal
-    if not all((root / model / "results.json").exists() for model in TEASER_MODELS):
-        print(f"teaser: no snapshots of {signal}; run scripts/snapshots.py")
-        return
-    shots = teaser_snapshots(root)
-    truth = plt.imread(ROOT / SIGNALS["image"].format(signal))[..., :3]
-    height, width = truth.shape[:2]
-    side = round(0.12 * np.sqrt(width * height))
-    if TEASER_CENTER is None:  # where the models disagree most, midway
-        middle = len(TEASER_SECONDS) // 2
-        panel = {"truth": truth, **{model: shots[model][middle][0] for model in shots}}
-        (left, top), *_ = regions(panel, side)
-    else:
-        left = min(max(round(TEASER_CENTER[0] * width - side / 2), 0), width - side)
-        top = min(max(round(TEASER_CENTER[1] * height - side / 2), 0), height - side)
-    tasks = [task for task in TASKS if (ROOT / "logs" / task).exists()]
-    loaded = {task: load(task) for task in tasks}
-
-    # Laid out in inches, from the bottom: the legend, the row of tasks with
-    # their shared axis label and their titles, and the row of snapshots.
-    legend_room, axis_room, tall_panel = 0.17, 0.36, 0.84
-    title_room, between_rows = 0.16, 0.05
-    unit, gap, label = 0.39, 0.05, 0.58  # a magnification, its gaps' share, labels
-    rows, columns = len(TEASER_MODELS), len(TEASER_SECONDS)
-    span = (rows + (rows - 1) * gap) * unit
-    above, below = 0.16, 0.33  # the magnifications' titles, the curve's axis
-    base = legend_room + axis_room + tall_panel + title_room + between_rows + below
-    tall = base + span + above
-    figure = plt.figure(figsize=(WIDTH, tall))
-    figure.set_layout_engine("none")
-
-    def place(x: float, y: float, w: float, h: float) -> plt.Axes:
-        return figure.add_axes([x / WIDTH, y / tall, w / WIDTH, h / tall])
-
-    plots = []
-    aspect = width / height
-    reference = place(0, base, aspect * span, span)
-    reference.imshow(truth)
-    reference.set_axis_off()
-    reference.add_patch(Rectangle((left, top), side, side, fill=False,
-                                  color=COLORS[0], linewidth=0.9))  # fmt: skip
-    start = aspect * span + 0.05 + label
-    crops = columns * unit + (columns - 1) * gap * unit
-    for row, model in enumerate(TEASER_MODELS):
-        ours = model.startswith("FUTON")
-        y = base + (rows - 1 - row) * (1 + gap) * unit
-        if ours:  # a tint behind FUTON's row, its label and magnifications
-            pad = 0.035
-            figure.patches.append(FancyBboxPatch(
-                ((start - label + 0.02) / WIDTH, (y - pad) / tall),
-                (label - 0.02 + crops + pad) / WIDTH, (unit + 2 * pad) / tall,
-                boxstyle="round,pad=0,rounding_size=0.008",
-                transform=figure.transFigure, facecolor=TEASER_TINT,
-                edgecolor="none", zorder=-1,
-            ))  # fmt: skip
-        figure.text((start - 0.06) / WIDTH, (y + unit / 2) / tall,
-                    display_name(model).replace(" (", "\n("), ha="right",
-                    va="center", multialignment="right", fontsize=LABEL_SIZE,
-                    color=FEATURED[model][0],
-                    fontweight="bold" if ours else "normal")  # fmt: skip
-        for column, (image, score) in enumerate(shots[model]):
-            plot = place(start + column * (1 + gap) * unit, y, unit, unit)
-            plot.imshow(image[top : top + side, left : left + side],
-                        interpolation="lanczos")  # fmt: skip
-            plot.set(xticks=[], yticks=[])
-            for spine in plot.spines.values():
-                spine.set(visible=True, color=COLORS[0], linewidth=0.6)
-            plot.text(0.04, 0.04, f"{score:.1f} dB", transform=plot.transAxes,
-                      ha="left", va="bottom", fontsize=6, color="white",
-                      fontweight="bold" if ours else "normal",
-                      path_effects=[Stroke(linewidth=1.4, foreground="black"),
-                                    Normal()])  # fmt: skip
-            if row == 0:
-                plot.set_title(f"{TEASER_SECONDS[column]:g} s", fontsize=LABEL_SIZE,
-                               pad=2.5)  # fmt: skip
-
-    curve_x = start + crops + 0.44
-    plot = place(curve_x, base, WIDTH - curve_x - 0.04, span)
-    plots.append(plot)
-    # As the convergence figure: each image's level removed, so that the band
-    # is the within-image standard error, and the times averaged per epoch.
-    curve = loaded["image"][2]
-    curve = curve.assign(psnr=comparable(curve, "psnr"))
-    curve = curve[curve["model"].isin(TEASER_CURVES)]
-    means = curve.groupby(["model", "iteration"]).agg(
-        time=("time", "mean"), psnr=("psnr", "mean"), error=("psnr", "sem")
-    )
-    for model in TEASER_CURVES:
-        color, dashes, filled = FEATURED[model]
-        mean = means.loc[model]
-        plot.fill_between(mean["time"], mean["psnr"] - BAND * mean["error"],
-                          mean["psnr"] + BAND * mean["error"], color=color,
-                          alpha=0.2, linewidth=0, zorder=2)  # fmt: skip
-        plot.plot(mean["time"], mean["psnr"], color=color,
-                  dashes=dashes or (None, None), linewidth=1.1, zorder=3)  # fmt: skip
-        plot.plot(mean["time"].iloc[-1], mean["psnr"].iloc[-1], marker="o",
-                  markersize=3.5, markeredgewidth=0.9, color=color,
-                  markerfacecolor=color if filled else "white", clip_on=False,
-                  zorder=4)  # fmt: skip
-    for seconds in TEASER_SECONDS:
-        plot.axvline(seconds, color="0.88", linewidth=0.6, zorder=0)
-    # The pictures are of one image and the curves of all, which says so.
-    images = curve["signal"].nunique()
-    plot.text(0.03, 0.97, f"Mean of {images} Kodak images", transform=plot.transAxes,
-              ha="left", va="top", fontsize=6, color="0.4")  # fmt: skip
-    first, last = means["time"].min(), means["time"].max()
-    plot.set(xscale="log", xlim=(first / 1.15, 1.15 * last))
-    plot.set_xlabel("Training time (s)", labelpad=1.5)
-    plot.set_ylabel("PSNR (dB)", labelpad=1.5)
-    log_ticks(plot.xaxis)
-    floor = 20.0  # leaves the foot of the plot to the head start below
-    quality_ticks(plot, "psnr", floor, math.ceil(means["psnr"].max() + 0.6))
-    # FUTON's head start: the time it takes to the mean PSNR the other fast
-    # model ends at, both times dropped to the axis, their ratio at its foot.
-    rival, futon = TEASER_RACE
-    level, finish = means.loc[rival].iloc[-1][["psnr", "time"]]
-    ours = means.loc[futon]
-    reach = first_reached(ours["time"].to_numpy(), ours["psnr"].to_numpy(), level)
-    if reach is not None:
-        dotted = {"linewidth": 0.5, "dashes": (1.2, 1.4), "zorder": 2}
-        plot.plot([reach, finish], [level, level], color="0.45", **dotted)
-        plot.plot([reach, reach], [floor, level], color=PALETTE[0], alpha=0.8,
-                  **dotted)  # fmt: skip
-        plot.plot([finish, finish], [floor, level], color=FEATURED[rival][0],
-                  alpha=0.8, **dotted)  # fmt: skip
-        plot.annotate("", xy=(reach, floor + 0.9), xytext=(finish, floor + 0.9),
-                      arrowprops={"arrowstyle": "-|>", "color": PALETTE[0],
-                                  "lw": 0.8, "shrinkA": 0, "shrinkB": 0,
-                                  "mutation_scale": 6}, zorder=5)  # fmt: skip
-        plot.text(math.sqrt(reach * finish), floor + 1.25,
-                  f"{finish / reach:.1f}× faster", ha="center", va="bottom",
-                  fontsize=6, color=PALETTE[0])  # fmt: skip
-
-    # The tasks, each panel as wide as the text allows beside its axis labels.
-    label_room, gutter = 0.37, 0.10
-    wide = (WIDTH - len(tasks) * label_room - (len(tasks) - 1) * gutter) / len(tasks)
-    bottom = legend_room + axis_room
-    for index, task in enumerate(tasks):
-        metric, axis_label, _ = TASKS[task]
-        final = loaded[task][1]
-        means = final.groupby("model")[["time", metric]].mean()
-        logit = metric == "iou"
-        if logit:  # the logit scale takes fractions
-            means[metric] /= 100
-        trained = means[means["time"] > 0]
-        x0 = index * (wide + label_room + gutter) + label_room
-        plot = place(x0, bottom, wide, tall_panel)
-        plots.append(plot)
-        low, high = padded(trained[metric], 0.10)
-        if (lowest := FLOOR.get(task, BOTTOM.get(task))) is not None:
-            low = lowest / 100 if logit else lowest
-        if logit:
-            high = 0.9995
-            plot.set_yscale("logit")
-        levels = []
-        if REFERENCE in means.index:
-            levels.append(means.loc[REFERENCE, metric])
-            plot.axhline(levels[0], color="0.45", linestyle=":", linewidth=0.8,
-                         zorder=1)  # fmt: skip
-        others = trained[~trained.index.isin(FEATURED)]
-        shown, under = others[others[metric] >= low], others[others[metric] < low]
-        plot.scatter(shown["time"], shown[metric], s=9, color=OTHERS, linewidth=0,
-                     zorder=2)  # fmt: skip
-        plot.scatter(under["time"], [low] * len(under), s=9, marker="v", color=OTHERS,
-                     linewidth=0, clip_on=False, zorder=2)  # fmt: skip
-        for model, (color, _, filled) in FEATURED.items():
-            if model not in means.index or means.loc[model, metric] < low:
-                continue
-            x, y = means.loc[model, ["time", metric]]
-            if model.startswith("FUTON"):  # a halo, so FUTON is found first
-                plot.scatter(x, y, s=75, color=PALETTE[0], alpha=0.16, linewidth=0,
-                             zorder=3)  # fmt: skip
-            plot.scatter(x, y, s=20 if model.startswith("FUTON") else 15,
-                         facecolor=color if filled else "white", edgecolor=color,
-                         linewidth=0.9, zorder=4)  # fmt: skip
-        plot.set(xscale="log", xlim=(trained["time"].min() / 1.15,
-                                     1.15 * trained["time"].max()))  # fmt: skip
-        log_ticks(plot.xaxis)
-        plot.set_ylim(low, high)
-        if logit:
-            plot.yaxis.set_major_locator(FixedLocator([0.99, 0.995, 0.998, 0.999]))
-            plot.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{100 * v:g}"))
-            plot.yaxis.set_minor_locator(NullLocator())
-        else:
-            plot.yaxis.set_major_locator(MaxNLocator(4, integer=True))
-            plot.yaxis.set_major_formatter(StrMethodFormatter("{x:g}"))
-        plot.set_ylabel(axis_label, labelpad=1.5)
-        plot.set_title(TEASER_TITLES[task], fontsize=7.5, pad=3)
-        to_axes = plot.transAxes.inverted()
-        points = to_axes.transform(plot.transData.transform(
-            np.c_[trained["time"], np.maximum(trained[metric], low)]))  # fmt: skip
-        keep_out = []
-        if levels:  # the reference's level, named at an end no marker touches
-            at = to_axes.transform(plot.transData.transform((1, levels[0])))[1]
-            keep_out.append((0.0, at - 0.03, 1.0, at + 0.03))
-            for x, ha, side, va in ((0.98, "right", 1, "bottom"),
-                                    (0.02, "left", 1, "bottom"),
-                                    (0.98, "right", -1, "top"),
-                                    (0.02, "left", -1, "top")):  # fmt: skip
-                name = plot.text(x, at + 0.015 * side, REFERENCE.lower(),
-                                 transform=plot.transAxes, ha=ha, va=va,
-                                 fontsize=5.5, color="0.4", style="italic")  # fmt: skip
-                box = name.get_window_extent().transformed(to_axes).extents
-                if not crowded(points, box):
-                    keep_out.append(tuple(box))
-                    break
-                name.remove()
-        # The task's example, in the largest size that finds a free spot.
-        example = teaser_example(task, path.parent / task / "panels")
-        if example is None:
-            continue
-        for share in (0.38, 0.36, 0.34, 0.32, 0.30):
-            h = share * tall_panel
-            w = min(h * example.shape[1] / example.shape[0], 0.48 * wide)
-            h = w * example.shape[0] / example.shape[1]
-            spot = free_spot(points, (w / wide, h / tall_panel), keep_out)
-            if spot is not None:
-                break
-        else:
-            print(f"teaser: no room for {task}'s example")
-            continue
-        inset = place(x0 + spot[0] * wide, bottom + spot[1] * tall_panel, w, h)
-        inset.imshow(example, interpolation="lanczos")
-        inset.set(xticks=[], yticks=[])
-        for spine in inset.spines.values():
-            spine.set(visible=True, color="0.55", linewidth=0.4)
-    figure.text(0.5, (legend_room + 0.02) / tall, r"Training time (s)$\,\downarrow$",
-                ha="center", va="bottom", fontsize=8)  # fmt: skip
-    figure.legend(handles=legend_handles(), loc="lower center",
-                  bbox_to_anchor=(0.5, -0.01), ncol=len(FEATURED) + 1, frameon=False,
-                  columnspacing=1.0, handletextpad=0.4, fontsize=7)  # fmt: skip
-    for plot in plots:
-        for side_name in ("left", "bottom"):
-            plot.spines[side_name].set_position(("outward", 3.0))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(path.with_suffix(".pdf"), dpi=600)
-    plt.close(figure)
-    print(f"teaser: {signal}, written to {path.with_suffix('.pdf')}")
-
-
 def study(name: str) -> list[dict]:
     """The study's runs whose setup matches its config."""
     log_dir = ROOT / "logs" / "ablation-futon" / name
@@ -2722,6 +2368,115 @@ def bound_latex(built: list[dict]) -> str:
     return "\n".join(blocks)
 
 
+def rate(lr: float) -> str:
+    """A learning rate as the grid writes it, 3e-4 for 0.0003."""
+    return f"{lr:.0e}".replace("e-0", "e-")
+
+
+def tuning_scores(task: str) -> pd.DataFrame:
+    """One row per tuning run under logs/tune-lr/: its model, the setting
+    tuned beside the rate, the rate, the signal and the score the rate was
+    chosen by.
+
+    Each rate tried, the configured one too, has its own run there, so that
+    a model's rates are compared on one GPU. RFF's frequency scale is tuned
+    with its rate on images, and each radiance field's colour network gets a
+    rate of its own, "coupled" when it shares the density network's.
+    """
+    metric = TASKS[task][0]
+    runs = read(ROOT / "logs" / "tune-lr", task)
+    bicubic = {
+        run["data"]: run["metrics"]["psnr"] for run in runs if run["model"] == REFERENCE
+    }
+    rows = []
+    for run in runs:
+        setup = run["setup"]
+        if "interpolation" in setup:
+            continue
+        setting = ""
+        if task == "nerf":
+            score = run["history"][-1]["eval"]["psnr"]  # the validation views
+            color = run.get("color_lr")
+            setting = "coupled" if color is None else f"colour {rate(color)}"
+        else:
+            score = scale(metric, run["metrics"][metric])
+            if task == "super_resolution":
+                score -= bicubic[run["data"]]
+            if task == "image" and run["model"] == "RFF":
+                setting = f"σ {setup['kwargs']['sigma']:g}"
+        rows.append(
+            {
+                "model": run["model"],
+                "setting": setting,
+                "lr": setup["train"]["lr"],
+                "signal": run["data"],
+                "score": score,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def tuning_table(scores: pd.DataFrame, task: str) -> dict[str, str]:
+    """LaTeX and Markdown of every model's mean score at each rate it was run
+    at, its best in bold; a cell over fewer signals than the task's is starred."""
+    grouped = scores.groupby(["model", "setting", "lr"])["score"]
+    means, counts = grouped.mean().unstack("lr"), grouped.count().unstack("lr")
+    rates = [lr for lr in LEARNING_RATES if lr in means.columns]
+    full = scores["signal"].nunique()
+    order = {model: rank for rank, model in enumerate(ROWS)}
+    keys = sorted(means.index, key=lambda key: (order.get(key[0], len(ROWS)), key[1]))
+    header = ["Model", *map(rate, rates)]
+    lines = {"md": [], "tex": []}
+    for model, setting in keys:
+        row = means.loc[(model, setting), rates]
+        name = display_name(model) + (f", {setting}" if setting else "")
+        cells = {"md": [name], "tex": [name]}
+        for lr in rates:
+            if pd.isna(row[lr]):
+                cells["md"].append("–")
+                cells["tex"].append("–")
+                continue
+            text = f"{row[lr]:.2f}" + (
+                "*" if counts.loc[(model, setting), lr] < full else ""
+            )
+            best = row[lr] == row.max()
+            cells["md"].append(f"**{text}**" if best else text)
+            cells["tex"].append(rf"\textbf{{{text}}}" if best else text)
+        lines["md"].append("| " + " | ".join(cells["md"]) + " |")
+        lines["tex"].append(" & ".join(cells["tex"]) + r" \\")
+    markdown = "\n".join(
+        [
+            f"Learning rates of the {task.replace('_', ' ')} task, by {TUNED_BY[task]}.",
+            "",
+            "| " + " | ".join(header) + " |",
+            "|" + "---|" * len(header),
+            *lines["md"],
+        ]
+    )
+    latex = "\n".join(
+        [
+            r"\begin{tabular}{l" + "r" * len(rates) + "}",
+            r"\toprule",
+            " & ".join(header) + r" \\",
+            r"\midrule",
+            *lines["tex"],
+            r"\bottomrule",
+            r"\end{tabular}",
+        ]
+    )
+    return {"md": markdown + "\n", "tex": latex + "\n"}
+
+
+def tuning(out_dir: Path) -> None:
+    """The learning-rate tables of every task that has tuning runs."""
+    for task in TASKS:
+        scores = tuning_scores(task)
+        if scores.empty:
+            continue
+        write(tuning_table(scores, task), out_dir / task)
+        print(f"tuning: {task} written to {out_dir / task}")
+
+
 def bound(out_dir: Path) -> None:
     """The figures and tables of the error bound, from the records of
     scripts/futon_bound.py."""
@@ -2783,6 +2538,9 @@ def main() -> None:
             continue
         runs, final, curve = load(task)
         write(tables(final, task), out_dir / task / "table")
+        if task == "super_resolution":
+            held_out = final[~final["signal"].isin(DEVELOPED_ON)]
+            write(tables(held_out, task), out_dir / task / "table_held_out")
         if not final["model"].isin(FEATURED).any():  # a sweep still running
             print(f"{task}: no featured model has finished, so no figures yet")
             continue
@@ -2814,8 +2572,8 @@ def main() -> None:
         ablation(out_dir / "ablation")
     if "bound" in args.tasks:
         bound(out_dir / "bound")
-    if "teaser" in args.tasks and (ROOT / "logs" / "image").exists():
-        teaser(out_dir / "teaser")
+    if "tuning" in args.tasks:
+        tuning(out_dir / "tuning")
     if "occupancy" in args.tasks and (ROOT / "logs" / "occupancy").exists():
         # For the text: who reaches a high IoU, and how soon.
         print(f"\ntime to {TARGET:g}% IoU on every shape (s):")

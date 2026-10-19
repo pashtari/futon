@@ -89,7 +89,9 @@ def evaluate(
     Returns:
         ``config`` with model name, parameter count and chunk size; ``history``
         with one record per sample containing its ID, elapsed time, duration
-        and metric values.
+        (the reconstruction's, metrics left out), ``peak_memory`` (the most
+        bytes it allocated beyond what was on the device, zero off CUDA) and
+        metric values.
     """
     model_dict = model_dict or model.state_dict()
     metrics = metrics or {}
@@ -123,6 +125,7 @@ def evaluate(
     # Parameters are fixed during evaluation, so every sample shares one bitstream.
     encoded = encode_dict(model_dict) if rate_metrics else b""
     postprocess = getattr(dataset, "postprocess", None)
+    cuda = torch.device(device).type == "cuda"
 
     history: list[dict[str, Any]] = []
     start_time = time.time()
@@ -131,6 +134,10 @@ def evaluate(
         x = batch["input"].to(device)
         original = batch["_original"][0]
 
+        if cuda:  # the sample's own time and peak, after any work queued before
+            torch.cuda.synchronize(device)
+            torch.cuda.reset_peak_memory_stats(device)
+        resident = torch.cuda.memory_allocated(device) if cuda else 0
         sample_start_time = time.time()
 
         output = chunked_inference(model, x, chunk_size=chunk_size, device=device)
@@ -141,8 +148,14 @@ def evaluate(
 
         sample_duration = time.time() - sample_start_time
         elapsed_time = time.time() - start_time
+        peak = torch.cuda.max_memory_allocated(device) - resident if cuda else 0
 
-        results = {"id": item_id, "elapsed": elapsed_time, "duration": sample_duration}
+        results = {
+            "id": item_id,
+            "elapsed": elapsed_time,
+            "duration": sample_duration,
+            "peak_memory": peak,
+        }
 
         for metric_name, metric_fn in metrics.items():
             metric_value = metric_fn(reconstruction, original)

@@ -110,7 +110,8 @@ models:
       max_resolution: 2048
       hidden_features: 64
       hidden_layers: 1
-    train: {lr: 1.0e-2}
+    # deviation: torch-ngp's 1e-2 costs 1.3 dB on lego's validation views
+    train: {lr: 3.0e-2}
 
   TensoRF-CP:
     class: TensoRF

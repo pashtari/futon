@@ -32,7 +32,7 @@ Most implicit neural representations hide their prior in the nonlinearity: sines
 
 ## Results
 
-Every model of a task has the same parameter budget, the hyperparameters of its authors' code, and a learning rate chosen on the task. Times are mean training times per signal on an A100, every model retrained alone on the GPU, on two scenes for radiance fields and two images for super-resolution. The [benchmarks page](https://pashtari.github.io/neurofield/experiments/benchmarks/) has every model, metric and error bar.
+Every model of a task has the same parameter budget, the hyperparameters of its authors' code, and a learning rate chosen on the task. Times are mean training times per signal on an A100, every model compiled with `torch.compile` and retrained in runs of its own, each run twice and the faster kept, on two scenes for radiance fields and two images for super-resolution. The [benchmarks page](https://pashtari.github.io/neurofield/experiments/benchmarks/) has every model, metric and error bar.
 
 | Task | Signals | #Params | FUTON (sinc) | FUTON (Lanczos) | Strongest baseline |
 | --- | --- | --- | --- | --- | --- |

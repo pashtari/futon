@@ -112,7 +112,9 @@ def evaluate(
 
     Returns:
         ``"views"`` contains one dict per view with its ``"view"`` index,
-        ``"duration"`` in seconds (CUDA-synchronized), and metrics. ``"mean"``
+        ``"duration"`` in seconds (CUDA-synchronized), ``"peak_memory"`` (the
+        most bytes its render allocated beyond what was on the device, zero
+        off CUDA), and metrics. ``"mean"``
         averages these entries except the index, or is empty for no views.
         When requested, ``"images"`` contains ``(H, W, 3)`` CPU tensors.
     """
@@ -122,11 +124,16 @@ def evaluate(
     device = next(field.parameters()).device
     background = dataset.background.to(device)
 
+    cuda = device.type == "cuda"
     views: list[dict[str, int | float]] = []
     images: list[Tensor] = []
     with _eval_mode(field, renderer):
         for index in indices:
             batch = dataset[index]
+            if cuda:  # the view's own time and peak, after any work queued before
+                torch.cuda.synchronize(device)
+                torch.cuda.reset_peak_memory_stats(device)
+            resident = torch.cuda.memory_allocated(device) if cuda else 0
             start_time = time.time()
             rendered = render_image(
                 field,
@@ -136,12 +143,17 @@ def evaluate(
                 background=background,
                 chunk_size=chunk_size,
             )
-            if device.type == "cuda":
+            if cuda:
                 torch.cuda.synchronize(device)
             duration = time.time() - start_time
+            peak = torch.cuda.max_memory_allocated(device) - resident if cuda else 0
             pred = rendered["rgb"].clamp(0.0, 1.0)
             target = dataset.composite(batch["rgba"].to(device), background)
-            entry: dict[str, int | float] = {"view": int(index), "duration": duration}
+            entry: dict[str, int | float] = {
+                "view": int(index),
+                "duration": duration,
+                "peak_memory": peak,
+            }
             for name, metric in metrics.items():
                 entry[name] = metric(pred.permute(2, 0, 1), target.permute(2, 0, 1))
             views.append(entry)

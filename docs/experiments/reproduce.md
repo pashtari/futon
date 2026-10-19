@@ -92,7 +92,7 @@ results/
 ├── <task>/table.{tex,md}            size, the cost of both phases and final metrics, every shape's and scene's too, best in bold, second underlined
 ├── <task>/qualitative_<signal>.pdf  the signal with two regions boxed and magnified for every featured model (bicubic for TensoRF in super-resolution), above each model's |error| for images and super-resolution
 ├── <task>/panels/<signal>/          the renders those magnifications are cut from, rebuilt from the checkpoints
-├── teaser.pdf                       kodim19 as SIREN, Instant-NGP and FUTON (Lanczos) have it after the same seconds of training, beside their mean PSNR over Kodak against time, above every model's final quality against its training time on the four tasks
+├── tuning/<task>.{tex,md}           every model's score at each learning rate tried, by which its rate was chosen
 ├── ablation/                        a table and a convergence plot each for the bases, the combiners and the decoders, and PSNR against each fraction
 └── bound/                           the error bound against trained FUTONs, from the records of scripts/futon_bound.py: figures and tables of the bound page
 ```
@@ -100,21 +100,14 @@ results/
 ```bash
 python scripts/report_paper.py                          # everything
 python scripts/report_paper.py --tasks image --overwrite  # redraw one task's panels
-python scripts/report_paper.py --tasks bound            # only the error bound; --tasks also takes ablation and teaser
+python scripts/report_paper.py --tasks bound            # only the error bound; --tasks also takes ablation and tuning
 python scripts/report_paper.py --no-panels              # tables and plots only, no GPU needed
 python scripts/report_paper.py --orbit 60               # plus an orbit GIF of each NeRF model
 ```
 
 The signals the paper shows are listed in `EXAMPLES` at the top of the script, and their magnified regions and the radiance-field views are set by hand in `CENTERS` and `VIEWS`, on parts of the signal where the models visibly differ. Any other signal gets them by rule: the view at the median of FUTON's gain over the strongest other model shown, and the two squares where the models shown disagree most, weighted by the detail the reference carries there, which favours no model. Images and super-resolution add each model's absolute error beneath its magnifications, on one scale per figure. Drawing the panels needs the signals in `data/` and a GPU; they are kept and reused, so recomposing a figure costs seconds. Figures come as PDF and as PGF for LaTeX, sized for a NeurIPS page: a plot is a third of the 5.5-inch text width, a strip of magnifications spans it, plot text is 7 to 8 pt, a strip labels every panel in one size, at most 7 pt, at which its widest label fits, and every tick falls on a whole or half number. The image and super-resolution tables fit the text width in 9 pt type; the occupancy and NeRF ones, with every shape's and scene's scores, are wider and take a page turned sideways. The `±` in the tables is a paired standard error over the signals: each signal's own level is removed before the error is taken, which is the uncertainty of a comparison between models rather than of an absolute level; IoU, which saturates near 100 % on every shape, takes the plain standard error over the shapes. A band in a figure spans one of them, the same error.
 
-Timings recorded during a sweep carry whatever else ran beside it: retrained alone on the GPU, Instant-NGP was 1.7× faster, MFN and TensoRF 1.2×, the other models within a few percent. The report therefore takes accuracy from the sweeps and times from separate runs: `scripts/profile_speed.py` times every model's inference on one signal per task, the models taking turns within one job, and writes `logs/speed/<task>.json`, which the throughput figure reads, and the same training scripts rerun every model into `logs/timing/<task>/`, after a warm-up pass that keeps kernel compilation out of the clock. Wherever a timing run exists, its times replace the sweep's in the tables and figures while the metrics stay the sweep's (they agree where training is deterministic), and the mean training time is taken over the timed signals: every image and shape, the lego and hotdog scenes, and DIV2K images 0801 and 0882.
-
-The teaser needs reconstructions from partway through training. `scripts/snapshots.py` refits the image as `scripts/train_image.py` does, evaluating every ten epochs, and keeps each model's reconstruction at the epochs by which its timing run had trained for the given seconds:
-
-```bash
-python scripts/snapshots.py --data data/Kodak/kodim19.png \
-    --models SIREN Instant-NGP FUTON-lanczos --seconds 0.5 1 2 4   # -> logs/snapshots/image/kodim19/<model>/
-```
+Timings recorded during a sweep carry whatever else ran beside it: retrained alone on the GPU, Instant-NGP was 1.7× faster, MFN and TensoRF 1.2×, the other models within a few percent. The report therefore takes accuracy from the sweeps and every cost from separate runs: the same training scripts, with `--compile`, retrain every model into `logs/timing/<task>/`, one model at a time, each compiled with `torch.compile` in a warm-up pass that keeps compilation out of the clock. Every timing job runs twice, the second time into `repeat/`, and the report keeps the faster run of each model and signal, since other jobs on a node can only add time; the two runs of a job agreeing says that they did not. Wherever a timing run exists, its training times replace the sweep's in the tables and figures while the metrics stay the sweep's, and the mean training time is taken over the timed signals: every image and shape, the lego and hotdog scenes, and DIV2K images 0801 and 0882. The same runs give inference: every evaluation records how long the reconstruction took and the most memory it allocated, so a model's throughput is the median over its evaluations of one signal per task (for a radiance field, over its 200 test views), and its peak memories are those of its training steps and evaluations there.
 
 Or skip the report and read the runs directly:
 

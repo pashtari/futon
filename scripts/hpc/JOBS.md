@@ -144,65 +144,46 @@ python scripts/report_paper.py          # -> results/, the paper's figures
 python scripts/report_paper.py --no-panels   # without the renders, which need a GPU
 ```
 
-Timings from the sweeps carry whatever else shared the node: on a clean node
-Instant-NGP trained 1.7x faster, MFN and TensoRF-VM 1.2x, the rest within a
-few percent. So the sweeps give the accuracy and separate exclusive jobs give
-every time: `profile_speed.py` times inference on one signal per task, and
-the timing runs retrain every model alone, after a warm-up pass that keeps
-kernel compilation out of the clock, into `logs/timing/<task>/`. The report
-takes its times from there wherever such a run exists (all 24 images and 5
-shapes; for NeRF the scenes below; for super-resolution the two example
-images) and its accuracy from the sweeps.
+Timings from the sweeps carry whatever else shared the node: Instant-NGP,
+eager then, trained 1.7x faster alone on a node, MFN and TensoRF-VM 1.2x, the
+rest within a few percent. So the sweeps give the accuracy and separate jobs
+give every cost. They retrain every model one at a time, compiled with
+`torch.compile` in a warm-up pass that keeps compilation out of the clock,
+into `logs/timing/<task>/`, which also cuts the kernel launches that made the
+eager models sensitive to their neighbours. Every timing job runs twice, the
+second into `repeat/`, on whatever nodes the scheduler picks, and the report
+keeps the faster run of each model and signal, since a neighbour can only add
+time. From those runs come the training times (all 24 images and 5 shapes,
+the lego and hotdog scenes, DIV2K 0801 and 0882) and, on one signal per task,
+the inference throughput and the peak memories: every evaluation records how
+long its reconstruction took and the most memory it allocated, and every
+training step its own peak.
 
 ```bash
-common="--clusters=accelgor --exclusive --gpus-per-node=1 --chdir=$VSC_DATA/projects/neurofield --output=logs/slurm/%x-%j.out"
-sbatch $common --time=5:00:00 --job-name=nf-timing-2d --wrap \
-  "source $VSC_DATA/venvs/neurofield-env/bin/activate \
-   && python scripts/profile_speed.py \
-   && python scripts/train_image.py --overwrite --log-dir logs/timing/image \
-   && python scripts/train_occupancy.py --overwrite --log-dir logs/timing/occupancy"
-# An exclusive job waits for a whole node to drain, and short jobs backfill far
-# sooner than long ones (a 4 h job sat two days without a planned start), so each
-# NeRF scene runs as two balanced model groups of about an hour of training each.
-# All four jobs write disjoint runs into the same logs/timing/nerf.
-A="Instant-NGP Gauss GA-Planes FINER TensoRF-CP FUTON-lanczos FreSh"
-B="MFN WIRE TensoRF-VM SIREN PE-MLP FUTON-sinc RFF F-INR"
-for scene in lego hotdog; do
-  sbatch $common --time=1:30:00 --job-name=nf-timing-nerf-$scene-a --wrap \
-    "source $VSC_DATA/venvs/neurofield-env/bin/activate \
-     && python scripts/train_nerf.py --data data/nerf/blender/$scene --models $A --overwrite --log-dir logs/timing/nerf"
-  sbatch $common --time=1:30:00 --job-name=nf-timing-nerf-$scene-b --wrap \
-    "source $VSC_DATA/venvs/neurofield-env/bin/activate \
-     && python scripts/train_nerf.py --data data/nerf/blender/$scene --models $B --overwrite --log-dir logs/timing/nerf"
+common="--clusters=accelgor --gpus-per-node=1 --cpus-per-task=8 --chdir=$VSC_DATA/projects/neurofield --output=logs/slurm/%x-%j.out"
+venv="source $VSC_DATA/venvs/neurofield-env/bin/activate"
+for copy in "" /repeat; do
+  for part in 1 2 3 4; do  # six Kodak images each
+    images=$(for i in $(seq $((6 * part - 5)) $((6 * part))); do printf "data/Kodak/kodim%02d.png " $i; done)
+    sbatch $common --time=1:45:00 --job-name=nf-timing-image-$part --wrap \
+      "$venv && python scripts/train_image.py --data $images --compile --overwrite --log-dir logs/timing/image$copy"
+  done
+  sbatch $common --time=1:45:00 --job-name=nf-timing-occupancy --wrap \
+    "$venv && python scripts/train_occupancy.py --compile --overwrite --log-dir logs/timing/occupancy$copy"
+  for image in 0882 0801; do
+    sbatch $common --time=2:00:00 --job-name=nf-timing-super_resolution-$image --wrap \
+      "$venv && python scripts/train_super_resolution.py --data data/DIV2K/DIV2K_valid_HR/$image.png --compile --overwrite --log-dir logs/timing/super_resolution$copy"
+  done
+  # Each scene as two balanced model groups.
+  A="Instant-NGP Gauss GA-Planes FINER TensoRF-CP FUTON-lanczos FreSh"
+  B="MFN WIRE TensoRF-VM SIREN PE-MLP FUTON-sinc RFF F-INR"
+  for scene in lego hotdog; do
+    for group in A B; do
+      sbatch $common --time=1:45:00 --job-name=nf-timing-nerf-$scene-$group --wrap \
+        "$venv && python scripts/train_nerf.py --data data/nerf/blender/$scene --models ${!group} --compile --overwrite --log-dir logs/timing/nerf$copy"
+    done
+  done
 done
-# Super-resolution: the two example images, one exclusive job each.
-for image in 0882 0801; do
-  sbatch $common --time=2:00:00 --job-name=nf-timing-sr-$image --wrap \
-    "source $VSC_DATA/venvs/neurofield-env/bin/activate \
-     && python scripts/train_super_resolution.py --data data/DIV2K/DIV2K_valid_HR/$image.png --overwrite --log-dir logs/timing/super_resolution"
-done
-# Its inference profile reads the example image's runs, so it follows the sweep.
-sbatch $common --time=0:30:00 --job-name=nf-speed-sr --wrap \
-  "source $VSC_DATA/venvs/neurofield-env/bin/activate && python scripts/profile_speed.py --tasks super_resolution"
-```
-
-Peak memory is a property of the process, not of the node, so one shared job
-measures it on each task's profiled signal: every training run records the
-most a step allocated beyond the data and parameters already on the GPU, and
-a short run reaches that peak (the radiance fields early, while the occupancy
-grid is still dense), and `profile_speed.py` records the peak of each
-inference. Both land in `logs/memory/`, apart from the clean timings, and the
-report takes the memory columns and figures from there.
-
-```bash
-shared="--clusters=accelgor --gpus-per-node=1 --chdir=$VSC_DATA/projects/neurofield --output=logs/slurm/%x-%j.out"
-sbatch $shared --time=2:00:00 --job-name=nf-memory --wrap \
-  "source $VSC_DATA/venvs/neurofield-env/bin/activate \
-   && python scripts/train_image.py --data data/Kodak/kodim01.png --set train.num_epochs=100 --overwrite --log-dir logs/memory/image \
-   && python scripts/train_occupancy.py --data data/occupancy/thai_statue.ply --set train.num_epochs=100 --overwrite --log-dir logs/memory/occupancy \
-   && python scripts/train_nerf.py --data data/nerf/blender/lego --set train.num_steps=2500 --overwrite --log-dir logs/memory/nerf \
-   && python scripts/train_super_resolution.py --data data/DIV2K/DIV2K_valid_HR/0882.png --set train.num_epochs=100 --overwrite --log-dir logs/memory/super_resolution \
-   && python scripts/profile_speed.py --out-dir logs/memory"
 ```
 
 `report_paper.py` writes everything the paper needs into `results/`, and

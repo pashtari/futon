@@ -24,6 +24,7 @@ import argparse
 import gc
 import json
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -159,7 +160,7 @@ def fresh(
 
 
 def provenance(device: torch.device) -> dict[str, str]:
-    """The code and hardware behind a result: commit, PyTorch and device.
+    """The code and hardware behind a result: commit, PyTorch, device and host.
 
     The commit is marked ``-dirty`` when tracked files differ from it.
     """
@@ -177,6 +178,7 @@ def provenance(device: torch.device) -> dict[str, str]:
         "commit": commit + ("-dirty" if changes else ""),
         "torch": torch.__version__,
         "device": torch.cuda.get_device_name(device) if gpu else str(device),
+        "host": socket.gethostname(),
     }
 
 

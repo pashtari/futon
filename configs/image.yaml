@@ -21,9 +21,11 @@ models:
       hidden_features: 212
       hidden_layers: 3
       num_frequencies: 256
-      sigma: 5.0  # sigma 10 on [0, 1] coordinates equals 5 on [-1, 1]
+      # deviation: tuned on four images at the rate below, where Tancik's 10
+      # on [0, 1] coordinates, 5 here, costs 0.9 dB and 20 costs 0.7
+      sigma: 10.0
       output_activation: tanh
-    train: {lr: 1.0e-3}
+    train: {lr: 3.0e-3}  # 1e-3 costs 1.2 dB and 1e-2 3.8
 
   PE-MLP:  # FINER image benchmark
     class: PEMLP
@@ -108,7 +110,8 @@ models:
       hidden_features: 64
       hidden_layers: 2
       output_activation: tanh
-    train: {lr: 1.0e-2, adam_betas: [0.9, 0.99], adam_eps: 1.0e-15}
+    # deviation: the reference 1e-2 costs 0.8 dB on four images, 1e-1 2.6
+    train: {lr: 3.0e-2, adam_betas: [0.9, 0.99], adam_eps: 1.0e-15}
 
   TensoRF:
     class: TensoRF
@@ -129,7 +132,7 @@ models:
       hidden_features: 256
       hidden_layers: 2
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-2}  # 3e-2 costs 0.1 to 1 dB on seven images, 3e-3 1.8 on four
 
   F-INR:  # Vemuri et al. (WACV 2026): SIREN axes and CP, as in its image benchmark
     class: FINR
