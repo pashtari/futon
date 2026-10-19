@@ -206,10 +206,9 @@ def warm_up(
 ) -> None:
     """One forward and backward pass before training is timed.
 
-    The first pass through a model compiles and autotunes its kernels, which
-    takes the Triton products of FUTON's local bases about three seconds and
-    would otherwise land in the training time of a run that trains alone in
-    its process. With ``compile``, the model is first compiled in place (see
+    The first pass through a model sets up its kernels, which would otherwise
+    land in the training time of a run that trains alone in its process.
+    With ``compile``, the model is first compiled in place (see
     :func:`compile_model`), and this pass compiles it; the batch has the
     leading dimension that ``nf.train``'s loader adds, so that training
     reuses the graph. The pass steps no optimizer and leaves the parameters

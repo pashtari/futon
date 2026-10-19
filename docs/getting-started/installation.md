@@ -4,7 +4,6 @@
 
 - Python 3.11 or newer.
 - PyTorch 2.10 or newer, with or without CUDA. Everything runs on the CPU; a GPU makes training practical.
-- Linux with a CUDA build of PyTorch also gives you Triton, which FUTON's fused sparse kernels use. Without it (CPU, or other platforms) the same computation runs with ordinary PyTorch operations.
 
 ## Install
 

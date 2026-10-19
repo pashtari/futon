@@ -12,20 +12,21 @@ FUTON evaluates ``decoder(combiner(basis(x)))`` in three stages:
 Every basis takes ``num_components``, an int shared by all axes or one count
 per axis, and ``normalize``, which L2-normalizes each feature vector (not each
 basis function). The local bases :class:`TriangleBasis` and
-:class:`LanczosBasis` default to sparse mode: each axis returns an
-``(N, K_c)`` :class:`RCSMatrix` that stores only the few nonzero taps per
-point, and the combiners contract it directly.
+:class:`LanczosBasis` default to sparse mode: off a grid, each axis returns
+:class:`Taps`, only the few nonzero features of each point.
 
-On a grid, where every axis of a flat batch repeats its coordinates, a dense
-basis evaluates each distinct coordinate once, and returns each axis as an
-:class:`RCSMatrix` whose rows pick the points' rows of that table: the
-combiners then project the table rather than every point, the same function
-at a fraction of the cost.
+On a grid, where every axis of a flat batch repeats its coordinates, a basis
+evaluates each distinct coordinate once and returns each axis as
+:class:`SharedRows` of that table: the combiners then project the table
+rather than every point, the same function at a fraction of the cost. Both
+kinds multiply like ``(N, K_c)`` matrices, so every combiner treats every axis
+alike; compiled, the gathers fuse with the product and the decoder.
 """
 
 import math
 from collections.abc import Callable, Sequence
 from functools import reduce
+from typing import NamedTuple
 
 import opt_einsum as oe
 import torch
@@ -34,12 +35,10 @@ from torch import Tensor, nn
 
 from ..utils import ModuleSpec, build_module
 from .mlp import MLP
-from .rcs_matrix import RCSMatrix, local_taps, rcs_product
-
-# An axis's features: dense, or an RCSMatrix of sparse taps or shared rows.
-Features = Tensor | RCSMatrix
 
 __all__ = [
+    "SharedRows",
+    "Taps",
     "CosineBasis",
     "SincBasis",
     "LegendreBasis",
@@ -62,7 +61,7 @@ def _broadcast(value: int | Sequence[int], length: int, name: str) -> list[int]:
     return values
 
 
-def _grid_position(x: Tensor, size: int | Tensor) -> Tensor:
+def _grid_position(x: Tensor, size: int) -> Tensor:
     """Map coordinates in ``[-1, 1]`` to continuous indices in ``[0, size - 1]``."""
     return (x + 1) / 2 * (size - 1)
 
@@ -92,10 +91,57 @@ def _shared(x: Tensor) -> list[tuple[Tensor, Tensor]] | None:
     return shared
 
 
-def _rows(table: Tensor, index: Tensor) -> RCSMatrix:
-    """The ``(N, K)`` matrix whose row ``n`` is ``table[index[n]]``, kept factored."""
-    ones = table.new_ones(len(index), 1)
-    return RCSMatrix(ones, index, len(table), check_invariants=False, table=table)
+class SharedRows(NamedTuple):
+    """An axis's features on a grid: ``(N, K)``, row ``n`` being ``table[index[n]]``.
+
+    ``table`` holds the features of the axis's ``S`` distinct coordinates and
+    ``index`` the row of each point, so a product with a factor projects ``S``
+    rows rather than ``N``.
+    """
+
+    table: Tensor
+    index: Tensor
+
+    def __matmul__(self, other: Tensor) -> Tensor:
+        return (self.table @ other)[self.index]
+
+    def dense(self) -> Tensor:
+        """The ``(N, K)`` features."""
+        return self.table[self.index]
+
+
+class Taps(NamedTuple):
+    """An axis's local features off a grid: ``(N, size)``, row ``n`` holding the
+    ``L`` values ``values[n]`` in columns ``start[n]`` to ``start[n] + L - 1``.
+    """
+
+    values: Tensor
+    start: Tensor
+    size: int
+
+    def __matmul__(self, other: Tensor) -> Tensor:
+        if torch.compiler.is_compiling():
+            # Each point gathers its window of L consecutive rows, which the
+            # compiler fuses with the weighted sum into one kernel.
+            windows = other.unfold(0, self.values.shape[1], 1)
+            return (windows[self.start] * self.values.unsqueeze(1)).sum(-1)
+        # Eager, the same sum in one kernel, without gathering the windows.
+        return F.embedding_bag(
+            self._columns(), other, per_sample_weights=self.values, mode="sum"
+        )
+
+    def dense(self) -> Tensor:
+        """The ``(N, size)`` features, zero outside the taps."""
+        zeros = self.values.new_zeros(len(self.values), self.size)
+        return zeros.scatter(1, self._columns(), self.values)
+
+    def _columns(self) -> Tensor:
+        taps = torch.arange(self.values.shape[1], device=self.start.device)
+        return self.start.unsqueeze(1) + taps
+
+
+# An axis's features: dense, the rows a grid shares, or a local basis's taps.
+Features = Tensor | SharedRows | Taps
 
 
 # Bases --------------------------------------------------------------------------------
@@ -125,24 +171,25 @@ class _Basis(nn.Module):
         """The dense features ``(*, K_axis)`` of one axis at coordinates ``(*,)``."""
         raise NotImplementedError
 
-    def _normalize(self, features: Tensor) -> Tensor:
-        return F.normalize(features, dim=-1) if self.normalize else features
-
-    def _features(self, x: Tensor) -> tuple[Features, ...]:
-        shared = _shared(x)
-        if shared is None:
-            return tuple(self.axis_features(xc, c) for c, xc in enumerate(x.unbind(-1)))
-        return tuple(
-            _rows(self.axis_features(values, c), rows)
-            for c, (values, rows) in enumerate(shared)
-        )
-
     def forward(self, x: Tensor) -> tuple[Features, ...]:
         if x.shape[-1] != self.in_features:
             raise ValueError(
                 f"Expected last dimension {self.in_features}, got {x.shape[-1]}"
             )
-        return self._features(x)
+        shared = _shared(x)
+        if shared is None:
+            return tuple(self._scattered(xc, c) for c, xc in enumerate(x.unbind(-1)))
+        return tuple(
+            SharedRows(self.axis_features(values, c), rows)
+            for c, (values, rows) in enumerate(shared)
+        )
+
+    def _scattered(self, x: Tensor, axis: int) -> Features:
+        """The features of one axis at points that share no coordinates."""
+        return self.axis_features(x, axis)
+
+    def _normalize(self, features: Tensor) -> Tensor:
+        return F.normalize(features, dim=-1) if self.normalize else features
 
 
 class CosineBasis(_Basis):
@@ -178,21 +225,13 @@ class SincBasis(_Basis):
 
     Args:
         in_features: Number of coordinate axes ``C``.
-        num_components: Number of centers ``K_c >= 2``, shared or per axis.
+        num_components: Number of centers ``K_c``, shared or per axis.
         normalize: L2-normalize each feature vector.
 
     Shape:
         - Input: :math:`(*, C)`.
         - Output: ``C`` tensors of shape :math:`(*, K_c)`.
     """
-
-    def __init__(
-        self,
-        in_features: int,
-        num_components: int | Sequence[int],
-        normalize: bool = True,
-    ) -> None:
-        super().__init__(in_features, num_components, normalize, min_components=2)
 
     def axis_features(self, x: Tensor, axis: int) -> Tensor:
         return self._normalize(torch.sinc(_offsets(x, self.num_components[axis])))
@@ -286,11 +325,9 @@ class _LocalBasis(_Basis):
     Subclasses implement :meth:`_kernel` on offsets ``t`` measured in grid
     steps. The kernel must vanish for ``|t| >= radius``, so each coordinate
     touches at most ``2 * radius`` consecutive components; sparse mode
-    evaluates only those taps, in one fused kernel on CUDA when the subclass
-    names its kernel in ``_tap_kernel``.
+    evaluates only those taps, as :class:`Taps`, wherever points share no
+    coordinates.
     """
-
-    _tap_kernel: int | None = None  # the kernel's id for :func:`local_taps`
 
     def __init__(
         self,
@@ -307,9 +344,6 @@ class _LocalBasis(_Basis):
         )
         self.radius = int(radius)
         self.sparse = bool(sparse)
-        # Sparse mode evaluates every axis at once, with per-axis sizes.
-        sizes = torch.tensor(self.num_components, dtype=torch.float32)
-        self.register_buffer("_sizes", sizes, persistent=False)
 
     def _kernel(self, t: Tensor) -> Tensor:
         raise NotImplementedError
@@ -317,29 +351,18 @@ class _LocalBasis(_Basis):
     def axis_features(self, x: Tensor, axis: int) -> Tensor:
         return self._normalize(self._kernel(_offsets(x, self.num_components[axis])))
 
-    def _features(self, x: Tensor) -> tuple[Features, ...]:
+    def _scattered(self, x: Tensor, axis: int) -> Features:
         if not self.sparse:
-            return super()._features(x)
-        # Evaluate the 2 * radius taps around each point, on every axis at once.
-        x = x.reshape(-1, self.in_features)
-        if x.is_cuda and local_taps is not None and self._tap_kernel is not None:
-            values, start = local_taps(
-                x, self._sizes, self.radius, self._tap_kernel, self.normalize
-            )
-        else:
-            position = _grid_position(x, self._sizes)
-            # Clamping keeps each segment inside the basis; taps shifted by
-            # the clamp lie outside the kernel support and evaluate to zero.
-            start = (position.floor() - (self.radius - 1)).clamp_(min=0)
-            start = start.minimum(self._sizes - 2 * self.radius)
-            taps = torch.arange(2 * self.radius, device=x.device, dtype=x.dtype)
-            t = (position - start).unsqueeze(-1) - taps
-            values, start = self._normalize(self._kernel(t)), start.long()
-        # The clamp keeps the segments in bounds, so skip the synchronizing check.
-        return tuple(
-            RCSMatrix(values[:, axis], start[:, axis], size, check_invariants=False)
-            for axis, size in enumerate(self.num_components)
-        )
+            return self.axis_features(x, axis)
+        # The 2 * radius taps around each point. Clamping keeps each window
+        # inside the basis; taps shifted by the clamp lie outside the kernel's
+        # support and evaluate to zero.
+        size = self.num_components[axis]
+        position = _grid_position(x, size)
+        start = (position.floor() - (self.radius - 1)).clamp(0, size - 2 * self.radius)
+        taps = torch.arange(2 * self.radius, device=x.device, dtype=x.dtype)
+        values = self._normalize(self._kernel((position - start).unsqueeze(-1) - taps))
+        return Taps(values, start.long(), size)
 
 
 class TriangleBasis(_LocalBasis):
@@ -355,18 +378,16 @@ class TriangleBasis(_LocalBasis):
         in_features: Number of coordinate axes ``C``.
         num_components: Number of centers ``K_c >= 2``, shared or per axis.
         normalize: L2-normalize each feature vector.
-        sparse: Return :class:`RCSMatrix` features with two taps per point.
+        sparse: Return :class:`Taps` with two taps per point off a grid.
 
     Shape:
         - Input: :math:`(*, C)` in dense mode, :math:`(N, C)` in sparse mode.
         - Output: ``C`` features of shape :math:`(*, K_c)`, or
-          :math:`(N, K_c)` RCS matrices in sparse mode.
+          :class:`Taps` in sparse mode off a grid.
 
     References:
         Chen et al., "TensoRF: Tensorial Radiance Fields", ECCV 2022.
     """
-
-    _tap_kernel = 0
 
     def __init__(
         self,
@@ -396,16 +417,14 @@ class LanczosBasis(_LocalBasis):
         radius: Kernel radius in grid steps: ``2`` gives Lanczos-2 (four taps),
             ``3`` (the default) gives Lanczos-3 (six taps).
         normalize: L2-normalize each feature vector.
-        sparse: Return :class:`RCSMatrix` features with ``2 * radius`` taps per
-            point.
+        sparse: Return :class:`Taps` with ``2 * radius`` taps per point off a
+            grid.
 
     Shape:
         - Input: :math:`(*, C)` in dense mode, :math:`(N, C)` in sparse mode.
         - Output: ``C`` features of shape :math:`(*, K_c)`, or
-          :math:`(N, K_c)` RCS matrices in sparse mode.
+          :class:`Taps` in sparse mode off a grid.
     """
-
-    _tap_kernel = 1
 
     def __init__(
         self,
@@ -428,9 +447,8 @@ class LanczosBasis(_LocalBasis):
 class _Combiner(nn.Module):
     """Base class for combiners; ``in_features[c]`` is the width ``K_c`` of axis ``c``.
 
-    The features of an axis are dense, or an :class:`RCSMatrix` of a local
-    basis's taps or of a grid's shared rows; products with ``@`` and
-    :func:`rcs_product` take any of them.
+    The features of an axis are dense, :class:`SharedRows` of a grid or
+    :class:`Taps` of a local basis, and all three multiply a matrix with ``@``.
     """
 
     out_features: int
@@ -443,7 +461,7 @@ class _Combiner(nn.Module):
 class HadamardCombiner(_Combiner):
     """Elementwise product of per-axis features that share one width ``K``.
 
-    One :func:`rcs_product` multiplies them, densifying sparse taps.
+    Shared rows and taps are expanded to their dense features first.
 
     Args:
         in_features: Feature width of each axis; all entries must be equal.
@@ -462,7 +480,8 @@ class HadamardCombiner(_Combiner):
         self.out_features = self.in_features[0]
 
     def forward(self, features: Sequence[Features]) -> Tensor:
-        return rcs_product(features)
+        dense = (f if isinstance(f, Tensor) else f.dense() for f in features)
+        return reduce(torch.mul, dense)
 
 
 class CPCombiner(_Combiner):
@@ -470,10 +489,7 @@ class CPCombiner(_Combiner):
 
     Projects each axis to ``rank`` channels with its CP factor
     :math:`\mathbf{U}^{(c)}`, ``factors[c]`` of shape ``(K_c, rank)`` (FUTON
-    paper, Eqs. 10–11), and multiplies the projections elementwise. One
-    :func:`rcs_product` computes the whole combination, fused for sparse
-    features: a local basis's taps, or a grid's shared rows, whose tables it
-    projects first.
+    paper, Eqs. 10–11), and multiplies the projections elementwise.
 
     Args:
         in_features: Feature width ``K_c`` of each axis.
@@ -502,7 +518,7 @@ class CPCombiner(_Combiner):
             nn.init.kaiming_uniform_(factor.T)
 
     def forward(self, features: Sequence[Features]) -> Tensor:
-        return rcs_product(features, list(self.factors))
+        return reduce(torch.mul, (f @ u for f, u in zip(features, self.factors)))
 
 
 class TRCombiner(_Combiner):
@@ -654,15 +670,15 @@ class FUTON(nn.Module):
         A projection :math:`\mathbf{U}^{(c)\top} \boldsymbol{\varphi}(x_c)`
         depends on one coordinate alone, so points on a grid, such as the
         pixels of an image or a batch drawn from them, share it. When every
-        axis repeats its coordinates, a dense basis evaluates each distinct
+        axis repeats its coordinates, the basis evaluates each distinct
         coordinate once and the combiner projects that table, each point
         gathering its rows, as :class:`~neurofield.models.finr.FINR` does with
         its networks. This computes the same function and gradients in
         :math:`O(R \sum_c S_c K_c + NCR)` for :math:`N` points with
         :math:`S_c` distinct coordinates on axis :math:`c`, instead of
-        :math:`O(NR \sum_c K_c)`. Scattered points, coordinates that need
-        gradients, and local bases in sparse mode, which touch only
-        ``2 * radius`` taps per point, are evaluated point by point.
+        :math:`O(NR \sum_c K_c)`, or :math:`O(NRL)` for a local basis's
+        :math:`L` taps. Scattered points and coordinates that need gradients
+        are evaluated point by point.
 
     Relation to the paper:
         The cosine basis, CP combiner, and linear decoder implement Eq. (9):

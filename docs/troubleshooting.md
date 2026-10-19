@@ -26,12 +26,6 @@ Lower `subsample` (the fraction of coordinates per step); the benchmarks use 0.1
 **`NerfAcc: No CUDA toolkit found. NerfAcc will be disabled.`**
 nerfacc builds its CUDA extension on first use and needs `nvcc` for that. Without it, `nf.nerf.create_renderer()` selects the PyTorch renderer, which produces the same renders more slowly; training still works. Install a CUDA toolkit matching your PyTorch build to use nerfacc.
 
-**`UserWarning: Sparse CSR tensor support is in beta state`.**
-Raised by PyTorch when a local basis runs on the CPU or in inference mode, where sparse products use CSR. It is harmless.
-
-**No Triton.**
-The fused kernels for local bases need Triton, which ships with PyTorch's Linux CUDA wheels. Elsewhere the same products are computed with gathers and contractions, with identical results.
-
 ## Data and extras
 
 **`ModuleNotFoundError: trimesh` (or `mcubes`, `open3d`).**

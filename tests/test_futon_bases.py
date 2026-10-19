@@ -1,10 +1,10 @@
-"""Tests for the FUTON compactly supported bases and their RCS fast path."""
+"""Tests for the FUTON bases, their sparse taps, and their shared rows on grids."""
 
 import pytest
 import torch
 from torch import nn
 
-from neurofield.models import RCSMatrix
+from neurofield.models import SharedRows, Taps
 from neurofield.models.futon import (
     FUTON,
     ChebyshevBasis,
@@ -51,7 +51,7 @@ class TestKernel:
         ],
     )
     def test_stores_two_taps_per_radius(self, basis, taps):
-        """The RCS segment length is 2 * radius."""
+        """Each point has 2 * radius taps."""
         assert basis.radius * 2 == taps
         feats = basis((torch.rand(16) * 2 - 1).unsqueeze(-1))[0]
         assert feats.values.shape[1] == taps
@@ -182,15 +182,15 @@ class TestTriangle:
         dense = TriangleBasis(2, K, normalize=normalize, sparse=False).to(device)(x)
         sparse = TriangleBasis(2, K, normalize=normalize, sparse=True).to(device)(x)
         for d, s in zip(dense, sparse):
-            assert isinstance(s, RCSMatrix)
-            assert torch.allclose(s.to_dense(), d, atol=1e-5)
+            assert isinstance(s, Taps)
+            assert torch.allclose(s.dense(), d, atol=1e-5)
 
     def test_two_taps_only(self):
         feats = TriangleBasis(1, 32, normalize=False)(
             (torch.rand(500) * 2 - 1).unsqueeze(-1)
         )[0]
         assert feats.values.shape[1] == 2
-        assert int((feats.to_dense() != 0).sum(-1).max()) <= 2
+        assert int((feats.dense() != 0).sum(-1).max()) <= 2
 
     def test_partition_of_unity(self):
         basis = TriangleBasis(1, 32, normalize=False, sparse=False)
@@ -245,9 +245,8 @@ class TestSparseEqualsDense:
         dense = LanczosBasis(2, K, sparse=False, **common).to(device)(x)
         sparse = LanczosBasis(2, K, sparse=True, **common).to(device)(x)
         for d, s in zip(dense, sparse):
-            assert isinstance(s, RCSMatrix)
-            assert s.shape == d.shape
-            assert torch.allclose(s.to_dense(), d, atol=1e-5)
+            assert isinstance(s, Taps)
+            assert torch.allclose(s.dense(), d, atol=1e-5)
 
     @pytest.mark.parametrize("device", DEVICES)
     def test_boundaries_and_grid_points(self, device):
@@ -263,7 +262,7 @@ class TestSparseEqualsDense:
         common = dict(radius=3, normalize=False)
         dense = LanczosBasis(1, K, sparse=False, **common).to(device)(x)[0]
         sparse = LanczosBasis(1, K, sparse=True, **common).to(device)(x)[0]
-        assert torch.allclose(sparse.to_dense(), dense, atol=1e-5)
+        assert torch.allclose(sparse.dense(), dense, atol=1e-5)
 
     @pytest.mark.parametrize("device", DEVICES)
     def test_per_axis_num_components(self, device):
@@ -272,7 +271,7 @@ class TestSparseEqualsDense:
         dense = LanczosBasis(3, sparse=False, **common).to(device)(x)
         sparse = LanczosBasis(3, sparse=True, **common).to(device)(x)
         for d, s in zip(dense, sparse):
-            assert torch.allclose(s.to_dense(), d, atol=1e-5)
+            assert torch.allclose(s.dense(), d, atol=1e-5)
 
 
 class TestCombiners:
@@ -409,11 +408,11 @@ def per_point(model, x):
 def shares_rows(model, x):
     """Whether the basis gives the points of ``x`` shared rows of a table."""
     features = model.basis(x.reshape(-1, model.in_features))
-    return all(isinstance(f, RCSMatrix) and f.table is not None for f in features)
+    return all(isinstance(f, SharedRows) for f in features)
 
 
 class TestGridEvaluation:
-    """On a grid, a dense basis evaluates each distinct coordinate once."""
+    """On a grid, a basis evaluates each distinct coordinate once."""
 
     @staticmethod
     def model(sizes, basis, combiner, device, **basis_kwargs):
@@ -441,7 +440,9 @@ class TestGridEvaluation:
             "hadamard",
         ],
     )
-    @pytest.mark.parametrize("basis", ["cosine", "sinc", "chebyshev", "legendre"])
+    @pytest.mark.parametrize(
+        "basis", ["cosine", "sinc", "chebyshev", "legendre", "triangle", "lanczos"]
+    )
     def test_matches_per_point(self, device, basis, combiner, sizes):
         model = self.model(sizes, basis, combiner, device)
         x = grid_points(sizes, count=60).to(device)
@@ -471,24 +472,29 @@ class TestGridEvaluation:
     def test_scattered_points_are_evaluated_one_by_one(self, device):
         model = self.model((9, 12), "sinc", ("cp", {"rank": 6}), device)
         x = (torch.rand(60, 2, dtype=torch.float64) * 2 - 1).to(device)
-        assert not any(isinstance(f, RCSMatrix) for f in model.basis(x))
+        assert not any(isinstance(f, SharedRows) for f in model.basis(x))
         out, ref = model(x), per_point(model, x)
         torch.testing.assert_close(out, ref, rtol=1e-12, atol=1e-12)
 
     @pytest.mark.parametrize("device", DEVICES)
     @pytest.mark.parametrize("basis", ["triangle", "lanczos"])
-    def test_sparse_bases_keep_their_taps(self, device, basis):
+    def test_scattered_points_take_their_taps(self, device, basis):
         model = self.model((9, 12), basis, ("cp", {"rank": 6}), device)
-        x = grid_points((9, 12), count=60).to(device)
-        assert all(f.table is None for f in model.basis(x))
+        x = (torch.rand(60, 2, dtype=torch.float64) * 2 - 1).to(device)
+        assert all(isinstance(f, Taps) for f in model.basis(x))
         out, ref = model(x), per_point(model, x)
         torch.testing.assert_close(out, ref, rtol=1e-10, atol=1e-12)
+        params = list(model.parameters())
+        grads = torch.autograd.grad(out.square().sum(), params)
+        expected = torch.autograd.grad(ref.square().sum(), params)
+        for got, want in zip(grads, expected):
+            torch.testing.assert_close(got, want, rtol=1e-10, atol=1e-12)
 
     def test_batches_with_a_shape_are_evaluated_one_by_one(self):
         basis = SincBasis(2, 8)
         x = grid_points((9, 12))  # (9, 12, 2)
-        assert not any(isinstance(f, RCSMatrix) for f in basis(x))
-        assert all(isinstance(f, RCSMatrix) for f in basis(x.reshape(-1, 2)))
+        assert not any(isinstance(f, SharedRows) for f in basis(x))
+        assert all(isinstance(f, SharedRows) for f in basis(x.reshape(-1, 2)))
 
     @pytest.mark.parametrize("device", DEVICES)
     def test_coordinate_gradients(self, device):
@@ -521,7 +527,7 @@ class TestNumComponents:
         from neurofield.models.futon import BASES
 
         def dense(feature):
-            return feature.to_dense() if isinstance(feature, RCSMatrix) else feature
+            return feature if isinstance(feature, torch.Tensor) else feature.dense()
 
         x = torch.rand(20, 3) * 2 - 1
         shared = BASES[name](3, 8, normalize=False)
@@ -593,3 +599,23 @@ class TestSparseIsFaster:
                 torch.cuda.synchronize()
                 times[sparse] = time.perf_counter() - t0
         assert times[True] < times[False], times
+
+
+@CUDA
+def test_compiled_taps_match_eager():
+    """Compiled, local taps gather windows of the factor; eager, embedding_bag."""
+    torch.manual_seed(0)
+    model = FUTON(
+        3, 2, ("lanczos", {"num_components": 16}), ("cp", {"rank": 8}), "linear"
+    )
+    model = model.double().cuda()
+    x = torch.rand(500, 3, dtype=torch.float64, device="cuda") * 2 - 1
+    assert all(isinstance(f, Taps) for f in model.basis(x))
+    compiled = torch.compile(model)
+    out, ref = compiled(x), model(x)
+    torch.testing.assert_close(out, ref, rtol=1e-10, atol=1e-12)
+    params = list(model.parameters())
+    grads = torch.autograd.grad(out.square().sum(), params)
+    expected = torch.autograd.grad(ref.square().sum(), params)
+    for got, want in zip(grads, expected):
+        torch.testing.assert_close(got, want, rtol=1e-10, atol=1e-12)

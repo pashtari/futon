@@ -26,7 +26,7 @@ NeuroField fits a signal as a function of its coordinates. It provides **FUTON**
 
 Most implicit neural representations hide their prior in the nonlinearity: sines, Gabor wavelets, Gaussians, or a hash-grid lookup in front of a ReLU network. FUTON puts the prior in the parameterization. The signal is expanded in a fixed, analytic basis along each coordinate axis, and the coefficient tensor of that expansion is stored in low-rank canonical polyadic (CP) form. The model is a shallow, parallel tensor contraction rather than a deep network:
 
-- **Fast.** A point costs O(CKR) for C axes, K basis functions per axis and rank R. With a compactly supported basis (Lanczos) only 2a taps per axis are touched, and fused Triton kernels contract them without forming dense features. On a grid, such as an image's pixels, each axis is evaluated once per distinct coordinate and shared by every point on it.
+- **Fast.** A point costs O(CKR) for C axes, K basis functions per axis and rank R. With a compactly supported basis (Lanczos) only 2a taps per axis are touched. On a grid, such as an image's pixels, each axis is evaluated once per distinct coordinate and shared by every point on it. It is all plain PyTorch, and `torch.compile` fuses the gathers with the products.
 - **Accurate at equal size.** At matched parameter counts FUTON leads every baseline on the average of each benchmark: Kodak images, Stanford occupancy volumes, Blender radiance fields and DIV2K super-resolution.
 - **Transparent.** With a linear decoder FUTON *is* a rank-R CP model of the signal in the chosen basis, so bandwidth (K) and capacity (R) are explicit knobs.
 
@@ -56,7 +56,7 @@ Every model of a task has the same parameter budget, the hyperparameters of its 
 
 ## Installation
 
-Python 3.11+ and PyTorch 2.10+. A GPU is optional; Triton, which ships with PyTorch's Linux CUDA wheels, enables the fused kernels for the local bases.
+Python 3.11+ and PyTorch 2.10+. A GPU is optional.
 
 ```bash
 git clone https://github.com/pashtari/neurofield.git

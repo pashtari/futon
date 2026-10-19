@@ -1,6 +1,6 @@
 # FUTON, bases and combiners
 
-The [FUTON concept page](../concepts/futon.md) derives the model; this page is the reference for `neurofield.models.futon` and the sparse matrix type its local bases return.
+The [FUTON concept page](../concepts/futon.md) derives the model; this page is the reference for `neurofield.models.futon`, including the `SharedRows` and `Taps` features its bases return on grids and for local bases.
 
 ::: neurofield.models.futon
 
@@ -13,7 +13,3 @@ The [FUTON concept page](../concepts/futon.md) derives the model; this page is t
 The [error bound page](../concepts/error-bound.md) states and proves the theorem these functions compute.
 
 ::: neurofield.models.futon_bounds
-
-## Row-contiguous sparse matrices
-
-::: neurofield.models.rcs_matrix

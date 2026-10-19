@@ -41,7 +41,7 @@ This is the three-stage pipeline `decoder(combiner(basis(x)))`:
 
 A point costs $O(R \sum_c K_c)$, linear in the spectral resolution and in the number of axes. A local basis (below) reduces the basis term to the $2a$ nonzero taps per axis, $O(aRC)$.
 
-On a grid the projections $\boldsymbol{U}^{(c)\top} \boldsymbol{\varphi}(x_c)$ are shared, since each depends on one coordinate alone. When every axis of a batch repeats its coordinates, as an image's pixels or any batch drawn from them do, `FUTON` evaluates and projects each distinct coordinate once and every point gathers its rows: $N$ points with $S_c$ distinct coordinates per axis cost $O(R \sum_c S_c K_c + NCR)$ instead of $O(NR \sum_c K_c)$, for the same function and gradients. Scattered points, such as a radiance field's samples, coordinates that need gradients, and local bases in sparse mode are evaluated point by point.
+On a grid the projections $\boldsymbol{U}^{(c)\top} \boldsymbol{\varphi}(x_c)$ are shared, since each depends on one coordinate alone. When every axis of a batch repeats its coordinates, as an image's pixels or any batch drawn from them do, `FUTON` evaluates and projects each distinct coordinate once and every point gathers its rows: $N$ points with $S_c$ distinct coordinates per axis cost $O(R \sum_c S_c K_c + NCR)$ instead of $O(NR \sum_c K_c)$, for the same function and gradients. Every basis does this, the local ones too; scattered points, such as a radiance field's samples, and coordinates that need gradients are evaluated point by point.
 
 ```python
 model = nf.FUTON(
@@ -89,7 +89,7 @@ The kernel families are centred on the uniform grid $\mu_k = -1 + k w$ with spac
 Two options shape the features:
 
 - **`normalize`** (default `True`) L2-normalizes the feature *vector* $\boldsymbol{\varphi}(x_c)$ at each point, not the basis functions. It stabilizes training and is what the experiments use. `normalize=False` recovers the plain series; for the cardinal bases it gives exact cardinal interpolation, and for the triangle basis with a CP combiner it recovers the TensoRF-CP parameterization (a linear map of the hat features equals sampling a 1D feature grid with `align_corners=True`).
-- **`sparse`** (`triangle` and `lanczos` only, default `True`) returns each axis as an `RCSMatrix`, a row-contiguous sparse matrix that stores only the $2a$ nonzero taps per point. The CP combiner contracts these directly, with one fused `rcs_product` kernel on CUDA (Triton) that never forms the dense features and has a deterministic backward pass. Elsewhere the products use CSR in inference and a gather-and-contract path when gradients are needed. Sparse mode expects a flat batch `(N, C)`; `FUTON.forward` reshapes for you.
+- **`sparse`** (`triangle` and `lanczos` only, default `True`) returns each axis of scattered points as `Taps`, only the $2a$ nonzero features of each point and the column of the first. A product with a factor gathers $2a$ consecutive rows per point, which `torch.compile` fuses into one kernel (eagerly, `embedding_bag` computes it). Sparse mode expects a flat batch `(N, C)`; `FUTON.forward` reshapes for you.
 
 The paper proves that FUTON with the cosine basis is a universal approximator. In practice the choice of family barely moves accuracy on the grid, and moves training time a lot; the [basis ablation](../experiments/ablations.md#basis) measures both.
 
