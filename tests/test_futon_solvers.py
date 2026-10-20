@@ -113,6 +113,8 @@ class TestSolver:
                 LeastSquares(nf.FUTON(2, 1, basis, combiner, decoder))
         with pytest.raises(ValueError):
             MultiplicativeUpdate(futon(2, 1, 8, 2, "triangle", signed), momentum=1.0)
+        with pytest.raises(ValueError):
+            MultiplicativeUpdate(futon(2, 1, 8, 2, "triangle", signed), inner=0)
 
     def test_is_an_optimizer_over_the_blocks(self):
         model = futon(3, 2, [5, 6, 7], 4)
@@ -284,6 +286,27 @@ class TestLeastSquares:
         assert losses[-1] < 0.5 * losses[0]
         assert losses[-1] <= losses[:10].min()
 
+    def test_a_declared_grid_sweeps_as_the_found_one(self):
+        """With the grid declared, each axis's left-hand side is made once, and
+        the sweeps are those of the grid the batch's coordinates give."""
+        sizes = (24, 20)
+        axes = [torch.linspace(-1, 1, n, dtype=DOUBLE) for n in sizes]
+        x = torch.stack(torch.meshgrid(*axes, indexing="ij"), -1)
+        batch = {"input": x, "target": torch.tanh(3 * x[..., :1] * x[..., 1:])}
+        torch.manual_seed(0)
+        found = futon(2, 1, [8, 6], 3, activation=torch.tanh)
+        declared = futon(2, 1, [8, 6], 3, activation=torch.tanh, grid_size=sizes)
+        declared.load_state_dict(found.state_dict())
+        solvers = [
+            LeastSquares(m, momentum=0.5, initialize=False) for m in (found, declared)
+        ]
+        for _ in range(5):
+            for solver in solvers:
+                solver.step(batch)
+        assert "left" in solvers[1].state[declared.encoding.combiner.factors[0]]
+        for p, q in zip(found.parameters(), declared.parameters()):
+            torch.testing.assert_close(p, q)
+
     def test_minibatches_with_momentum_approach_the_whole_grid(self):
         batch = grid((40, 50), 2)
         generator = torch.Generator().manual_seed(0)
@@ -337,7 +360,7 @@ class TestMultiplicativeUpdate:
         batch = grid((20, 15), 3)
         torch.manual_seed(3)
         model = futon(2, 3, 6, 4, "triangle", signed, normalize=False)
-        solver = MultiplicativeUpdate(model, momentum=0.0)
+        solver = MultiplicativeUpdate(model, inner=1, momentum=0.0)
         blocks = [
             *model.encoding.combiner.factors,
             model.decoder.weight,
@@ -363,6 +386,19 @@ class TestMultiplicativeUpdate:
         assert len(updates) == 3
         for result, expected in updates:
             assert torch.allclose(result, expected)
+
+    def test_inner_updates_fit_each_block_further(self):
+        """Repeating a block's update within its sweep lowers the error further,
+        and every update still descends."""
+        batch = grid((30, 20), 3)
+        errors = {}
+        for inner in (1, 16):
+            torch.manual_seed(1)
+            model = futon(2, 3, 7, 5, "triangle", signed, normalize=False)
+            solver = MultiplicativeUpdate(model, inner=inner, momentum=0.0)
+            errors[inner] = recorded(solver, batch, 3)
+        assert bool((errors[16][1:] <= errors[16][:-1] + 1e-12).all())
+        assert errors[16][-1] < 0.7 * errors[1][-1]
 
     def test_minibatches_keep_it_nonnegative(self):
         batch = grid((40, 50), 2)
@@ -432,3 +468,27 @@ class TestTraining:
         assert len(history) == 20 and history[-1]["mse"] < history[0]["mse"]
         assert np.isfinite(history[-1]["eval"]["psnr"])
         assert (tmp_path / "checkpoint.pt").exists()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+def test_compiled_sweeps_match_eager_ones():
+    """On a declared grid a sweep compiles to one graph with the eager result,
+    and compiling it on a batch leaves the model and the solver as they were."""
+    sizes = (24, 20)
+    axes = [torch.linspace(-1, 1, n, dtype=DOUBLE) for n in sizes]
+    x = torch.stack(torch.meshgrid(*axes, indexing="ij"), -1).cuda()
+    target = torch.tanh(3 * x[..., :1] * x[..., 1:]).repeat(1, 1, 2)
+    batch = {"input": x, "target": target}
+    torch.manual_seed(0)
+    model = futon(2, 2, [8, 6], 3, activation=torch.tanh, grid_size=sizes).cuda()
+    solver = LeastSquares(model, momentum=0.5)
+    eager = copy.deepcopy(model)
+    reference = LeastSquares(eager, momentum=0.5, initialize=False)
+    before = [p.clone() for p in model.parameters()]
+    solver.compile(batch, fullgraph=True)
+    assert all(torch.equal(p, q) for p, q in zip(model.parameters(), before))
+    assert not solver.state
+    for _ in range(3):
+        torch.testing.assert_close(solver.step(batch), reference.step(batch))
+    for p, q in zip(model.parameters(), eager.parameters()):
+        torch.testing.assert_close(p, q)
