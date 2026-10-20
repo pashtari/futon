@@ -1207,7 +1207,11 @@ def render_occupancy(signal: str, runs: list[dict], directory: Path, device) -> 
     up = UP.get(signal, 1)
     dataset.save(dataset.original, directory / "truth", up=up, mesh=False)
     for run in runs:
-        model = load_model(run, 3, 1, device)
+        # Sizes such as a basis's grid_size, [D, H, W], follow the cropped volume.
+        sizes = dict(zip("DHW", dataset.grid_size))
+        model = load_model(
+            {**run, "setup": resolve(run["setup"], **sizes)}, 3, 1, device
+        )
         output = nf.chunked_inference(
             model, dataset.input, chunk_size=512**2, device=device
         )

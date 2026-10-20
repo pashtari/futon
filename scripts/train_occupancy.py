@@ -21,7 +21,7 @@ def fit(
 ) -> dict[str, Any]:
     data_kwargs = {**config["data"], "item_id": path.stem}
     volume = nf.OccupancyCoordinateDataset(path, **{**data_kwargs, "subsample": 1.0})
-    # Sizes such as FUTON's grid_size, [D, H, W], follow the cropped volume.
+    # Sizes such as a basis's grid_size, [D, H, W], follow the cropped volume.
     model_class, kwargs = build(resolve(model, **dict(zip("DHW", volume.grid_size))))
     search = fresh(
         model,

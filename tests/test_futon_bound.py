@@ -63,7 +63,7 @@ def test_upper_bound_is_attained_and_bounds_are_ordered(sizes, channels, basis):
     and truncation <= lower <= upper, each nonincreasing in the rank."""
     name, components = basis
     basis = nf.FUTON(len(sizes), channels, (name, {"num_components": components}),
-                     ("cp", {"rank": 1}), ("linear", {"bias": False})).basis.double()  # fmt: skip
+                     ("cp", {"rank": 1}), ("linear", {"bias": False})).encoding.basis.double()  # fmt: skip
     target = signal(sizes, channels)
     bound = nf.futon_bound(target, features(basis, sizes), ranks=[1, 2, 4, 8])
     for rank, upper in zip(bound.ranks, bound.upper):

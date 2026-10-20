@@ -18,24 +18,23 @@ H, W = eval_set.grid_size
 
 ## Models at equal size
 
-Each benchmark model holds about 195k parameters. FUTON's basis size follows the image, half the sampling resolution per axis, and `grid_size` declares the pixel grid, on which each point reads its row of the basis.
+Each benchmark model holds about 195k parameters. FUTON's basis size follows the image, half the sampling resolution per axis, and its `grid_size` declares the pixel grid, on which the basis is evaluated once and each point reads its row.
 
 ```python
 futon = nf.FUTON(
     2, 3,
-    basis=("sinc", {"num_components": [H // 2, W // 2]}),
+    basis=("sinc", {"num_components": [H // 2, W // 2], "grid_size": (H, W)}),
     combiner=("cp", {"rank": 224}),
     decoder=("mlp", {"hidden_layers": 1}),
     output_activation=torch.tanh,
-    grid_size=(H, W),
 )
 futon_lanczos = nf.FUTON(
     2, 3,
-    basis=("lanczos", {"num_components": [H // 2, W // 2], "radius": 3}),
+    basis=("lanczos", {"num_components": [H // 2, W // 2], "radius": 3,
+                       "grid_size": (H, W)}),
     combiner=("cp", {"rank": 224}),
     decoder=("mlp", {"hidden_layers": 1}),
     output_activation=torch.tanh,
-    grid_size=(H, W),
 )
 siren = nf.SIREN(2, 3, hidden_features=256, hidden_layers=4, omega=30.0,
                  output_activation=torch.tanh)

@@ -111,7 +111,7 @@ Coordinates live in [-1, 1] on every axis, targets in the model's output range, 
 
 | Family | Models |
 | --- | --- |
-| FUTON | `FUTON` with bases `cosine`, `sinc`, `legendre`, `chebyshev`, `triangle`, `lanczos`; combiners `cp`, `hadamard`, `tr`; decoders `linear`, `mlp` |
+| FUTON | `FUTON` / `FUTONEncoding` with bases `cosine`, `sinc`, `legendre`, `chebyshev`, `triangle`, `lanczos`; combiners `cp`, `hadamard`, `tr`, `tucker`; decoders `linear`, `mlp` |
 | Coordinate networks | `SIREN` (with FreSh's `fresh_select`), `FINER`, `Gauss`, `WIRE` / `RealWIRE`, `MFN`, `RFF`, `PEMLP`, and the generic `MLP` |
 | Grid and tensor models | `InstantNGP` / `HashEncoding`, `TensoRF`, `GAPlanes` / `MultiVector` / `FeatureGrid`, `FINR`, `GridINR` |
 | Deep Image Prior | `DIPUNet`, `DIPSkip` |

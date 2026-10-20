@@ -188,20 +188,18 @@ models:
     budget: 500000  # parameters; "budget" below is the largest rank within it
     kwargs:
       # One basis function per low-resolution pixel along each axis.
-      basis: [sinc, {num_components: [H // 4, W // 4]}]
+      basis: [sinc, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
       combiner: [cp, {rank: budget}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
-      grid_size: [H, W]
     train: {lr: 1.0e-2}  # 3e-2 fails on smooth images; 3e-3 is 1.1 dB worse
 
   FUTON-lanczos:
     class: FUTON
     budget: 500000
     kwargs:
-      basis: [lanczos, {num_components: [H // 4, W // 4], radius: 3}]
+      basis: [lanczos, {num_components: [H // 4, W // 4], radius: 3, grid_size: [H, W]}]
       combiner: [cp, {rank: budget}]
       decoder: [mlp, {hidden_layers: 1}]
       output_activation: tanh
-      grid_size: [H, W]
     train: {lr: 1.0e-2}  # 3e-2 is 0.1 dB worse

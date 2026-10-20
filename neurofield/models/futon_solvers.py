@@ -107,7 +107,7 @@ class BCD(Optimizer):
     ) -> None:
         if not (
             isinstance(model, FUTON)
-            and isinstance(model.combiner, CPCombiner)
+            and isinstance(model.encoding.combiner, CPCombiner)
             and isinstance(model.decoder, nn.Linear)
             and model.decoder.bias is None
         ):
@@ -118,7 +118,7 @@ class BCD(Optimizer):
         if not 0 <= momentum < 1:
             raise ValueError("momentum must be in [0, 1)")
         settings = {"lr": 1 - momentum, "initialize": initialize}
-        params = [*model.combiner.factors, model.decoder.weight]
+        params = [*model.encoding.combiner.factors, model.decoder.weight]
         super().__init__(params, settings | defaults)
         self.model = model
         if initialize:
@@ -138,8 +138,8 @@ class BCD(Optimizer):
         output of the signal's order.
         """
         model = self.model
-        for c, factor in enumerate(model.combiner.factors):
-            middle = model.basis.axis_features(factor.new_zeros(1), c)
+        for c, factor in enumerate(model.encoding.combiner.factors):
+            middle = model.encoding.basis.axis_features(factor.new_zeros(1), c)
             factor.copy_(self._draw(factor) / middle.sum())
         weight = model.decoder.weight
         weight.copy_(self._draw(weight) / (2 * weight.shape[1]))
@@ -227,12 +227,14 @@ class BCD(Optimizer):
         # and the points pick their entries of the tensor.
         axes = [torch.unique(u, return_inverse=True) for u in x.T]
         index = tuple(inverse for _, inverse in axes)
-        features = [model.basis.axis_features(u, c) for c, (u, _) in enumerate(axes)]
+        features = [
+            model.encoding.basis.axis_features(u, c) for c, (u, _) in enumerate(axes)
+        ]
         shares = [
             torch.bincount(inverse, minlength=len(u)).to(x.dtype)[:, None] / count
             for u, inverse in axes
         ]
-        factors = model.combiner.factors
+        factors = model.encoding.combiner.factors
         weight = model.decoder.weight
         responses = [phi @ factor for phi, factor in zip(features, factors)]
         grams = [r.T @ (share * r) for r, share in zip(responses, shares)]

@@ -9,16 +9,20 @@ FUTON evaluates ``decoder(combiner(basis(x)))`` in three stages:
 3. A **decoder**, ``nn.Linear`` or :class:`MLP`, maps the fused features to the
    output.
 
+The first two stages make up :class:`FUTONEncoding`, which :class:`FUTON`
+decodes.
+
 Every basis takes ``num_components``, an int shared by all axes or one count
-per axis, and ``normalize``, which L2-normalizes each feature vector (not each
-basis function). The local bases :class:`TriangleBasis` and
+per axis; ``normalize``, which L2-normalizes each feature vector (not each
+basis function); and ``grid_size``, the sizes of the grid its inputs lie on,
+if they do. The local bases :class:`TriangleBasis` and
 :class:`LanczosBasis` default to sparse mode: off a grid, each axis returns
 :class:`Taps`, only the few nonzero features of each point.
 
 On a grid, where every axis of a flat batch repeats its coordinates, a basis
-evaluates each distinct coordinate once, or each coordinate of the grid that
-:class:`FUTON`'s ``grid_size`` declares, and returns each axis as
-:class:`SharedRows` of that table: the combiners then project the table
+evaluates each distinct coordinate once, or reads the table of the grid that
+its ``grid_size`` declares, evaluated once when it is built, and returns each
+axis as :class:`SharedRows` of that table: the combiners then project the table
 rather than every point, the same function at a fraction of the cost. Both
 kinds multiply like ``(N, K_c)`` matrices, so every combiner treats every axis
 alike; compiled, the gathers fuse with the product and the decoder.
@@ -27,7 +31,7 @@ alike; compiled, the gathers fuse with the product and the decoder.
 import math
 from collections.abc import Callable, Sequence
 from functools import reduce
-from typing import NamedTuple
+from typing import NamedTuple, Self
 
 import opt_einsum as oe
 import torch
@@ -50,6 +54,7 @@ __all__ = [
     "CPCombiner",
     "TRCombiner",
     "TuckerCombiner",
+    "FUTONEncoding",
     "FUTON",
 ]
 
@@ -150,40 +155,39 @@ Features = Tensor | SharedRows | Taps
 
 
 class _Basis(nn.Module):
-    """Base class for bases; subclasses implement :meth:`axis_features` for one axis."""
+    """Base class for bases; subclasses implement :meth:`_features` for one axis."""
 
     def __init__(
         self,
         in_features: int,
         num_components: int | Sequence[int],
         normalize: bool = True,
-        min_components: int = 1,
+        grid_size: int | Sequence[int] | None = None,
     ) -> None:
         super().__init__()
         self.in_features = in_features
         self.num_components = _broadcast(num_components, in_features, "num_components")
-        if min(self.num_components) < min_components:
-            raise ValueError(
-                f"num_components must be >= {min_components}, "
-                f"got {self.num_components}"
-            )
         self.normalize = normalize
+        self._tabulate(grid_size)
 
     def axis_features(self, x: Tensor, axis: int) -> Tensor:
         """The dense features ``(*, K_axis)`` of one axis at coordinates ``(*,)``."""
-        raise NotImplementedError
+        return self._normalize(self._features(x, axis))
 
-    def forward(
-        self, x: Tensor, grid_size: Sequence[int] | None = None
-    ) -> tuple[Features, ...]:
-        """Each axis's features at ``x``, which lies on the grid ``grid_size`` if
-        given (see :class:`FUTON`)."""
+    def forward(self, x: Tensor) -> tuple[Features, ...]:
         if x.shape[-1] != self.in_features:
             raise ValueError(
                 f"Expected last dimension {self.in_features}, got {x.shape[-1]}"
             )
-        if grid_size is not None and not x.requires_grad:
-            return self._on_grid(x, grid_size)
+        if self.grid_size is not None and not x.requires_grad:
+            # Each point's row of its axis's table is a rounding: no sort, no
+            # synchronization and no evaluation of the basis.
+            return tuple(
+                SharedRows(
+                    getattr(self, f"_table{c}"), _grid_position(xc, n).round().long()
+                )
+                for c, (xc, n) in enumerate(zip(x.unbind(-1), self.grid_size))
+            )
         shared = _shared(x)
         if shared is None:
             return tuple(self._scattered(xc, c) for c, xc in enumerate(x.unbind(-1)))
@@ -192,25 +196,9 @@ class _Basis(nn.Module):
             for c, (values, rows) in enumerate(shared)
         )
 
-    def _on_grid(self, x: Tensor, grid_size: Sequence[int]) -> tuple[SharedRows, ...]:
-        """Each axis's features on the grid ``linspace(-1, 1, size)``, and the row
-        of every point there: what :func:`_shared` searches each batch for,
-        which a known grid makes a rounding, with no sort or synchronization.
-
-        The features come first, so that each row is computed next to the
-        gather that reads it, which the compiler then recomputes for the
-        backward pass rather than saves.
-        """
-        tables = [
-            self.axis_features(
-                torch.linspace(-1, 1, size, device=x.device, dtype=x.dtype), c
-            )
-            for c, size in enumerate(grid_size)
-        ]
-        return tuple(
-            SharedRows(table, _grid_position(xc, size).round().long())
-            for table, xc, size in zip(tables, x.unbind(-1), grid_size)
-        )
+    def _features(self, x: Tensor, axis: int) -> Tensor:
+        """The features of one axis before normalization."""
+        raise NotImplementedError
 
     def _scattered(self, x: Tensor, axis: int) -> Features:
         """The features of one axis at points that share no coordinates."""
@@ -218,6 +206,33 @@ class _Basis(nn.Module):
 
     def _normalize(self, features: Tensor) -> Tensor:
         return F.normalize(features, dim=-1) if self.normalize else features
+
+    def _tabulate(
+        self,
+        grid_size: int | Sequence[int] | None,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ) -> None:
+        """Evaluate each axis once on its grid ``linspace(-1, 1, size)``, as the
+        buffer ``_table{axis}`` that :meth:`forward` reads. Subclasses whose
+        features need state of their own call it again once that is set."""
+        self.grid_size = None
+        if grid_size is not None:
+            self.grid_size = _broadcast(grid_size, self.in_features, "grid_size")
+        for c, size in enumerate(self.grid_size or ()):
+            grid = torch.linspace(-1, 1, size, device=device, dtype=dtype)
+            table = self.axis_features(grid, c)
+            self.register_buffer(f"_table{c}", table, persistent=False)
+
+    def _apply(self, fn: Callable[[Tensor], Tensor], recurse: bool = True) -> Self:
+        # A move or a cast evaluates the tables again where it takes them, as
+        # nn.RNNBase rebuilds its flat weights: a cast would keep the rounding
+        # of the dtype they were built in.
+        super()._apply(fn, recurse)
+        if self.grid_size is not None:
+            table = getattr(self, "_table0")
+            self._tabulate(self.grid_size, table.device, table.dtype)
+        return self
 
 
 class CosineBasis(_Basis):
@@ -231,16 +246,19 @@ class CosineBasis(_Basis):
         in_features: Number of coordinate axes ``C``.
         num_components: Number of frequencies ``K_c``, shared or per axis.
         normalize: L2-normalize each feature vector.
+        grid_size: Sizes of the grid ``linspace(-1, 1, size)`` that every input
+            lies on, shared or per axis, where the features are evaluated once;
+            see :class:`FUTONEncoding`.
 
     Shape:
         - Input: :math:`(*, C)`.
         - Output: ``C`` tensors of shape :math:`(*, K_c)`.
     """
 
-    def axis_features(self, x: Tensor, axis: int) -> Tensor:
+    def _features(self, x: Tensor, axis: int) -> Tensor:
         u = ((x + 1) / 2).unsqueeze(-1)
         k = torch.arange(self.num_components[axis], device=x.device, dtype=x.dtype)
-        return self._normalize(torch.cos(math.pi * k * u))
+        return torch.cos(math.pi * k * u)
 
 
 class SincBasis(_Basis):
@@ -255,14 +273,17 @@ class SincBasis(_Basis):
         in_features: Number of coordinate axes ``C``.
         num_components: Number of centers ``K_c``, shared or per axis.
         normalize: L2-normalize each feature vector.
+        grid_size: Sizes of the grid ``linspace(-1, 1, size)`` that every input
+            lies on, shared or per axis, where the features are evaluated once;
+            see :class:`FUTONEncoding`.
 
     Shape:
         - Input: :math:`(*, C)`.
         - Output: ``C`` tensors of shape :math:`(*, K_c)`.
     """
 
-    def axis_features(self, x: Tensor, axis: int) -> Tensor:
-        return self._normalize(torch.sinc(_offsets(x, self.num_components[axis])))
+    def _features(self, x: Tensor, axis: int) -> Tensor:
+        return torch.sinc(_offsets(x, self.num_components[axis]))
 
 
 def _chebyshev_to_legendre(count: int) -> Tensor:
@@ -298,16 +319,16 @@ class ChebyshevBasis(_Basis):
         in_features: Number of coordinate axes ``C``.
         num_components: Number of polynomials ``K_c``, shared or per axis.
         normalize: L2-normalize each feature vector.
+        grid_size: Sizes of the grid ``linspace(-1, 1, size)`` that every input
+            lies on, shared or per axis, where the features are evaluated once;
+            see :class:`FUTONEncoding`.
 
     Shape:
         - Input: :math:`(*, C)`.
         - Output: ``C`` tensors of shape :math:`(*, K_c)`.
     """
 
-    def axis_features(self, x: Tensor, axis: int) -> Tensor:
-        return self._normalize(self._polynomials(x, axis))
-
-    def _polynomials(self, x: Tensor, axis: int) -> Tensor:
+    def _features(self, x: Tensor, axis: int) -> Tensor:
         count = self.num_components[axis]
         degrees = torch.arange(count, dtype=x.dtype, device=x.device)
         return torch.cos(degrees * torch.arccos(x.unsqueeze(-1)))
@@ -325,6 +346,9 @@ class LegendreBasis(ChebyshevBasis):
         in_features: Number of coordinate axes ``C``.
         num_components: Number of polynomials ``K_c``, shared or per axis.
         normalize: L2-normalize each feature vector.
+        grid_size: Sizes of the grid ``linspace(-1, 1, size)`` that every input
+            lies on, shared or per axis, where the features are evaluated once;
+            see :class:`FUTONEncoding`.
 
     Shape:
         - Input: :math:`(*, C)`.
@@ -338,15 +362,17 @@ class LegendreBasis(ChebyshevBasis):
         in_features: int,
         num_components: int | Sequence[int],
         normalize: bool = True,
+        grid_size: int | Sequence[int] | None = None,
     ) -> None:
         super().__init__(in_features, num_components, normalize)
         matrix = _chebyshev_to_legendre(max(self.num_components))
         self.register_buffer("_from_chebyshev", matrix, persistent=False)
+        self._tabulate(grid_size)
 
-    def _polynomials(self, x: Tensor, axis: int) -> Tensor:
+    def _features(self, x: Tensor, axis: int) -> Tensor:
         count = self.num_components[axis]
         matrix = self._from_chebyshev[:count, :count]
-        return super()._polynomials(x, axis) @ matrix.T
+        return super()._features(x, axis) @ matrix.T
 
 
 class _LocalBasis(_Basis):
@@ -366,20 +392,23 @@ class _LocalBasis(_Basis):
         radius: int,
         normalize: bool = True,
         sparse: bool = True,
+        grid_size: int | Sequence[int] | None = None,
     ) -> None:
-        if radius < 1:
-            raise ValueError(f"radius must be >= 1, got {radius}")
-        super().__init__(
-            in_features, num_components, normalize, min_components=2 * radius
-        )
+        super().__init__(in_features, num_components, normalize)
+        if radius < 1 or min(self.num_components) < 2 * radius:
+            raise ValueError(
+                "radius must be >= 1 and num_components >= 2 * radius, got "
+                f"radius {radius} and num_components {self.num_components}"
+            )
         self.radius = int(radius)
         self.sparse = bool(sparse)
+        self._tabulate(grid_size)
 
     def _kernel(self, t: Tensor) -> Tensor:
         raise NotImplementedError
 
-    def axis_features(self, x: Tensor, axis: int) -> Tensor:
-        return self._normalize(self._kernel(_offsets(x, self.num_components[axis])))
+    def _features(self, x: Tensor, axis: int) -> Tensor:
+        return self._kernel(_offsets(x, self.num_components[axis]))
 
     def _scattered(self, x: Tensor, axis: int) -> Features:
         if not self.sparse:
@@ -409,6 +438,9 @@ class TriangleBasis(_LocalBasis):
         num_components: Number of centers ``K_c >= 2``, shared or per axis.
         normalize: L2-normalize each feature vector.
         sparse: Return :class:`Taps` with two taps per point off a grid.
+        grid_size: Sizes of the grid ``linspace(-1, 1, size)`` that every input
+            lies on, shared or per axis, where the features are evaluated once;
+            see :class:`FUTONEncoding`.
 
     Shape:
         - Input: :math:`(*, C)` in dense mode, :math:`(N, C)` in sparse mode.
@@ -425,8 +457,9 @@ class TriangleBasis(_LocalBasis):
         num_components: int | Sequence[int],
         normalize: bool = True,
         sparse: bool = True,
+        grid_size: int | Sequence[int] | None = None,
     ) -> None:
-        super().__init__(in_features, num_components, 1, normalize, sparse)
+        super().__init__(in_features, num_components, 1, normalize, sparse, grid_size)
 
     def _kernel(self, t: Tensor) -> Tensor:
         return (1.0 - t.abs()).clamp(min=0.0)
@@ -449,6 +482,9 @@ class LanczosBasis(_LocalBasis):
         normalize: L2-normalize each feature vector.
         sparse: Return :class:`Taps` with ``2 * radius`` taps per point off a
             grid.
+        grid_size: Sizes of the grid ``linspace(-1, 1, size)`` that every input
+            lies on, shared or per axis, where the features are evaluated once;
+            see :class:`FUTONEncoding`.
 
     Shape:
         - Input: :math:`(*, C)` in dense mode, :math:`(N, C)` in sparse mode.
@@ -463,8 +499,11 @@ class LanczosBasis(_LocalBasis):
         radius: int = 3,
         normalize: bool = True,
         sparse: bool = True,
+        grid_size: int | Sequence[int] | None = None,
     ) -> None:
-        super().__init__(in_features, num_components, radius, normalize, sparse)
+        super().__init__(
+            in_features, num_components, radius, normalize, sparse, grid_size
+        )
 
     def _kernel(self, t: Tensor) -> Tensor:
         window = torch.sinc(t) * torch.sinc(t / self.radius)
@@ -667,41 +706,24 @@ class TuckerCombiner(_Combiner):
 # FUTON --------------------------------------------------------------------------------
 
 
-class FUTON(nn.Module):
-    r"""Fourier Tensor Network for implicit neural representations.
+class FUTONEncoding(nn.Module):
+    r"""FUTON's encoding: the features of a basis, fused by a combiner.
 
-    Computes ``output_activation(decoder(combiner(basis(x))))``. Each stage is
-    a module instance, a registry key, a module class, or a
-    ``(key_or_class, kwargs)`` pair. Registry keys:
-
-    - Bases: ``"cosine"``, ``"sinc"``, ``"legendre"``, ``"chebyshev"``,
-      ``"triangle"``, ``"lanczos"``.
-    - Combiners: ``"hadamard"``, ``"cp"``, ``"tr"``, ``"tucker"``.
-    - Decoders: ``"linear"``, ``"mlp"``.
+    Computes ``combiner(basis(x))``, which :class:`FUTON` decodes. Each stage is
+    given as for :class:`FUTON`.
 
     Args:
         in_features: Number of coordinate axes ``C``.
-        out_features: Number of output channels.
         basis: Basis spec, built as ``basis(in_features, **kwargs)``. Custom
-            bases must expose ``num_components``, one count per axis, and are
-            called as ``basis(x, grid_size)``.
+            bases must expose ``num_components``, one count per axis.
         combiner: Combiner spec, built as
             ``combiner(basis.num_components, **kwargs)``. Custom combiners must
-            expose ``out_features``.
-        decoder: Decoder spec, built as
-            ``decoder(combiner.out_features, out_features, **kwargs)``.
-        output_activation: Callable applied to the output; ``None`` uses the
-            identity.
-        grid_size: Sizes of the grid ``linspace(-1, 1, size)``, shared or per
-            axis, that every input lies on, as a coordinate dataset's points do.
-            The basis then reads each point's row of its features on that grid
-            rather than finding the distinct coordinates of each batch. A point
-            off the grid would read its nearest grid point, so leave it ``None``
-            for other inputs, such as a radiance field's samples.
+            expose ``out_features``, the encoding's width.
 
     Shape:
-        - Input: :math:`(*, C)` coordinates in ``[-1, 1]``.
-        - Output: :math:`(*, \text{out\_features})`.
+        - Input: :math:`(N, C)` coordinates in ``[-1, 1]``, a flat batch,
+          whose points the basis shares or sparsifies.
+        - Output: :math:`(N, \text{out\_features})`.
 
     Evaluation on a grid:
         A projection :math:`\mathbf{U}^{(c)\top} \boldsymbol{\varphi}(x_c)`
@@ -714,15 +736,64 @@ class FUTON(nn.Module):
         :math:`O(R \sum_c S_c K_c + NCR)` for :math:`N` points with
         :math:`S_c` distinct coordinates on axis :math:`c`, instead of
         :math:`O(NR \sum_c K_c)`, or :math:`O(NRL)` for a local basis's
-        :math:`L` taps. With ``grid_size``, the table covers the declared grid
-        and each point's row is its index there, which spares searching every
-        batch for its distinct coordinates, a sort and a synchronization per
-        axis. Scattered points and coordinates that need gradients are
+        :math:`L` taps. A basis given ``grid_size``, the grid that every input
+        lies on, as a coordinate dataset's points do, evaluates its table there
+        once, when it is built, and rounds each point to its row, which spares
+        searching every batch for its distinct coordinates, a sort and a
+        synchronization per axis. A point off the grid would read its nearest
+        grid point, so a radiance field, whose samples are scattered, declares
+        none. Scattered points and coordinates that need gradients are
         evaluated point by point.
+
+        The tables are buffers outside the model's ``state_dict``. Moving or
+        casting the model, as ``to`` and ``double`` do, evaluates them again on
+        its new device and in its new dtype, so they are exact in any precision.
+    """
+
+    def __init__(
+        self, in_features: int, basis: ModuleSpec, combiner: ModuleSpec
+    ) -> None:
+        super().__init__()
+        self.in_features = in_features
+        self.basis = build_module(basis, BASES, in_features)
+        self.combiner = build_module(combiner, COMBINERS, self.basis.num_components)
+        self.out_features = self.combiner.out_features
+
+    def forward(self, x: Tensor) -> Tensor:
+        features = self.basis(x)
+        return self.combiner(features)
+
+
+class FUTON(nn.Module):
+    r"""Fourier Tensor Network for implicit neural representations.
+
+    Computes ``output_activation(decoder(encoding(x)))``, where ``encoding`` is
+    the :class:`FUTONEncoding` ``combiner(basis(x))``. Each stage is a module
+    instance, a registry key, a module class, or a ``(key_or_class, kwargs)``
+    pair. Registry keys:
+
+    - Bases: ``"cosine"``, ``"sinc"``, ``"legendre"``, ``"chebyshev"``,
+      ``"triangle"``, ``"lanczos"``.
+    - Combiners: ``"hadamard"``, ``"cp"``, ``"tr"``, ``"tucker"``.
+    - Decoders: ``"linear"``, ``"mlp"``.
+
+    Args:
+        in_features: Number of coordinate axes ``C``.
+        out_features: Number of output channels.
+        basis: Basis spec of the encoding; see :class:`FUTONEncoding`.
+        combiner: Combiner spec of the encoding; see :class:`FUTONEncoding`.
+        decoder: Decoder spec, built as
+            ``decoder(encoding.out_features, out_features, **kwargs)``.
+        output_activation: Callable applied to the output; ``None`` uses the
+            identity.
+
+    Shape:
+        - Input: :math:`(*, C)` coordinates in ``[-1, 1]``.
+        - Output: :math:`(*, \text{out\_features})`.
 
     Relation to the paper:
         The cosine basis, CP combiner, and linear decoder implement Eq. (9):
-        ``combiner.factors[c]`` stores :math:`\mathbf{U}^{(c)}` and
+        ``encoding.combiner.factors[c]`` stores :math:`\mathbf{U}^{(c)}` and
         ``decoder.weight`` stores :math:`\mathbf{V}`; the decoder bias is an
         addition. Coordinates are mapped internally from ``[-1, 1]`` to
         ``[0, 1]``. The basis omits the paper's :math:`\sqrt{2}` factor and
@@ -752,28 +823,23 @@ class FUTON(nn.Module):
         combiner: ModuleSpec,
         decoder: ModuleSpec,
         output_activation: Callable[[Tensor], Tensor] | None = None,
-        grid_size: int | Sequence[int] | None = None,
     ) -> None:
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        if grid_size is not None:
-            grid_size = _broadcast(grid_size, in_features, "grid_size")
-        self.grid_size = grid_size
-        self.basis = build_module(basis, BASES, in_features)
-        self.combiner = build_module(combiner, COMBINERS, self.basis.num_components)
+        self.encoding = FUTONEncoding(in_features, basis, combiner)
         self.decoder = build_module(
-            decoder, DECODERS, self.combiner.out_features, out_features
+            decoder, DECODERS, self.encoding.out_features, out_features
         )
         self.output_activation = (
             output_activation if output_activation is not None else nn.Identity()
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        # The bases take a flat batch, whose points they share or sparsify.
+        # The encoding takes a flat batch, whose points its basis shares or sparsifies.
         points = x.reshape(-1, self.in_features)
-        features = self.basis(points, self.grid_size)
-        out = self.output_activation(self.decoder(self.combiner(features)))
+        fused = self.encoding(points)
+        out = self.output_activation(self.decoder(fused))
         return out.reshape(*x.shape[:-1], self.out_features)
 
 

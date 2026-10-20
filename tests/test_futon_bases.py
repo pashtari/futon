@@ -399,15 +399,15 @@ def grid_points(sizes, count=None, dtype=torch.float64):
 def per_point(model, x):
     """FUTON with each point's dense features of its own, shared with no other."""
     points = x.reshape(-1, model.in_features)
-    basis = model.basis
+    basis, combiner = model.encoding.basis, model.encoding.combiner
     features = [basis.axis_features(xc, c) for c, xc in enumerate(points.unbind(-1))]
-    out = model.output_activation(model.decoder(model.combiner(features)))
+    out = model.output_activation(model.decoder(combiner(features)))
     return out.reshape(*x.shape[:-1], model.out_features)
 
 
 def shares_rows(model, x):
     """Whether the basis gives the points of ``x`` shared rows of a table."""
-    features = model.basis(x.reshape(-1, model.in_features), model.grid_size)
+    features = model.encoding.basis(x.reshape(-1, model.in_features))
     return all(isinstance(f, SharedRows) for f in features)
 
 
@@ -418,6 +418,8 @@ class TestGridEvaluation:
     @staticmethod
     def model(sizes, basis, combiner, device, declared=False, **basis_kwargs):
         torch.manual_seed(0)
+        if declared:
+            basis_kwargs["grid_size"] = sizes
         model = FUTON(
             len(sizes),
             3,
@@ -425,7 +427,6 @@ class TestGridEvaluation:
             combiner,
             ("mlp", {"hidden_layers": 1}),
             torch.tanh,
-            grid_size=sizes if declared else None,
         )
         for parameter in model.parameters():  # the biases too, which start at zero
             nn.init.normal_(parameter, std=0.3)
@@ -477,7 +478,7 @@ class TestGridEvaluation:
     def test_scattered_points_are_evaluated_one_by_one(self, device):
         model = self.model((9, 12), "sinc", ("cp", {"rank": 6}), device)
         x = (torch.rand(60, 2, dtype=torch.float64) * 2 - 1).to(device)
-        assert not any(isinstance(f, SharedRows) for f in model.basis(x))
+        assert not any(isinstance(f, SharedRows) for f in model.encoding.basis(x))
         out, ref = model(x), per_point(model, x)
         torch.testing.assert_close(out, ref, rtol=1e-12, atol=1e-12)
 
@@ -486,7 +487,7 @@ class TestGridEvaluation:
     def test_scattered_points_take_their_taps(self, device, basis):
         model = self.model((9, 12), basis, ("cp", {"rank": 6}), device)
         x = (torch.rand(60, 2, dtype=torch.float64) * 2 - 1).to(device)
-        assert all(isinstance(f, Taps) for f in model.basis(x))
+        assert all(isinstance(f, Taps) for f in model.encoding.basis(x))
         out, ref = model(x), per_point(model, x)
         torch.testing.assert_close(out, ref, rtol=1e-10, atol=1e-12)
         params = list(model.parameters())
@@ -494,6 +495,20 @@ class TestGridEvaluation:
         expected = torch.autograd.grad(ref.square().sum(), params)
         for got, want in zip(grads, expected):
             torch.testing.assert_close(got, want, rtol=1e-10, atol=1e-12)
+
+    def test_declared_grid_evaluates_the_basis_once(self, monkeypatch):
+        basis = SincBasis(2, 8, grid_size=(9, 12))  # its tables, evaluated here
+        monkeypatch.setattr(SincBasis, "axis_features", lambda *_: pytest.fail())
+        features = basis(grid_points((9, 12), count=60, dtype=torch.float32))
+        assert all(isinstance(f, SharedRows) for f in features)
+
+    def test_tables_follow_the_model_outside_its_state(self):
+        basis = ("legendre", {"num_components": 8, "grid_size": (9, 12)})
+        model = FUTON(2, 3, basis, ("cp", {"rank": 4}), "linear")
+        assert not any("_table" in key for key in model.state_dict())
+        basis = model.double().encoding.basis  # evaluated again, not cast
+        grid = torch.linspace(-1, 1, 12, dtype=torch.float64)
+        assert torch.equal(basis.get_buffer("_table1"), basis.axis_features(grid, 1))
 
     def test_batches_with_a_shape_are_evaluated_one_by_one(self):
         basis = SincBasis(2, 8)
@@ -552,6 +567,15 @@ class TestNumComponents:
         with pytest.raises(ValueError):
             BASES[name](3, [8, 8])
 
+    def test_grid_size(self, name):
+        from neurofield.models.futon import BASES
+
+        assert BASES[name](3, 8).grid_size is None
+        assert BASES[name](3, 8, grid_size=16).grid_size == [16] * 3
+        assert BASES[name](2, 8, grid_size=(16, 12)).grid_size == [16, 12]
+        with pytest.raises(ValueError):
+            BASES[name](2, 8, grid_size=[16, 16, 16])
+
 
 class TestValidation:
     @pytest.mark.parametrize("radius", [0, -2])
@@ -569,12 +593,6 @@ class TestValidation:
         basis = LanczosBasis(3, 16, radius=2)
         with pytest.raises(ValueError):
             basis(torch.rand(8, 2))
-
-    def test_grid_size_per_axis(self):
-        basis, cp = ("sinc", {"num_components": 8}), ("cp", {"rank": 4})
-        assert FUTON(3, 1, basis, cp, "linear", grid_size=16).grid_size == [16] * 3
-        with pytest.raises(ValueError):
-            FUTON(2, 3, basis, cp, "linear", grid_size=[16, 16, 16])
 
     def test_registry(self):
         from neurofield.models.futon import BASES
@@ -622,7 +640,7 @@ def test_compiled_taps_match_eager():
     )
     model = model.double().cuda()
     x = torch.rand(500, 3, dtype=torch.float64, device="cuda") * 2 - 1
-    assert all(isinstance(f, Taps) for f in model.basis(x))
+    assert all(isinstance(f, Taps) for f in model.encoding.basis(x))
     compiled = torch.compile(model)
     out, ref = compiled(x), model(x)
     torch.testing.assert_close(out, ref, rtol=1e-10, atol=1e-12)
@@ -641,11 +659,10 @@ def test_declared_grid_compiles_to_one_graph():
     model = FUTON(
         2,
         3,
-        ("sinc", {"num_components": 16}),
+        ("sinc", {"num_components": 16, "grid_size": sizes}),
         ("cp", {"rank": 8}),
         ("mlp", {"hidden_layers": 1}),
         torch.tanh,
-        grid_size=sizes,
     )
     model = model.double().cuda()
     x = grid_points(sizes, count=500).cuda()
@@ -662,9 +679,9 @@ def test_declared_grid_compiles_to_one_graph():
 @CUDA
 def test_declared_grid_keeps_the_memory_of_a_step():
     """Compiled, a declared grid saves no more for the backward pass than the
-    search does: Lanczos in 3D, whose long kernel, computed after the rows,
-    once made the compiler save two gathered projections instead of
-    recomputing them."""
+    search does: Lanczos in 3D, whose long kernel, when its tables were
+    computed in the graph after the rows, made the compiler save two gathered
+    projections instead of recomputing them."""
     sizes = (40, 50, 30)
     x = grid_points(sizes, count=20000, dtype=torch.float32).cuda()
     peaks = {}
@@ -673,11 +690,13 @@ def test_declared_grid_keeps_the_memory_of_a_step():
         model = FUTON(
             3,
             1,
-            ("lanczos", {"num_components": 16}),
+            (
+                "lanczos",
+                {"num_components": 16, "grid_size": sizes if declared else None},
+            ),
             ("cp", {"rank": 64}),
             ("mlp", {"hidden_layers": 1}),
             torch.tanh,
-            grid_size=sizes if declared else None,
         ).cuda()
         compiled = torch.compile(model)
         for _ in range(2):

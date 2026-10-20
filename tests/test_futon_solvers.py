@@ -92,7 +92,7 @@ def separable(basis):
         2, 1, [8, 6], 1, basis, signed if basis == "triangle" else None, normalize=False
     )
     with torch.no_grad():
-        for factor, k in zip(truth.combiner.factors, (3, 4)):
+        for factor, k in zip(truth.encoding.combiner.factors, (3, 4)):
             factor.zero_()
             factor[k, 0] = 1
         truth.decoder.weight.fill_(1)
@@ -180,9 +180,9 @@ class TestSolver:
         solver.step(batch)
         x = batch["input"]
         for c, (u, factor) in enumerate(
-            zip((x[:, 0, 0], x[0, :, 1]), model.combiner.factors)
+            zip((x[:, 0, 0], x[0, :, 1]), model.encoding.combiner.factors)
         ):
-            response = model.basis.axis_features(u, c) @ factor
+            response = model.encoding.basis.axis_features(u, c) @ factor
             assert torch.allclose(
                 response.square().mean(0), torch.ones(3, dtype=DOUBLE)
             )
@@ -204,11 +204,13 @@ class TestLeastSquares:
             with torch.no_grad():
                 features = [
                     (
-                        model.basis.axis_features(u, c) @ factor
+                        model.encoding.basis.axis_features(u, c) @ factor
                         if c != len(solutions)
-                        else model.basis.axis_features(u, c)
+                        else model.encoding.basis.axis_features(u, c)
                     )
-                    for c, (u, factor) in enumerate(zip(fibers, model.combiner.factors))
+                    for c, (u, factor) in enumerate(
+                        zip(fibers, model.encoding.combiner.factors)
+                    )
                 ]
                 weight = model.decoder.weight
                 if (
@@ -337,7 +339,7 @@ class TestMultiplicativeUpdate:
         model = futon(2, 3, 6, 4, "triangle", signed, normalize=False)
         solver = MultiplicativeUpdate(model, momentum=0.0)
         blocks = [
-            *model.combiner.factors,
+            *model.encoding.combiner.factors,
             model.decoder.weight,
         ]
         updates, solve = [], solver.solve

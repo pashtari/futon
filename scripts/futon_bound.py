@@ -83,15 +83,15 @@ def futon(sizes: list[int], channels: int, alpha: float, rank: int) -> nf.FUTON:
     """The paper's FUTON with the benchmark's sinc basis: a CP combiner and a
     linear decoder, no bias."""
     components = [max(2, int(alpha * size)) for size in sizes]
-    basis = ("sinc", {"num_components": components})
+    basis = ("sinc", {"num_components": components, "grid_size": sizes})
     return nf.FUTON(len(sizes), channels, basis, ("cp", {"rank": rank}),
-                    ("linear", {"bias": False}), grid_size=sizes)  # fmt: skip
+                    ("linear", {"bias": False}))  # fmt: skip
 
 
 def features_of(model: nf.FUTON, sizes: list[int], device) -> list[torch.Tensor]:
     """The model's basis on each axis's grid, as ``nf.futon_bound`` takes it."""
     return [
-        model.basis.axis_features(torch.linspace(-1, 1, n), c).to(device)
+        model.encoding.basis.axis_features(torch.linspace(-1, 1, n), c).to(device)
         for c, n in enumerate(sizes)
     ]
 
@@ -111,7 +111,7 @@ def train(model: nf.FUTON, data, device, lr: float = LR, epochs: int = EPOCHS,
           seed: int = 0) -> float:  # fmt: skip
     """Train in place with Adam as the benchmark does; returns the seconds taken."""
     torch.manual_seed(seed)
-    model.combiner.reset_parameters()
+    model.encoding.combiner.reset_parameters()
     model.decoder.reset_parameters()
     start = time.perf_counter()
     nf.train(model, data, num_epochs=epochs, lr=lr, log_interval=0,

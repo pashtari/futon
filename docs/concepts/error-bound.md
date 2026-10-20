@@ -188,7 +188,7 @@ data = nf.ImageCoordinateDataset("data/Kodak/kodim19.png")
 H, W, _ = data.target.shape
 model = nf.FUTON(2, 3, ("sinc", {"num_components": [H // 2, W // 2]}),
                  ("cp", {"rank": 64}), ("linear", {"bias": False}))
-features = [model.basis.axis_features(torch.linspace(-1, 1, n), c)
+features = [model.encoding.basis.axis_features(torch.linspace(-1, 1, n), c)
             for c, n in enumerate((H, W))]
 bound = nf.futon_bound(data.target, features, ranks=[32, 64, 256])
 bound.truncation, bound.lower, bound.upper   # mean squared errors
