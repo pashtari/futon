@@ -191,7 +191,9 @@ class ImageCoordinateDataset(Dataset):
     def preprocess(x: Tensor) -> Tensor:
         """Map uint8 ``(C, H, W)`` pixels to float ``(H, W, C)`` values in ``[-1, 1]``."""
         x = x.float() * 2 / 255 - 1
-        return x.movedim(0, -1)
+        # In the layout a loader's batches have, so that a graph compiled on an
+        # item serves them; the moved view keeps the channel stride.
+        return x.movedim(0, -1).clone(memory_format=torch.contiguous_format)
 
     @staticmethod
     def postprocess(x: Tensor) -> Tensor:
@@ -557,7 +559,8 @@ class OccupancyCoordinateDataset(ImageCoordinateDataset):
     def preprocess(x: Tensor) -> Tensor:
         """Map ``(C, D, H, W)`` occupancy to channels-last float targets in ``[-1, 1]``."""
         x = x.float() * 2 - 1
-        return x.movedim(0, -1)
+        # As in ImageCoordinateDataset.preprocess.
+        return x.movedim(0, -1).clone(memory_format=torch.contiguous_format)
 
     @staticmethod
     def postprocess(x: Tensor) -> Tensor:

@@ -54,6 +54,22 @@ def test_quantized_parameters_round_trip_and_remain_trainable(quant_max, dtype):
     assert all(torch.isfinite(param.grad).all() for param in model.parameters())
 
 
+@pytest.mark.parametrize(
+    ("dataset", "shape"),
+    [
+        (nf.ImageCoordinateDataset, (3, 4, 5)),
+        (nf.ImageCoordinateDataset, (1, 4, 5)),
+        (nf.OccupancyCoordinateDataset, (1, 4, 5, 6)),
+    ],
+)
+def test_targets_are_laid_out_as_batches(dataset, shape):
+    """An item's target has the strides of a loader's batch of it, so that a
+    solver's sweep compiled on the item does not recompile for the batches."""
+    target = dataset.preprocess(torch.zeros(shape, dtype=torch.uint8))
+    batch = torch.utils.data.default_collate([target])
+    assert target[None].stride() == batch.stride()
+
+
 @pytest.mark.parametrize("quantize", [False, True])
 def test_image_training_evaluation_and_checkpoint(tmp_path, quantize):
     torch.manual_seed(0)
