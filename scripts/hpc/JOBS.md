@@ -60,24 +60,25 @@ Four studies on the image task, each a config in `configs/ablation-futon/`
 whose runs go to the folder of the same name in `logs/ablation-futon/`. All
 keep the benchmark's settings (24 Kodak images, 2000 epochs on 10% of the
 pixels, lr 3e-2), so only the model changes. The default model is the
-benchmark's FUTON: K = (H/2, W/2) components, CP rank 224 and a one-layer MLP
-decoder (194,435 parameters).
+benchmark's FUTON: K = (H/2, W/2) components, CP rank 252 and a one-layer MLP
+decoder 128 wide (194,051 parameters); every variant has the same decoder unless
+the decoder is what varies.
 
 | Study | Models | What varies |
 | --- | --- | --- |
 | `basis` | `FUTON-<basis>`, 6 | cosine, lanczos, sinc, triangle, chebyshev and legendre, at the default size |
 | `components_rank` | `FUTON-<basis>-a<alpha>-b<beta>`, 50 | K = (alpha H, alpha W) and R = beta min(K), both over {1/8, 1/4, 1/2, 1, 2}, for lanczos and sinc |
 | `tensor_net` | `FUTON-<basis>`, `-TR` and `-Tucker`, 6 | tensor-ring and Tucker combiners against the default CP one, for lanczos and sinc |
-| `decoder` | `FUTON-<basis>` and `-linear`, 4 | the paper's linear decoder against the benchmark's MLP, at equal size |
+| `decoder` | `FUTON-<basis>`, `-w64`, `-w224` and `-linear`, 8 | the MLP's width (128, 64 and 224, as wide as its rank) and the paper's linear decoder, each at the largest rank within the budget |
 
-A tensor ring of rank `r` has the size of a CP combiner of rank `r^2`; rank 15
-gives 195,528 parameters, the closest to the CP model's 194,435, and Tucker of
-ranks `R_c = 0.162 K_c`, (41, 62) with a `41 x 62 x 62` core feeding a 62-wide
-decoder, 196,003. The MLP
-decoder holds 51,075 of those parameters, 26% of the model, which a linear
-decoder returns to the combiner as CP rank 302 (194,189 parameters). The CP
-models of `tensor_net` and `decoder` repeat those of `basis`, so that each
-study stands alone. One image per job keeps the jobs short:
+A tensor ring of rank `r` feeds the decoder `r^2` features; rank 16 gives
+197,123 parameters, the closest to the CP model's 194,051, and Tucker of ranks
+`R_c = 0.161 K_c`, (41, 61) with a `41 x 61 x 61` core, 194,804. The decoder
+study keeps the image budget of 194,435 parameters: the 128-wide MLP holds
+32,771 of the benchmark's, 17% of the model, and a linear decoder returns them
+to the combiner as CP rank 302 (194,189 parameters), while MLPs 64 and 224 wide
+take ranks 275 and 224 (193,859 and 194,435). The CP models of `tensor_net` and
+`decoder` repeat those of `basis`, so that each study stands alone. One image per job keeps the jobs short:
 
 ```bash
 # Every run costs about 20 s on top of its training (data, model and LPIPS
@@ -86,7 +87,7 @@ study stands alone. One image per job keeps the jobs short:
 for study in basis tensor_net decoder; do
   scripts/hpc/train.sh --clusters=accelgor --time=2:30:00 image --config configs/ablation-futon/$study.yaml
 done
-# The components grid holds models up to 9.4M parameters, so one image per task.
+# The components grid holds models up to 5.5M parameters, so one image per task.
 scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 --array=1-24 image \
   --config configs/ablation-futon/components_rank.yaml --data data/Kodak/kodim%2a.png
 scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 nerf \

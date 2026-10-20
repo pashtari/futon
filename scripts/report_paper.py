@@ -37,8 +37,8 @@ Writes results/, which holds the paper's figures and tables and nothing else:
                                      table and as PSNR against training time
     ablation/combiner.{tex,md,pdf,pgf}  the tensor-ring combiner against CP,
                                      for both bases, likewise
-    ablation/decoder.{tex,md,pdf,pgf}  the linear decoder against the MLP,
-                                     likewise
+    ablation/decoder.{tex,md,pdf,pgf}  the MLP decoder's width and the
+                                     linear decoder, likewise
     ablation/rank_<basis>.{pdf,pgf}  PSNR against the rank fraction at each
                                      component fraction, and components_<basis>
                                      the reverse, for the fractions 1/4 to 2
@@ -337,7 +337,9 @@ COMBINERS = {
     "Tucker": "FUTON-{basis}-Tucker",
 }
 DECODERS = {
-    "MLP, 1 hidden layer (R = 224)": "FUTON-{basis}",
+    "MLP, 128 wide (R = 252)": "FUTON-{basis}",
+    "MLP, 64 wide (R = 275)": "FUTON-{basis}-w64",
+    "MLP, 224 wide (R = 224)": "FUTON-{basis}-w224",
     "Linear (R = 302)": "FUTON-{basis}-linear",
 }
 # The fractions the grid figures draw: the 1/8 level only compresses the axis.
@@ -372,8 +374,12 @@ CURVES = {
         "FUTON-lanczos-Tucker": ("Tucker, Lanczos", PALETTE[3], DASHES[1]),
     },
     "decoder": {
-        "FUTON-sinc": ("MLP, sinc", PALETTE[0], DASHES[0]),
-        "FUTON-lanczos": ("MLP, Lanczos", PALETTE[0], DASHES[1]),
+        "FUTON-sinc": ("MLP 128, sinc", PALETTE[0], DASHES[0]),
+        "FUTON-lanczos": ("MLP 128, Lanczos", PALETTE[0], DASHES[1]),
+        "FUTON-sinc-w64": ("MLP 64, sinc", PALETTE[2], DASHES[0]),
+        "FUTON-lanczos-w64": ("MLP 64, Lanczos", PALETTE[2], DASHES[1]),
+        "FUTON-sinc-w224": ("MLP 224, sinc", PALETTE[3], DASHES[0]),
+        "FUTON-lanczos-w224": ("MLP 224, Lanczos", PALETTE[3], DASHES[1]),
         "FUTON-sinc-linear": ("Linear, sinc", PALETTE[1], DASHES[0]),
         "FUTON-lanczos-linear": ("Linear, Lanczos", PALETTE[1], DASHES[1]),
     },

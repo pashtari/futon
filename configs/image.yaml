@@ -160,8 +160,8 @@ models:
     class: FUTON
     kwargs:
       basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 224}]
-      decoder: [mlp, {hidden_layers: 1}]
+      combiner: [cp, {rank: 252}]  # the largest within the budget at width 128
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
       output_activation: tanh
     train: {lr: 3.0e-2}
 
@@ -169,7 +169,7 @@ models:
     class: FUTON
     kwargs:
       basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
-      combiner: [cp, {rank: 224}]
-      decoder: [mlp, {hidden_layers: 1}]
+      combiner: [cp, {rank: 252}]  # the largest within the budget at width 128
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
       output_activation: tanh
     train: {lr: 3.0e-2}

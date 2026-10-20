@@ -189,8 +189,8 @@ models:
     kwargs:
       # One basis function per low-resolution pixel along each axis.
       basis: [sinc, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
-      combiner: [cp, {rank: budget}]
-      decoder: [mlp, {hidden_layers: 1}]
+      combiner: [cp, {rank: budget}]  # at a decoder 128 wide
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
       output_activation: tanh
     train: {lr: 1.0e-2}  # 3e-2 fails on smooth images; 3e-3 is 1.1 dB worse
 
@@ -199,7 +199,7 @@ models:
     budget: 500000
     kwargs:
       basis: [lanczos, {num_components: [H // 4, W // 4], radius: 3, grid_size: [H, W]}]
-      combiner: [cp, {rank: budget}]
-      decoder: [mlp, {hidden_layers: 1}]
+      combiner: [cp, {rank: budget}]  # at a decoder 128 wide
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
       output_activation: tanh
     train: {lr: 1.0e-2}  # 3e-2 is 0.1 dB worse

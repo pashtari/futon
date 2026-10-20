@@ -22,14 +22,14 @@ At 256 samples per unit length a volume, cropped to the shape's bounds, holds 2 
 
 ## Model
 
-The benchmark FUTON uses 128 components per axis, CP rank 218 and a one-layer MLP decoder, 131,673 parameters:
+The benchmark FUTON uses 128 components per axis, CP rank 256 and a one-layer MLP decoder 128 wide, 131,329 parameters:
 
 ```python
 model = nf.FUTON(
     3, 1,
     basis=("sinc", {"num_components": 128, "grid_size": eval_set.grid_size}),
-    combiner=("cp", {"rank": 218}),
-    decoder=("mlp", {"hidden_layers": 1}),
+    combiner=("cp", {"rank": 256}),
+    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 128}),
     output_activation=torch.tanh,
 )
 ```

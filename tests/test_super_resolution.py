@@ -69,17 +69,21 @@ def test_blocks_downsample_to_the_low_resolution_pixels(task, image_pair):
     torch.testing.assert_close(fitted, batch["target"], atol=2 / 255, rtol=0)
 
 
-def test_futon_rank_is_the_largest_within_the_budget(task):
+@pytest.mark.parametrize("hidden", [None, 128])
+def test_futon_rank_is_the_largest_within_the_budget(task, hidden):
     for h, w, budget in ((339, 510, 500_000), (510, 510, 500_000), (64, 96, 20_000)):
-        rank = task.futon_rank(h, w, budget)
+        rank = task.futon_rank(h, w, budget, hidden)
 
         def count(rank: int) -> int:
+            decoder = {"hidden_layers": 1}
+            if hidden is not None:
+                decoder["hidden_features"] = hidden
             model = nf.FUTON(
                 in_features=2,
                 out_features=3,
                 basis=("lanczos", {"num_components": (h, w), "radius": 3}),
                 combiner=("cp", {"rank": rank}),
-                decoder=("mlp", {"hidden_layers": 1}),
+                decoder=("mlp", decoder),
             )
             return nf.count_parameters(model)
 

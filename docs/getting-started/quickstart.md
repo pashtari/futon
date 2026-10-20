@@ -16,8 +16,8 @@ model = nf.FUTON(
     in_features=2,
     out_features=3,
     basis=("sinc", {"num_components": 256}),
-    combiner=("cp", {"rank": 224}),
-    decoder=("mlp", {"hidden_layers": 1}),
+    combiner=("cp", {"rank": 252}),
+    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 128}),
     output_activation=torch.tanh,
 )
 
@@ -37,7 +37,7 @@ print(result["history"][-1]["eval"])
 On a GPU this takes about ten seconds and ends near 37 dB PSNR. Step by step:
 
 1. **The dataset turns the image into coordinate/value pairs.** `dataset.input` holds the pixel-centre coordinates, shape `(H, W, 2)` in $[-1, 1]$; `dataset.target` the RGB values, shape `(H, W, 3)`, also in $[-1, 1]$. With `subsample=0.1` each access draws a fresh random 10 % of the pixels, flattened to `(N, 2)` and `(N, 3)`.
-2. **The model is a function of coordinates.** `FUTON` is assembled from three specs, each a registry key, a `(key, kwargs)` pair, a class, or a module instance. The sinc basis here has 256 functions per axis, evaluated once per image row and column; the CP combiner has rank 224; the decoder is an MLP with one hidden layer of width 224. `output_activation=torch.tanh` matches the target range.
+2. **The model is a function of coordinates.** `FUTON` is assembled from three specs, each a registry key, a `(key, kwargs)` pair, a class, or a module instance. The sinc basis here has 256 functions per axis, evaluated once per image row and column; the CP combiner has rank 252; the decoder is an MLP with one hidden layer of width 128. `output_activation=torch.tanh` matches the target range.
 3. **`nf.train` runs Adam with cosine annealing** from `lr` down to `lr / 100`, one optimizer step per epoch (the dataset has one item, and the batch size is one). Every `eval_interval` epochs it evaluates on `dataset`, mapping predictions back to `uint8` with `dataset.postprocess` before computing the metrics.
 
 The result is a plain dictionary:

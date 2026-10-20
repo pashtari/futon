@@ -24,16 +24,16 @@ Each benchmark model holds about 195k parameters. FUTON's basis size follows the
 futon = nf.FUTON(
     2, 3,
     basis=("sinc", {"num_components": [H // 2, W // 2], "grid_size": (H, W)}),
-    combiner=("cp", {"rank": 224}),
-    decoder=("mlp", {"hidden_layers": 1}),
+    combiner=("cp", {"rank": 252}),
+    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 128}),
     output_activation=torch.tanh,
 )
 futon_lanczos = nf.FUTON(
     2, 3,
     basis=("lanczos", {"num_components": [H // 2, W // 2], "radius": 3,
                        "grid_size": (H, W)}),
-    combiner=("cp", {"rank": 224}),
-    decoder=("mlp", {"hidden_layers": 1}),
+    combiner=("cp", {"rank": 252}),
+    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 128}),
     output_activation=torch.tanh,
 )
 siren = nf.SIREN(2, 3, hidden_features=256, hidden_layers=4, omega=30.0,

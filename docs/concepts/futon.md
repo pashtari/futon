@@ -48,8 +48,8 @@ model = nf.FUTON(
     in_features=3,
     out_features=1,
     basis=("sinc", {"num_components": 128}),
-    combiner=("cp", {"rank": 218}),
-    decoder=("mlp", {"hidden_layers": 1}),
+    combiner=("cp", {"rank": 256}),
+    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 128}),
     output_activation=torch.tanh,
 )
 ```
@@ -112,19 +112,19 @@ The paper proves that FUTON with the cosine basis is a universal approximator. I
 
 ## Sizing a model
 
-With a CP combiner and a one-hidden-layer MLP decoder of width $R$, the parameter count is
+With a CP combiner and a one-hidden-layer MLP decoder of width $M$ (`hidden_features`, $R$ by default), the parameter count is
 
 $$
-R \sum_{c=1}^{C} K_c \;+\; (R^2 + R) \;+\; (RD + D).
+R \sum_{c=1}^{C} K_c \;+\; (RM + M) \;+\; (MD + D).
 $$
 
-The benchmark configurations, all chosen to match the parameter budget of the other models in their task:
+The benchmark configurations, all chosen to match the parameter budget of the other models in their task, have a decoder 128 wide and give the rest of the budget to the rank:
 
 | Task | `num_components` | `rank` | Decoder | Parameters |
 | --- | --- | --- | --- | --- |
-| Images, $512 \times 768$ Kodak | `[H // 2, W // 2]` | 224 | MLP, 1 hidden layer | 194,435 |
-| Occupancy, $256^3$ | 128 | 218 | MLP, 1 hidden layer | 131,673 |
-| Radiance fields, density network with 16 outputs | 128 | 128 | MLP, 1 hidden layer | 67,728 (74,131 with the colour network) |
+| Images, $512 \times 768$ Kodak | `[H // 2, W // 2]` | 252 | MLP, 1 hidden layer of width 128 | 194,051 |
+| Occupancy, $256^3$ | 128 | 256 | MLP, 1 hidden layer of width 128 | 131,329 |
+| Radiance fields, density network with 16 outputs | 128 | 128 | MLP, 1 hidden layer of width 128 | 67,728 (74,131 with the colour network) |
 
 Two rules of thumb come out of the ablations. First, `num_components` is the bandwidth: half the sampling resolution per axis is enough for images, and $K = 128$ for $256^3$ volumes, because the MLP decoder recovers what a coarser basis loses. Second, at a fixed budget the rank matters more than extra components, so spend a larger budget on $R$ before $K$. The learning rate is 3e-2 for images and radiance fields and 1e-2 for volumes.
 
