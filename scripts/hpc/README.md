@@ -60,7 +60,9 @@ minutes and does the following:
    if needed, and checks out the local branch and commit.
 2. **Environment.** Creates the Python 3.12 venv `neurofield-env` in
    `$VSC_DATA/venvs/` with `uv`, and installs neurofield in editable mode with
-   the `3d` and `dev` extras. The PyPI PyTorch wheels include their own CUDA
+   the `3d` and `dev` extras, with PyTorch pinned to 2.14.1, the release of the
+   local runs, since `torch.compile` turns the same code into different graphs
+   from one release to the next. The PyPI PyTorch wheels include their own CUDA
    libraries, so the same venv works on every GPU cluster, and no modules are
    needed. The venv's `activate` script also sets the cache directories
    (`$VSC_SCRATCH/cache`) and `OMP_NUM_THREADS`.

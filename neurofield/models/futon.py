@@ -120,14 +120,21 @@ class SharedRows(NamedTuple):
 class Taps(NamedTuple):
     """An axis's local features off a grid: ``(N, size)``, row ``n`` holding the
     ``L`` values ``values[n]`` in columns ``start[n]`` to ``start[n] + L - 1``.
+
+    ``compiled`` records whether a compiled graph made the taps, whose product
+    with a factor then gathers windows of its rows. It is set where the taps are
+    made, not read in :meth:`__matmul__`: taps that cross a graph break have
+    their product traced later, when some PyTorch versions no longer report
+    ``torch.compiler.is_compiling()``.
     """
 
     values: Tensor
     start: Tensor
     size: int
+    compiled: bool = False
 
     def __matmul__(self, other: Tensor) -> Tensor:
-        if torch.compiler.is_compiling():
+        if self.compiled:
             # Each point gathers its window of L consecutive rows, which the
             # compiler fuses with the weighted sum into one kernel.
             windows = other.unfold(0, self.values.shape[1], 1)
@@ -421,7 +428,7 @@ class _LocalBasis(_Basis):
         start = (position.floor() - (self.radius - 1)).clamp(0, size - 2 * self.radius)
         taps = torch.arange(2 * self.radius, device=x.device, dtype=x.dtype)
         values = self._normalize(self._kernel((position - start).unsqueeze(-1) - taps))
-        return Taps(values, start.long(), size)
+        return Taps(values, start.long(), size, torch.compiler.is_compiling())
 
 
 class TriangleBasis(_LocalBasis):

@@ -651,6 +651,28 @@ def test_compiled_taps_match_eager():
         torch.testing.assert_close(got, want, rtol=1e-10, atol=1e-12)
 
 
+def test_compiled_taps_gather_windows():
+    """Compiled, the taps' product is the fused window gather, not eager's
+    embedding_bag, although the taps reach it across the graph break of the
+    search for shared rows."""
+    from torch._dynamo.backends.common import aot_autograd
+
+    ops = []
+
+    def record(graph, _):
+        ops.extend(str(node.target) for node in graph.graph.nodes)
+        return graph
+
+    torch.manual_seed(0)
+    model = FUTON(
+        3, 2, ("lanczos", {"num_components": 16}), ("cp", {"rank": 8}), "linear"
+    )
+    compiled = torch.compile(model, backend=aot_autograd(fw_compiler=record))
+    compiled(torch.rand(500, 3) * 2 - 1).sum().backward()
+    assert any("unfold" in op for op in ops)
+    assert not any("embedding_bag" in op for op in ops)
+
+
 @CUDA
 def test_declared_grid_compiles_to_one_graph():
     """On a declared grid, rows are rounded rather than searched for, so the

@@ -54,7 +54,9 @@ git log --oneline -1
 
 echo "==> Environment: $VENV"
 uv venv --allow-existing --python 3.12 "$VENV"
-uv pip install --python "$VENV/bin/python" -e ".[3d,dev]"
+# The PyTorch of the local runs: torch.compile turns the same code into
+# different graphs from one release to the next.
+uv pip install --python "$VENV/bin/python" -e ".[3d,dev]" torch==2.14.1 torchvision==0.29.1
 
 # Runtime settings, applied whenever the venv is activated (jobs and shells).
 if ! grep -q "# neurofield settings" "$VENV/bin/activate"; then
