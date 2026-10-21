@@ -84,7 +84,7 @@ curve = pd.DataFrame(
 curve.plot(x="time", y="psnr")
 ```
 
-`nf.LinePlot` wraps seaborn for the multi-model case: collect one record per model and epoch and call `LinePlot(records).plot(x="time", y="psnr", hue="model")`. The notebook `notebooks/image_representation.ipynb` does exactly this for all twelve models.
+`nf.LinePlot` wraps seaborn for the multi-model case: collect one record per model and epoch and call `LinePlot(records).plot(x="time", y="psnr", hue="model")`. The notebook `notebooks/image_representation.ipynb` collects such records for seven models and draws them with seaborn itself.
 
 ## Reconstruction
 
