@@ -6,7 +6,7 @@ Five notebooks in `notebooks/` run one signal end to end. Four compare FUTON, wi
 | --- | --- | --- | --- |
 | `image_representation.ipynb` | `data/Kodak/kodim17.png` | 7, about 195k parameters each, 2000 steps | about 3 minutes |
 | `occupancy_volume.ipynb` | `data/occupancy/thai_statue.ply` at $256^3$ | 7, about 132k parameters each, 2000 steps | about 2 minutes |
-| `nerf.ipynb` | `data/nerf/blender/lego` under FINER's protocol | 7, about 75k parameters each, 37,500 steps | about 100 minutes (set `NUM_STEPS = 5_000` for a quick pass) |
+| `nerf.ipynb` | `data/nerf/blender/lego` under FINER's protocol, in a quick pass | 7, about 75k parameters each, 5000 steps | about 17 minutes (set `NUM_STEPS = 37_500` for the benchmark's full schedule, about 100 minutes) |
 | `image_super_resolution.ipynb` | `data/DIV2K/DIV2K_valid_HR/0882.png` from its 4× bicubic downsampling | 6 fields, about 500k parameters each, 2000 steps, and bicubic interpolation | about 15 minutes |
 | `futon_solvers.ipynb` | `data/Kodak/kodim19.png` | 4 FUTONs, about 194k parameters each: an MLP or a linear decoder, fitted by Adam (2000 steps) or by alternating least squares or multiplicative updates (500 sweeps of the whole image) | about a minute |
 
