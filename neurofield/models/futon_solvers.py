@@ -254,7 +254,11 @@ class BCD(Optimizer):
         basis: Any = self.model.encoding.basis  # any basis with axis_features
         if getattr(basis, "grid_size", None) is not None:
             features = basis(x)
-            return [f.table for f in features], tuple(f.rows for f in features)
+            tables = [
+                f.table if isinstance(f.table, Tensor) else f.table.dense()
+                for f in features
+            ]
+            return tables, tuple(f.rows for f in features)
         distinct = _distinct(x)
         tables = [basis.axis_features(u, c) for c, (u, _) in enumerate(distinct)]
         return tables, tuple(rows for _, rows in distinct)

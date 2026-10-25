@@ -16,16 +16,17 @@ Every basis takes ``num_components``, an int shared by all axes or one count
 per axis; ``normalize``, which L2-normalizes each feature vector (not each
 basis function); and ``grid_size``, the sizes of the grid its inputs lie on,
 if they do. The local bases :class:`TriangleBasis` and
-:class:`LanczosBasis` default to sparse mode: off a grid, each axis returns
-:class:`Taps`, only the few nonzero features of each point.
+:class:`LanczosBasis` default to sparse mode: each axis holds :class:`Taps`,
+only the few nonzero features of each coordinate.
 
 On a grid, where every axis of a flat batch repeats its coordinates, a basis
 evaluates each distinct coordinate once, or reads the table of the grid that
 its ``grid_size`` declares, evaluated once when it is built, and returns each
-axis as :class:`SharedRows` of that table: the combiners then project the table
-rather than every point, the same function at a fraction of the cost. Both
-kinds multiply like ``(N, K_c)`` matrices, so every combiner treats every axis
-alike; compiled, the gathers fuse with the product and the decoder.
+axis as :class:`SharedRows` of that table, dense or the taps of a local basis:
+the combiners then project the table rather than every point, the same function
+at a fraction of the cost. Both kinds multiply like ``(N, K_c)`` matrices, so
+every combiner treats every axis alike; compiled, the gathers fuse with the
+product and the decoder.
 """
 
 import math
@@ -102,11 +103,12 @@ class SharedRows(NamedTuple):
     """An axis's features on a grid: ``(N, K)``, row ``n`` being ``table[rows[n]]``.
 
     ``table`` holds the features of ``S`` coordinates of the axis, its distinct
-    ones or those of its grid, and ``rows`` the row of each point, so a product
-    with a factor projects ``S`` rows rather than ``N``.
+    ones or those of its grid, dense or as a local basis's :class:`Taps`, and
+    ``rows`` the row of each point, so a product with a factor projects ``S``
+    rows rather than ``N``.
     """
 
-    table: Tensor
+    table: "Tensor | Taps"
     rows: Tensor
 
     def __matmul__(self, other: Tensor) -> Tensor:
@@ -114,12 +116,13 @@ class SharedRows(NamedTuple):
 
     def dense(self) -> Tensor:
         """The ``(N, K)`` features."""
-        return self.table[self.rows]
+        table = self.table if isinstance(self.table, Tensor) else self.table.dense()
+        return table[self.rows]
 
 
 class Taps(NamedTuple):
-    """An axis's local features off a grid: ``(N, size)``, row ``n`` holding the
-    ``L`` values ``values[n]`` in columns ``start[n]`` to ``start[n] + L - 1``.
+    """An axis's local features: ``(N, size)``, row ``n`` holding the ``L``
+    values ``values[n]`` in columns ``start[n]`` to ``start[n] + L - 1``.
 
     ``compiled`` records whether a compiled graph made the taps, whose product
     with a factor then gathers windows of its rows. It is set where the taps are
@@ -190,16 +193,14 @@ class _Basis(nn.Module):
             # Each point's row of its axis's table is a rounding: no sort, no
             # synchronization and no evaluation of the basis.
             return tuple(
-                SharedRows(
-                    getattr(self, f"_table{c}"), _grid_position(xc, n).round().long()
-                )
+                SharedRows(self._grid_table(c), _grid_position(xc, n).round().long())
                 for c, (xc, n) in enumerate(zip(x.unbind(-1), self.grid_size))
             )
         shared = _shared(x)
         if shared is None:
-            return tuple(self._scattered(xc, c) for c, xc in enumerate(x.unbind(-1)))
+            return tuple(self._evaluate(xc, c) for c, xc in enumerate(x.unbind(-1)))
         return tuple(
-            SharedRows(self.axis_features(values, c), rows)
+            SharedRows(self._evaluate(values, c), rows)
             for c, (values, rows) in enumerate(shared)
         )
 
@@ -207,8 +208,8 @@ class _Basis(nn.Module):
         """The features of one axis before normalization."""
         raise NotImplementedError
 
-    def _scattered(self, x: Tensor, axis: int) -> Features:
-        """The features of one axis at points that share no coordinates."""
+    def _evaluate(self, x: Tensor, axis: int) -> Tensor | Taps:
+        """The features of one axis at coordinates ``(N,)``, dense or as taps."""
         return self.axis_features(x, axis)
 
     def _normalize(self, features: Tensor) -> Tensor:
@@ -221,15 +222,28 @@ class _Basis(nn.Module):
         dtype: torch.dtype | None = None,
     ) -> None:
         """Evaluate each axis once on its grid ``linspace(-1, 1, size)``, as the
-        buffer ``_table{axis}`` that :meth:`forward` reads. Subclasses whose
-        features need state of their own call it again once that is set."""
+        buffers that :meth:`_grid_table` reads: ``_table{axis}``, dense or the
+        taps' values, and ``_start{axis}``, the taps' first columns or ``None``.
+        Subclasses whose features need state of their own call it again once
+        that is set."""
         self.grid_size = None
         if grid_size is not None:
             self.grid_size = _broadcast(grid_size, self.in_features, "grid_size")
         for c, size in enumerate(self.grid_size or ()):
             grid = torch.linspace(-1, 1, size, device=device, dtype=dtype)
-            table = self.axis_features(grid, c)
+            table, start = self._evaluate(grid, c), None
+            if isinstance(table, Taps):
+                table, start = table.values, table.start
             self.register_buffer(f"_table{c}", table, persistent=False)
+            self.register_buffer(f"_start{c}", start, persistent=False)
+
+    def _grid_table(self, axis: int) -> Tensor | Taps:
+        """The table of one axis on its declared grid."""
+        table, start = getattr(self, f"_table{axis}"), getattr(self, f"_start{axis}")
+        if start is None:
+            return table
+        size = self.num_components[axis]
+        return Taps(table, start, size, torch.compiler.is_compiling())
 
     def _apply(self, fn: Callable[[Tensor], Tensor], recurse: bool = True) -> Self:
         # A move or a cast evaluates the tables again where it takes them, as
@@ -388,8 +402,8 @@ class _LocalBasis(_Basis):
     Subclasses implement :meth:`_kernel` on offsets ``t`` measured in grid
     steps. The kernel must vanish for ``|t| >= radius``, so each coordinate
     touches at most ``2 * radius`` consecutive components; sparse mode
-    evaluates only those taps, as :class:`Taps`, wherever points share no
-    coordinates.
+    evaluates only those taps, as :class:`Taps`, at scattered points and on the
+    coordinates of a grid alike.
     """
 
     def __init__(
@@ -417,10 +431,10 @@ class _LocalBasis(_Basis):
     def _features(self, x: Tensor, axis: int) -> Tensor:
         return self._kernel(_offsets(x, self.num_components[axis]))
 
-    def _scattered(self, x: Tensor, axis: int) -> Features:
+    def _evaluate(self, x: Tensor, axis: int) -> Tensor | Taps:
         if not self.sparse:
             return self.axis_features(x, axis)
-        # The 2 * radius taps around each point. Clamping keeps each window
+        # The 2 * radius taps around each coordinate. Clamping keeps each window
         # inside the basis; taps shifted by the clamp lie outside the kernel's
         # support and evaluate to zero.
         size = self.num_components[axis]
@@ -444,15 +458,16 @@ class TriangleBasis(_LocalBasis):
         in_features: Number of coordinate axes ``C``.
         num_components: Number of centers ``K_c >= 2``, shared or per axis.
         normalize: L2-normalize each feature vector.
-        sparse: Return :class:`Taps` with two taps per point off a grid.
+        sparse: Evaluate only the two taps of each coordinate, as :class:`Taps`,
+            per point off a grid and per grid coordinate on one.
         grid_size: Sizes of the grid ``linspace(-1, 1, size)`` that every input
             lies on, shared or per axis, where the features are evaluated once;
             see :class:`FUTONEncoding`.
 
     Shape:
         - Input: :math:`(*, C)` in dense mode, :math:`(N, C)` in sparse mode.
-        - Output: ``C`` features of shape :math:`(*, K_c)`, or
-          :class:`Taps` in sparse mode off a grid.
+        - Output: ``C`` features of shape :math:`(*, K_c)`, or :class:`Taps`
+          in sparse mode, off a grid and as the tables of :class:`SharedRows`.
 
     References:
         Chen et al., "TensoRF: Tensorial Radiance Fields", ECCV 2022.
@@ -487,16 +502,16 @@ class LanczosBasis(_LocalBasis):
         radius: Kernel radius in grid steps: ``2`` gives Lanczos-2 (four taps),
             ``3`` (the default) gives Lanczos-3 (six taps).
         normalize: L2-normalize each feature vector.
-        sparse: Return :class:`Taps` with ``2 * radius`` taps per point off a
-            grid.
+        sparse: Evaluate only the ``2 * radius`` taps of each coordinate, as
+            :class:`Taps`, per point off a grid and per grid coordinate on one.
         grid_size: Sizes of the grid ``linspace(-1, 1, size)`` that every input
             lies on, shared or per axis, where the features are evaluated once;
             see :class:`FUTONEncoding`.
 
     Shape:
         - Input: :math:`(*, C)` in dense mode, :math:`(N, C)` in sparse mode.
-        - Output: ``C`` features of shape :math:`(*, K_c)`, or
-          :class:`Taps` in sparse mode off a grid.
+        - Output: ``C`` features of shape :math:`(*, K_c)`, or :class:`Taps`
+          in sparse mode, off a grid and as the tables of :class:`SharedRows`.
     """
 
     def __init__(
@@ -742,8 +757,9 @@ class FUTONEncoding(nn.Module):
         its networks. This computes the same function and gradients in
         :math:`O(R \sum_c S_c K_c + NCR)` for :math:`N` points with
         :math:`S_c` distinct coordinates on axis :math:`c`, instead of
-        :math:`O(NR \sum_c K_c)`, or :math:`O(NRL)` for a local basis's
-        :math:`L` taps. A basis given ``grid_size``, the grid that every input
+        :math:`O(NR \sum_c K_c)`; a local basis's tables hold only its
+        :math:`L` taps per coordinate, :math:`O(RL \sum_c S_c + NCR)` instead
+        of :math:`O(NCRL)`. A basis given ``grid_size``, the grid that every input
         lies on, as a coordinate dataset's points do, evaluates its table there
         once, when it is built, and rounds each point to its row, which spares
         searching every batch for its distinct coordinates, a sort and a
@@ -757,9 +773,7 @@ class FUTONEncoding(nn.Module):
         its new device and in its new dtype, so they are exact in any precision.
     """
 
-    def __init__(
-        self, in_features: int, basis: ModuleSpec, combiner: ModuleSpec
-    ) -> None:
+    def __init__(self, in_features: int, basis: ModuleSpec, combiner: ModuleSpec) -> None:
         super().__init__()
         self.in_features = in_features
         self.basis = build_module(basis, BASES, in_features)

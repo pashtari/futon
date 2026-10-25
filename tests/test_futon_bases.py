@@ -496,6 +496,14 @@ class TestGridEvaluation:
         for got, want in zip(grads, expected):
             torch.testing.assert_close(got, want, rtol=1e-10, atol=1e-12)
 
+    @pytest.mark.parametrize("basis", ["triangle", "lanczos"])
+    @pytest.mark.parametrize("declared", [False, True], ids=["found", "declared"])
+    def test_local_tables_hold_taps(self, basis, declared):
+        model = self.model((9, 12), basis, ("cp", {"rank": 6}), "cpu", declared)
+        features = model.encoding.basis(grid_points((9, 12), count=60))
+        assert all(isinstance(f, SharedRows) for f in features)
+        assert all(isinstance(f.table, Taps) for f in features)
+
     def test_declared_grid_evaluates_the_basis_once(self, monkeypatch):
         basis = SincBasis(2, 8, grid_size=(9, 12))  # its tables, evaluated here
         monkeypatch.setattr(SincBasis, "axis_features", lambda *_: pytest.fail())
@@ -651,10 +659,11 @@ def test_compiled_taps_match_eager():
         torch.testing.assert_close(got, want, rtol=1e-10, atol=1e-12)
 
 
-def test_compiled_taps_gather_windows():
+@pytest.mark.parametrize("grid", [None, "found", "declared"], ids=str)
+def test_compiled_taps_gather_windows(grid):
     """Compiled, the taps' product is the fused window gather, not eager's
-    embedding_bag, although the taps reach it across the graph break of the
-    search for shared rows."""
+    embedding_bag, for the taps of points and of a grid's tables alike, although
+    the taps reach it across the graph break of the search for shared rows."""
     from torch._dynamo.backends.common import aot_autograd
 
     ops = []
@@ -664,11 +673,15 @@ def test_compiled_taps_gather_windows():
         return graph
 
     torch.manual_seed(0)
-    model = FUTON(
-        3, 2, ("lanczos", {"num_components": 16}), ("cp", {"rank": 8}), "linear"
-    )
+    sizes = (9, 10, 11)
+    basis = {"num_components": 16, "grid_size": sizes if grid == "declared" else None}
+    model = FUTON(3, 2, ("lanczos", basis), ("cp", {"rank": 8}), "linear")
+    if grid is None:
+        x = torch.rand(500, 3) * 2 - 1
+    else:
+        x = grid_points(sizes, count=500, dtype=torch.float32)
     compiled = torch.compile(model, backend=aot_autograd(fw_compiler=record))
-    compiled(torch.rand(500, 3) * 2 - 1).sum().backward()
+    compiled(x).sum().backward()
     assert any("unfold" in op for op in ops)
     assert not any("embedding_bag" in op for op in ops)
 
