@@ -22,13 +22,13 @@ At 256 samples per unit length a volume, cropped to the shape's bounds, holds 2 
 
 ## Model
 
-The benchmark FUTON uses 128 components per axis, CP rank 328 and a one-layer MLP decoder 16 wide, 131,233 parameters:
+The benchmark FUTON uses 128 components per axis, a one-layer MLP decoder 64 wide and the largest CP rank within the budget of 131,329 parameters, 292, for 130,945:
 
 ```python
 model = nf.FUTON(
     3, 1,
     basis=("sinc", {"num_components": 128, "grid_size": eval_set.grid_size}),
-    combiner=("cp", {"rank": 300}),
+    combiner=("cp", {"rank": 292}),
     decoder=("mlp", {"hidden_layers": 1, "hidden_features": 64}),
     output_activation=torch.tanh,
 )
@@ -55,7 +55,7 @@ result = nf.train(
 print(result["history"][-1]["eval"]["iou"])
 ```
 
-`chunk_size=262144` bounds the memory of evaluating the whole volume. `nf.iou` thresholds the model's output at zero and compares it with the `{0, 1}` original. The benchmark models reach 99.5 to 99.9 % IoU in 2000 steps; FUTON's convergence is shown on the [benchmarks page](../experiments/benchmarks.md#occupancy).
+`chunk_size=262144` bounds the memory of evaluating the whole volume. `nf.iou` thresholds the model's output at zero and compares it with the `{0, 1}` original. Every model's IoU after the 1000 steps, and FUTON's convergence, are on the [benchmarks page](../experiments/benchmarks.md#occupancy).
 
 ## Exporting a mesh
 

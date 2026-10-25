@@ -7,8 +7,8 @@
 # default Adam.
 #
 # Every model has about 131k parameters: each baseline is the smallest of its
-# kind that reaches 131,329, and FUTON has K = 128 components per axis, CP rank
-# 300 and a one-layer MLP decoder 64 wide (134,529).
+# kind that reaches 131,329, and FUTON has K = 128 components per axis, a
+# one-layer MLP decoder 64 wide and the largest CP rank within it, 292 (130,945).
 
 data:
   resolution: 256  # occupancy grid resolution
@@ -164,7 +164,7 @@ models:
     class: FUTON
     kwargs:
       basis: [sinc, {num_components: 128, grid_size: [D, H, W]}]  # the cropped voxel grid
-      combiner: [cp, {rank: 300}]
+      combiner: [cp, {rank: 292}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
     train: {lr: 3.0e-2}
@@ -173,7 +173,7 @@ models:
     class: FUTON
     kwargs:
       basis: [cosine, {num_components: 128, grid_size: [D, H, W]}]
-      combiner: [cp, {rank: 300}]
+      combiner: [cp, {rank: 292}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
     train: {lr: 3.0e-2}

@@ -118,12 +118,12 @@ $$
 R \sum_{c=1}^{C} K_c \;+\; (RM + M) \;+\; (MD + D).
 $$
 
-The benchmark configurations give each task's parameter budget to the rank, rounded. Every task uses the same decoder, one hidden layer 64 wide: wider ones add at most 0.1 dB, and radiance fields need at least 64, since their density network also feeds the colour network 15 features. The benchmarks run the sinc and the cosine basis at these sizes:
+The benchmark configurations give each task's parameter budget to the rank: the largest rank within it for volumes and super-resolution, rounded to 280 for images and 150 for radiance fields. Every task uses the same decoder, one hidden layer 64 wide: wider ones add at most 0.1 dB, and radiance fields need at least 64, since their density network also feeds the colour network 15 features. The benchmarks run the sinc and the cosine basis at these sizes:
 
 | Task | `num_components` | `rank` | Decoder | Parameters |
 | --- | --- | --- | --- | --- |
 | Images, $512 \times 768$ Kodak | `[H // 2, W // 2]` | 280 | MLP, 1 hidden layer of width 64 | 197,379 |
-| Occupancy, $256^3$ | 128 | 300 | MLP, 1 hidden layer of width 64 | 134,529 |
+| Occupancy, $256^3$ | 128 | 292 | MLP, 1 hidden layer of width 64 | 130,945 |
 | Super-resolution, $2040 \times 1356$ DIV2K | `[H // 4, W // 4]` | 547 | MLP, 1 hidden layer of width 64 | 499,670 |
 | Radiance fields, density network with 16 outputs | 128 | 150 | MLP, 1 hidden layer of width 64 | 68,304 (74,707 with the colour network) |
 
