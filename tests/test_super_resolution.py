@@ -56,7 +56,7 @@ def test_resize_matrix_is_the_antialiased_bicubic_operator(task):
 
 def test_blocks_downsample_to_the_low_resolution_pixels(task, image_pair):
     path, image, kernels = image_pair
-    dataset = task.SuperResolutionDataset(task.low_resolution(path, 4), kernels, 0.5, 2)
+    dataset = task.SuperResolutionDataset(task.low_resolution(path, 4), kernels, 12, 2)
     torch.manual_seed(0)
     batch = dataset[0]
     # A field that returns the HR pixels under the coordinates it is given.
@@ -64,7 +64,7 @@ def test_blocks_downsample_to_the_low_resolution_pixels(task, image_pair):
     columns = ((batch["input"][..., 1] + 1) / 2 * 47).round().long()
     rendered = dataset.preprocess(image)[rows, columns]  # (B, L, L, C) in [-1, 1]
     fitted = task.downsample(rendered, (batch["weight_y"], batch["weight_x"]))
-    assert batch["input"].shape[1:] == (dataset.length, dataset.length, 2)
+    assert batch["input"].shape[1:] == (dataset.footprint, dataset.footprint, 2)
     assert batch["target"].shape[1:] == (2, 2, 3)
     torch.testing.assert_close(fitted, batch["target"], atol=2 / 255, rtol=0)
 

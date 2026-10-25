@@ -17,6 +17,7 @@ Thumbs.db
 .old_experiments/
 .archived_notebooks/
 .local_logs/
+.explorations/
 data/
 paper/
 poster/

@@ -47,18 +47,20 @@ TASKS = {
         "signals": [f"kodim{i:02d}" for i in range(1, 25)],
         "alphas": (0.125, 0.25, 0.5, 1.0),
         "ranks": (32, 64, 128, 256),
-        "subsample": 0.1,
+        "data": {},  # the whole image at every step, as configs/image.yaml
     },
     "occupancy": {
         "signals": ["armadillo", "dragon", "happy_buddha", "lucy", "thai_statue"],
         "alphas": (0.125, 0.25, 0.5, 1.0),
         "ranks": (32, 64, 128, 256),
-        "subsample": 0.01,
+        "data": {"max_samples": 262144},  # as configs/occupancy.yaml
     },
 }
-EPOCHS, LR = 2000, 3e-2  # the benchmark's protocol; 3e-2 is best of the grid here
+# The benchmark's 1000 steps at its batches, at the rate that was best of the
+# grid at K = N/2 and the checked ranks on two signals per task.
+STEPS, LR = 1000, 1e-1
 # The optimizer checks at K = N/2 and the middle rank of each task: Adam for
-# LONGER times the epochs, and alternating least squares on the whole grid,
+# LONGER times the steps, and alternating least squares on the whole grid,
 # read after each number of SWEEPS.
 CHECKS = {"image": 64, "occupancy": 128}
 LONGER, SWEEPS = 5, (500, 2000)
@@ -70,13 +72,12 @@ def psnr(mse: float | np.ndarray) -> float | np.ndarray:
     return 10 * np.log10(4 / np.asarray(mse))
 
 
-def dataset(task: str, name: str, subsample: float = 1.0):
+def dataset(task: str, name: str, **data):
+    """The signal, whole or, with ``data``, as each training step draws it."""
     if task == "image":
-        return nf.ImageCoordinateDataset(
-            ROOT / f"data/Kodak/{name}.png", subsample=subsample
-        )
+        return nf.ImageCoordinateDataset(ROOT / f"data/Kodak/{name}.png", **data)
     path = ROOT / f"data/occupancy/{name}.ply"
-    return nf.OccupancyCoordinateDataset(path, resolution=256, subsample=subsample)
+    return nf.OccupancyCoordinateDataset(path, resolution=256, **data)
 
 
 def futon(sizes: list[int], channels: int, alpha: float, rank: int) -> nf.FUTON:
@@ -107,14 +108,14 @@ def evaluate(model: nf.FUTON, data, device) -> tuple[float, float | None]:
     return mse, 100 * float((inside & truth).sum() / (inside | truth).sum())
 
 
-def train(model: nf.FUTON, data, device, lr: float = LR, epochs: int = EPOCHS,
+def train(model: nf.FUTON, data, device, lr: float = LR, steps: int = STEPS,
           seed: int = 0) -> float:  # fmt: skip
     """Train in place with Adam as the benchmark does; returns the seconds taken."""
     torch.manual_seed(seed)
     model.encoding.combiner.reset_parameters()
     model.decoder.reset_parameters()
     start = time.perf_counter()
-    nf.train(model, data, num_epochs=epochs, lr=lr, log_interval=0,
+    nf.train(model, data, num_steps=steps, lr=lr, log_interval=0,
              save_reconstruction=False, device=device, seed=seed)  # fmt: skip
     return time.perf_counter() - start
 
@@ -127,8 +128,8 @@ def warm_up(task: str, device: torch.device) -> None:
     sizes, channels = list(full.target.shape[:-1]), full.target.shape[-1]
     features = features_of(futon(sizes, channels, 0.125, 1), sizes, device)
     nf.futon_bound(full.target.to(device), features, [8], sweeps=5)
-    train_data = dataset(task, name, TASKS[task]["subsample"])
-    train(futon(sizes, channels, 0.125, 8), train_data, device, epochs=10)
+    train_data = dataset(task, name, **TASKS[task]["data"])
+    train(futon(sizes, channels, 0.125, 8), train_data, device, steps=10)
 
 
 def sinc_only(configs: list[dict]) -> list[dict]:
@@ -151,7 +152,7 @@ def run(task: str, name: str, device: torch.device) -> None:
     if not todo:
         return
     full = dataset(task, name)
-    train_data = dataset(task, name, settings["subsample"])
+    train_data = dataset(task, name, **settings["data"])
     sizes, channels = list(full.target.shape[:-1]), full.target.shape[-1]
     record.update(task=task, signal=name, sizes=sizes, channels=channels)
     target = full.target.to(device)
@@ -201,7 +202,7 @@ def run(task: str, name: str, device: torch.device) -> None:
 def checks(task: str, device: torch.device) -> None:
     """Whether training, not the bound, is the limit, on every signal at
     K = N/2 and the task's CHECKS rank: Adam for LONGER times the benchmark's
-    epochs, and alternating least squares on the whole grid from a random
+    steps, and alternating least squares on the whole grid from a random
     start (``nf.LeastSquares`` without momentum), against the bound."""
     path = LOGS / f"{task}_checks.json"
     rows = json.loads(path.read_text()) if path.exists() else []
@@ -216,8 +217,8 @@ def checks(task: str, device: torch.device) -> None:
         bound = nf.futon_bound(batch["target"], features_of(model, sizes, device), rank)
         row = {"signal": name, "R": rank, "upper": float(bound.upper[0]),
                "lower": float(bound.lower[0])}  # fmt: skip
-        train_data = dataset(task, name, TASKS[task]["subsample"])
-        train(model, train_data, device, epochs=LONGER * EPOCHS)
+        train_data = dataset(task, name, **TASKS[task]["data"])
+        train(model, train_data, device, steps=LONGER * STEPS)
         row["adam_longer"] = evaluate(model, full, device)[0]
         torch.manual_seed(0)
         solver = nf.LeastSquares(model.to(device), momentum=0.0)

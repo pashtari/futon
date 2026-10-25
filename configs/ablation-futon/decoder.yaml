@@ -1,20 +1,18 @@
-# FUTON ablation on the image task: the decoder, each at the largest CP rank
-# within the image budget of 194,435 parameters. The paper's Eq. (9) ends in
-# a linear decoder; the benchmark's one-layer MLP, 128 wide, is an extension
-# that spends 32,771 of its 194,051 parameters there, 17% of the model. A
-# linear decoder frees them for the combiner, rank 302, 194,189 parameters;
-# MLPs 64 wide (-w64) and as wide as their rank (-w224), the width an MLP
-# takes by default, hold ranks 275 and 224, 193,859 and 194,435 parameters.
+# FUTON ablation on the image task: the decoder, for the sinc and the Lanczos
+# basis. The benchmark's one-layer MLP decoder 64 wide at CP rank 280 (197,379
+# parameters) against MLPs 128 and 256 wide (-w128, -w256) and the paper's
+# linear decoder (-linear), each at the largest rank within the image budget
+# of 197,123: 256, 218 and 306.
 #     python scripts/train_image.py --config configs/ablation-futon/decoder.yaml
 # The data and training settings repeat configs/image.yaml.
 
 data:
-  subsample: 0.1
+  subsample: 1.0
 
 train:
-  num_epochs: 2000
-  log_interval: 100
-  eval_interval: 100
+  num_steps: 1000
+  log_interval: 50
+  eval_interval: 50
   seed: 0
 
 models:
@@ -22,8 +20,8 @@ models:
     class: FUTON
     kwargs:
       basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
-      combiner: [cp, {rank: 252}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      combiner: [cp, {rank: 280}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
     train: {lr: 3.0e-2}
 
@@ -31,44 +29,44 @@ models:
     class: FUTON
     kwargs:
       basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 252}]
+      combiner: [cp, {rank: 280}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-lanczos-w128:
+    class: FUTON
+    kwargs:
+      basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
+      combiner: [cp, {rank: 256}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
       output_activation: tanh
     train: {lr: 3.0e-2}
 
-  FUTON-lanczos-w64:
-    class: FUTON
-    kwargs:
-      basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
-      combiner: [cp, {rank: 275}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
-      output_activation: tanh
-    train: {lr: 3.0e-2}
-
-  FUTON-sinc-w64:
+  FUTON-sinc-w128:
     class: FUTON
     kwargs:
       basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 275}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      combiner: [cp, {rank: 256}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
       output_activation: tanh
     train: {lr: 3.0e-2}
 
-  FUTON-lanczos-w224:
+  FUTON-lanczos-w256:
     class: FUTON
     kwargs:
       basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
-      combiner: [cp, {rank: 224}]
-      decoder: [mlp, {hidden_layers: 1}]
+      combiner: [cp, {rank: 218}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 256}]
       output_activation: tanh
     train: {lr: 3.0e-2}
 
-  FUTON-sinc-w224:
+  FUTON-sinc-w256:
     class: FUTON
     kwargs:
       basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 224}]
-      decoder: [mlp, {hidden_layers: 1}]
+      combiner: [cp, {rank: 218}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 256}]
       output_activation: tanh
     train: {lr: 3.0e-2}
 
@@ -76,7 +74,7 @@ models:
     class: FUTON
     kwargs:
       basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
-      combiner: [cp, {rank: 302}]
+      combiner: [cp, {rank: 306}]
       decoder: linear
       output_activation: tanh
     train: {lr: 3.0e-2}
@@ -85,7 +83,7 @@ models:
     class: FUTON
     kwargs:
       basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 302}]
+      combiner: [cp, {rank: 306}]
       decoder: linear
       output_activation: tanh
     train: {lr: 3.0e-2}

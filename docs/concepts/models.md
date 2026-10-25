@@ -40,7 +40,7 @@ Learnable feature grids, read by interpolation and decoded by a ReLU MLP, and a 
 | --- | --- | --- | --- |
 | FUTON | `FUTON` | A fixed basis per axis, a low-rank CP combiner across axes, and a linear or MLP decoder | Ashtari et al., arXiv 2026 |
 
-The benchmarks run it with the sinc basis and the Lanczos basis, FUTON (sinc) and FUTON (Lanczos) in the results and `FUTON-sinc` and `FUTON-lanczos` in the configs. The [FUTON page](futon.md) explains every part.
+The benchmarks run it with the sinc basis and the cosine basis, FUTON (sinc) and FUTON (cosine) in the results and `FUTON-sinc` and `FUTON-cosine` in the configs; the ablations add the Lanczos basis and three more. The [FUTON page](futon.md) explains every part.
 
 ## Deep Image Prior
 

@@ -1,6 +1,6 @@
 # Radiance fields
 
-`nf.nerf` turns any model of the zoo into the density network of a radiance field, trains it on posed images by volume rendering, and scores held-out views. The protocol is FINER's, which is torch-ngp's Blender recipe: 200 × 200 views, 25 training views, 37,500 steps, scored on all 200 test views. This follows `configs/nerf.yaml` and `scripts/train_nerf.py`.
+`nf.nerf` turns any model of the zoo into the density network of a radiance field, trains it on posed images by volume rendering, and scores held-out views. The protocol is FINER's, which is torch-ngp's Blender recipe: 200 × 200 views, 25 training views, scored on all 200 test views, here trained for 25,000 steps instead of 37,500. This follows `configs/nerf.yaml` and `scripts/train_nerf.py`.
 
 <figure markdown="span">
   ![Orbit around the lego scene](../assets/orbit_lego.gif){ width="720" }
@@ -25,9 +25,9 @@ test_set = nf.nerf.BlenderDataset(root, split="test", downsample=4)
 ```python
 field = nf.nerf.RadianceField(
     density_net=(nf.FUTON, {
-        "basis": ("lanczos", {"num_components": 128, "radius": 3}),
-        "combiner": ("cp", {"rank": 128}),
-        "decoder": ("mlp", {"hidden_layers": 1}),
+        "basis": ("sinc", {"num_components": 128}),
+        "combiner": ("cp", {"rank": 150}),
+        "decoder": ("mlp", {"hidden_layers": 1, "hidden_features": 64}),
     }),
     color_net=("mlp", {"hidden_features": 64, "hidden_layers": 2}),
     geometry_features=15,
@@ -50,15 +50,15 @@ result = nf.nerf.train(
     train_set,
     eval_dataset=val_set,
     eval_indices=[0, 25, 50, 75],
-    num_steps=37500,
+    num_steps=25000,
     num_rays=4096,
-    lr=3e-2,
+    lr=1e-2,
     eval_interval=2500,
-    log_dir="logs/tutorial/lego/FUTON-lanczos",
+    log_dir="logs/tutorial/lego/FUTON-sinc",
 )
 ```
 
-Each step updates the occupancy grid, renders 4096 random training rays, composites predictions and targets onto a random background colour, and takes an Adam step (`adam_betas=(0.9, 0.99)`, `adam_eps=1e-15`) with the learning rate decaying exponentially to `lr / 10`. `history` records `step`, `elapsed`, `loss`, the training `psnr` and `num_samples` every `log_interval` steps, and the mean validation metrics under `"eval"` every `eval_interval`. Learning rates in `configs/nerf.yaml` range from 3e-4 (SIREN, FINER) to 3e-2 (FUTON, TensoRF, GA-Planes); a run of 37,500 steps takes FUTON about six minutes on an A100. `log_dir` receives the field's `checkpoint.pt` and `renderer.pt`, the renderer's state with its occupancy grid: load both to render a saved run as it was scored.
+Each step updates the occupancy grid, renders 4096 random training rays, composites predictions and targets onto a random background colour, and takes an Adam step, with PyTorch's default settings and the learning rate decaying exponentially to `lr / 10`. `history` records `step`, `elapsed`, `loss`, the training `psnr` and `num_samples` every `log_interval` steps, and the mean validation metrics under `"eval"` every `eval_interval`. Learning rates in `configs/nerf.yaml` range from 3e-4 (SIREN, FINER) to 3e-2 (Instant-NGP, TensoRF-VM, GA-Planes), with FUTON at 1e-2; a run of 25,000 steps takes FUTON a few minutes on an A100. `log_dir` receives the field's `checkpoint.pt` and `renderer.pt`, the renderer's state with its occupancy grid: load both to render a saved run as it was scored.
 
 ## Evaluation and rendering
 

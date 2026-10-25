@@ -80,7 +80,7 @@ def test_image_training_evaluation_and_checkpoint(tmp_path, quantize):
     results = nf.train(
         model,
         dataset,
-        num_epochs=6,
+        num_steps=6,
         lr=0.05,
         quantize=quantize,
         quant_interval=2,
@@ -144,13 +144,43 @@ def test_dip_training_keeps_data_on_device(device):
         return mse, {"mse": mse.item()}
 
     results = nf.train(
-        model, dataset, loss_fn=loss_fn, num_epochs=4, eval_interval=-1, device=device
+        model, dataset, loss_fn=loss_fn, num_steps=4, eval_interval=-1, device=device
     )
 
     assert len(results["history"]) == 4
     assert (results["config"]["peak_memory"] > 0) == (device == "cuda")
     assert dataset.input.device.type == dataset.target.device.type == device
     assert dataset.original.device.type == "cpu"
+
+
+def test_training_takes_one_batch_per_step():
+    class Items(torch.utils.data.Dataset):
+        """Three items, so that seven steps pass over them more than twice."""
+
+        def __init__(self):
+            self.input, self.target = torch.rand(3, 4, 2), torch.rand(3, 4, 3)
+            self.drawn = 0
+
+        def __len__(self):
+            return 3
+
+        def __getitem__(self, index):
+            self.drawn += 1
+            return {"input": self.input[index], "target": self.target[index]}
+
+    torch.manual_seed(0)
+    dataset = Items()
+    model = nf.MLP(2, 3, hidden_features=8)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+
+    results = nf.train(
+        model, dataset, num_steps=7, optimizer=optimizer, eval_interval=-1, device="cpu"
+    )
+
+    assert dataset.drawn == 7
+    assert [entry["step"] for entry in results["history"]] == list(range(1, 8))
+    # The cosine schedule ends at its minimum after exactly num_steps steps.
+    assert optimizer.param_groups[0]["lr"] == pytest.approx(0.1 / 100)
 
 
 def test_arithmetic_coding_preserves_bitstream():

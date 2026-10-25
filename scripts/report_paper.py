@@ -90,6 +90,7 @@ import re
 import statistics
 import warnings
 from collections.abc import Sequence
+from functools import cache
 from itertools import groupby
 from pathlib import Path
 from typing import Any
@@ -115,7 +116,7 @@ from matplotlib.ticker import (
     StrMethodFormatter,
 )
 from PIL import Image
-from futon_bound import CHECKS, EPOCHS, LONGER, SWEEPS, psnr, sinc_only
+from futon_bound import CHECKS, LONGER, STEPS, SWEEPS, psnr, sinc_only
 from train_common import ROOT, build, merge, resolve
 from train_super_resolution import INTERPOLATIONS, low_resolution
 
@@ -151,15 +152,6 @@ TASKS = {
 # The validation images super-resolution's protocol was developed on, which a
 # second table leaves out.
 DEVELOPED_ON = ("0801", "0804", "0882")
-# The signal each task's inference speed and peak memory are read from, one
-# standing for all since the protocol fixes every batch (see profiled); every
-# model's measurements share it.
-PROFILED = {
-    "image": "kodim01",
-    "occupancy": "thai_statue",
-    "nerf": "lego",
-    "super_resolution": "0882",
-}
 EXAMPLES = {  # the signals each task's qualitative figures show
     "image": ("kodim01", "kodim09", "kodim17", "kodim19", "kodim21"),
     "occupancy": ("thai_statue", "armadillo"),
@@ -204,14 +196,15 @@ RAMP = ("#9ec5f4", "#5598e7", "#2a78d6", "#184f95", "#0d366b")
 # FUTON and the baselines, by family: periodic activations (SIREN and FINER,
 # which is SIREN with a variable-periodic one), hash grids (Instant-NGP) and
 # grid factorizations (TensoRF). A hue names the family and the line style the
-# member, the stronger of a pair solid. Colour, dashes, and a filled marker.
+# member, the stronger of a pair solid, and for FUTON the sinc basis, the one
+# its error bound speaks of. Colour, dashes, and a filled marker.
 FEATURED = {
     "SIREN": (PALETTE[1], (4, 2), False),
     "FINER": (PALETTE[1], "", True),
     "Instant-NGP": (PALETTE[2], "", True),
     "TensoRF": (PALETTE[3], "", True),
     "FUTON-sinc": (PALETTE[0], "", True),
-    "FUTON-lanczos": (PALETTE[0], (4, 2), False),
+    "FUTON-cosine": (PALETTE[0], (4, 2), False),
 }
 OTHERS = "0.7"  # gray of every other model
 # The models a task's qualitative strip magnifies, where they differ from the
@@ -224,7 +217,7 @@ STRIP = {
         "FINER",
         "Instant-NGP",
         "FUTON-sinc",
-        "FUTON-lanczos",
+        "FUTON-cosine",
     ),
 }
 # TensoRF is its default variant for the dimension: CP in 2D, where it is the
@@ -241,7 +234,8 @@ REFERENCE = "Bicubic"
 ROWS = (
     "Nearest", "Bilinear", "Bicubic", "DIP",
     "RFF", "PE-MLP", "MFN", "SIREN", "FreSh", "Gauss", "WIRE", "FINER",
-    "Instant-NGP", "TensoRF", "GA-Planes", "F-INR", "FUTON-sinc", "FUTON-lanczos",
+    "Instant-NGP", "TensoRF", "GA-Planes", "F-INR", "FUTON-sinc", "FUTON-cosine",
+    "FUTON-lanczos",
 )  # fmt: skip
 # How the results name a model where one setting tells it from the other
 # variants of its kind, the setting in parentheses: FUTON's basis, and the
@@ -252,6 +246,7 @@ DISPLAY = {
     "FreSh": "FreSh (SIREN)",
     "F-INR": "F-INR (SIREN)",
     "FUTON-sinc": "FUTON (sinc)",
+    "FUTON-cosine": "FUTON (cosine)",
     "FUTON-lanczos": "FUTON (Lanczos)",
 }
 # Metric axes are linear, which needs no explaining; IoU saturates, so its
@@ -316,9 +311,10 @@ UNITS = {"psnr": "{:.2f} dB", "iou": "{:.2f}%"}
 
 # The FUTON ablations, all on the image task: the bases from the smoothest to
 # the most local, and the variants of the two stages after the basis, both for
-# the bases the benchmark uses. The components study sets the components per
-# axis as a fraction alpha of the pixels and the rank as a fraction beta of
-# the smaller count, both named as decimals in the model's name.
+# a basis that spans the axis, sinc, and a local one, Lanczos. The components
+# study sets the components per axis as a fraction alpha of the pixels and the
+# rank as a fraction beta of the smaller count, both named as decimals in the
+# model's name.
 STUDIES = ("basis", "components_rank", "tensor_net", "decoder")
 # A study's files are named for what it compares, where that differs from
 # the name of its config and logs.
@@ -337,10 +333,10 @@ COMBINERS = {
     "Tucker": "FUTON-{basis}-Tucker",
 }
 DECODERS = {
-    "MLP, 128 wide (R = 252)": "FUTON-{basis}",
-    "MLP, 64 wide (R = 275)": "FUTON-{basis}-w64",
-    "MLP, 224 wide (R = 224)": "FUTON-{basis}-w224",
-    "Linear (R = 302)": "FUTON-{basis}-linear",
+    "MLP, 64 wide (R = 280)": "FUTON-{basis}",
+    "MLP, 128 wide (R = 256)": "FUTON-{basis}-w128",
+    "MLP, 256 wide (R = 218)": "FUTON-{basis}-w256",
+    "Linear (R = 306)": "FUTON-{basis}-linear",
 }
 # The fractions the grid figures draw: the 1/8 level only compresses the axis.
 SHOWN = (0.25, 0.5, 1.0, 2.0)
@@ -374,12 +370,12 @@ CURVES = {
         "FUTON-lanczos-Tucker": ("Tucker, Lanczos", PALETTE[3], DASHES[1]),
     },
     "decoder": {
-        "FUTON-sinc": ("MLP 128, sinc", PALETTE[0], DASHES[0]),
-        "FUTON-lanczos": ("MLP 128, Lanczos", PALETTE[0], DASHES[1]),
-        "FUTON-sinc-w64": ("MLP 64, sinc", PALETTE[2], DASHES[0]),
-        "FUTON-lanczos-w64": ("MLP 64, Lanczos", PALETTE[2], DASHES[1]),
-        "FUTON-sinc-w224": ("MLP 224, sinc", PALETTE[3], DASHES[0]),
-        "FUTON-lanczos-w224": ("MLP 224, Lanczos", PALETTE[3], DASHES[1]),
+        "FUTON-sinc": ("MLP 64, sinc", PALETTE[0], DASHES[0]),
+        "FUTON-lanczos": ("MLP 64, Lanczos", PALETTE[0], DASHES[1]),
+        "FUTON-sinc-w128": ("MLP 128, sinc", PALETTE[2], DASHES[0]),
+        "FUTON-lanczos-w128": ("MLP 128, Lanczos", PALETTE[2], DASHES[1]),
+        "FUTON-sinc-w256": ("MLP 256, sinc", PALETTE[3], DASHES[0]),
+        "FUTON-lanczos-w256": ("MLP 256, Lanczos", PALETTE[3], DASHES[1]),
         "FUTON-sinc-linear": ("Linear, sinc", PALETTE[1], DASHES[0]),
         "FUTON-lanczos-linear": ("Linear, Lanczos", PALETTE[1], DASHES[1]),
     },
@@ -542,58 +538,10 @@ def curves(runs: list[dict[str, Any]]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def timing_runs(task: str) -> dict[tuple[str, str], dict[str, Any]]:
-    """The task's timing runs by signal and model: the faster of each pair.
-
-    logs/timing/<task> holds every model compiled and retrained one at a time
-    in its job, after a warm-up pass that compiles it, and each job ran twice,
-    the second time into repeat/. The jobs shared their nodes, and what else
-    runs on a node can only add time, so the faster of the two runs is kept.
-    """
-    fastest: dict[tuple[str, str], dict[str, Any]] = {}
-    for run in read(ROOT / "logs" / "timing" / task, task):
-        key = run["data"], run["model"]
-        if key not in fastest or run["train_time"] < fastest[key]["train_time"]:
-            fastest[key] = run
-    return fastest
-
-
-def timed(runs: list[dict[str, Any]], task: str) -> list[dict[str, Any]]:
-    """The runs with their times taken from the timing runs.
-
-    Accuracy comes from the sweeps, whose times carry whatever else ran beside
-    them, and the eager models they trained; where a timing run exists (see
-    :func:`timing_runs`), its training time and the elapsed time of every
-    evaluation replace the sweep's, while the metrics stay the sweep's. The
-    other runs lose their times, so that every time in the tables and figures
-    is a timing run's and the mean over signals is taken over the timed ones.
-    Without timing runs, the sweep's times stand.
-    """
-    clean = timing_runs(task)
-    if not clean:
-        return runs
-
-    def retimed(run: dict[str, Any]) -> dict[str, Any]:
-        timing = clean.get((run["data"], run["model"]))
-        if timing is None:
-            elapsed = [math.nan] * len(run["history"])
-            train_time = math.nan
-        elif len(timing["history"]) == len(run["history"]):
-            elapsed = [entry["elapsed"] for entry in timing["history"]]
-            train_time = timing["train_time"]
-        else:  # the two runs did not log alike, so take the clean run whole
-            return timing
-        history = [
-            entry | {"elapsed": value} for entry, value in zip(run["history"], elapsed)
-        ]
-        return run | {"train_time": train_time, "history": history}
-
-    return [retimed(run) for run in runs]
-
-
-def points(task: str) -> int:
-    """The pixels or voxels of the task's profiled signal."""
-    path = ROOT / SIGNALS[task].format(PROFILED[task])
+@cache
+def points(task: str, signal: str) -> int:
+    """The pixels or voxels of one of the task's signals."""
+    path = ROOT / SIGNALS[task].format(signal)
     if task == "occupancy":
         data = yaml.safe_load((ROOT / "configs" / "occupancy.yaml").read_text())
         return math.prod(nf.OccupancyCoordinateDataset(path, **data["data"]).grid_size)
@@ -601,42 +549,35 @@ def points(task: str) -> int:
     return width * height
 
 
-def profiled(final: pd.DataFrame, task: str) -> pd.DataFrame:
-    """Each model's inference throughput and peak memories, from its timing
-    run on the profiled signal.
+def costs(runs: list[dict[str, Any]], task: str) -> pd.DataFrame:
+    """Each run's inference throughput and peak memories.
 
-    A timing run (see :func:`timing_runs`) also times its evaluations: their
-    median, for a radiance field that of its 200 test views, gives millions of
-    pixels or voxels per second, and for a radiance field rendered views per
-    second (FPS). Training steps and evaluations record their peak memory
-    beyond the data and parameters already on the device, here in GB. One
-    signal stands for all, since the protocol fixes every batch and a scene
-    only changes how many samples its rays keep.
+    Every evaluation records how long its reconstruction took and the most
+    memory it allocated, and every training step its own peak. The median over
+    a run's evaluations, for a radiance field over its 200 test views, gives
+    millions of pixels or voxels per second, and for a radiance field rendered
+    views per second (FPS); a first evaluation that compiles does not move it.
+    The interpolations run on the CPU and train nothing, so they have no memory.
     """
-    size = points(task) if task != "nerf" else 1
-    speed, train_memory, infer_memory = {}, {}, {}
-    for (signal, _), run in timing_runs(task).items():
-        if signal != PROFILED[task]:
-            continue
-        name = "TensoRF" if run["model"] == TENSORF[task] else run["model"]
+    rows = []
+    for run in runs:
         evaluations = (
             run["test_views"]
             if task == "nerf"
             else [entry["eval"] for entry in run["history"] if "eval" in entry]
         )
         seconds = statistics.median(entry["duration"] for entry in evaluations)
-        speed[name] = 1 / seconds if task == "nerf" else size / seconds / 1e6
         peaks = [
             entry["peak_memory"] for entry in evaluations if "peak_memory" in entry
         ]
-        if peaks:  # the interpolations run on the CPU and train nothing
-            infer_memory[name] = statistics.median(peaks) / 1e9
-            train_memory[name] = run["peak_memory"] / 1e9
-    return final.assign(
-        speed=final["model"].map(speed),
-        train_memory=final["model"].map(train_memory),
-        infer_memory=final["model"].map(infer_memory),
-    )
+        rows.append({
+            "signal": run["data"],
+            "model": run["model"],
+            "speed": 1 / seconds if task == "nerf" else points(task, run["data"]) / seconds / 1e6,
+            "train_memory": run["peak_memory"] / 1e9 if peaks else math.nan,
+            "infer_memory": statistics.median(peaks) / 1e9 if peaks else math.nan,
+        })  # fmt: skip
+    return pd.DataFrame(rows)
 
 
 def memory_unit(values: pd.Series) -> tuple[str, float, int]:
@@ -656,10 +597,11 @@ def load(task: str) -> tuple[list[dict[str, Any]], pd.DataFrame, pd.DataFrame]:
         raise SystemExit(f"no {task} runs under logs/{task}")
     runs = [
         run | {"model": "TensoRF" if run["model"] == TENSORF[task] else run["model"]}
-        for run in timed(runs, task)
+        for run in runs
         if run["model"] not in others
     ]
-    return runs, profiled(results(runs), task), curves(runs)
+    final = results(runs).merge(costs(runs, task), on=["signal", "model"])
+    return runs, final, curves(runs)
 
 
 def model_config(run: dict[str, Any]) -> dict[str, Any]:
@@ -878,7 +820,7 @@ def convergence(curve: pd.DataFrame, task: str) -> plt.Figure:
     curve = curve.assign(**{metric: comparable(curve, metric)})
     curve = curve[curve["model"].isin(FEATURED)]
     curve = curve.assign(
-        time=curve.groupby(["model", "iteration"])["time"].transform("mean")
+        time=curve.groupby(["model", "iteration"])["time"].transform("median")
     )
     figure, plot = plt.subplots(figsize=SIZE)
     sns.lineplot(
@@ -937,9 +879,9 @@ def tradeoff(final: pd.DataFrame, task: str, cost: str = "time") -> plt.Figure:
     # The cost axis carries its direction, as the table headers do: a reader
     # pauses over whether more throughput is better, never over PSNR.
     speed = "Rendering speed" if task == "nerf" else "Throughput"
-    means = final.groupby("model")[[cost, metric]].mean()
+    means = final.groupby("model").agg({cost: "median", metric: "mean"})
     # The interpolations take no training: they set the reference level, not a point.
-    trained = means[final.groupby("model")["time"].mean() > 0]
+    trained = means[final.groupby("model")["time"].median() > 0]
     unit = "GB"
     if cost.endswith("memory"):
         unit, factor, _ = memory_unit(trained[cost])
@@ -1161,7 +1103,9 @@ def tables(final: pd.DataFrame, task: str) -> dict[str, str]:
         "speed": ("Inference", throughput, True, 1),
         "infer_memory": ("Inference", "memory", False, 2),
     }
-    values = final.groupby("model")[list(spec)].mean()
+    # Costs are medians over the signals: the runs share their nodes with other
+    # jobs, which can only add time, and a median sets aside the runs they slow.
+    values = final.groupby("model")[list(spec)].median()
     # Interpolations have no parameters and train nothing, so neither column
     # applies to them, nor should they top its ranking.
     values[values["time"] <= 0] = np.nan
@@ -1789,9 +1733,11 @@ def resolve_setup(setup: dict | None, run: dict) -> dict | None:
 
 
 def summarize(runs: list[dict]) -> pd.DataFrame:
-    """Each model's mean size, time and PSNR over the images, with its error."""
+    """Each model's size, median time and mean PSNR over the images, with its error."""
     final = results(runs)
-    summary = final.groupby("model")[["parameters", "time", "psnr"]].mean()
+    summary = final.groupby("model").agg(
+        {"parameters": "median", "time": "median", "psnr": "mean"}
+    )
     return summary.assign(error=paired_error(final, ("psnr",))[("mean", "psnr")])
 
 
@@ -1925,7 +1871,7 @@ def study_curves(
     curve = curve.assign(psnr=within_signal(curve, "psnr"))  # the study's every model
     curve = curve[curve["model"].isin(styles)]
     curve = curve.assign(
-        time=curve.groupby(["model", "iteration"])["time"].transform("mean")
+        time=curve.groupby(["model", "iteration"])["time"].transform("median")
     )
     # The legend above the plot in two columns, a hue to a column.
     rows = math.ceil(len(styles) / 2)
@@ -2314,12 +2260,12 @@ def bound_tables(
             "title": "optimizer checks, K = N/2",
             "note": "Mean PSNR (dB) over the signals, ± one within-signal standard "
                     "error: the certified FUTON in its ALS form and the ceiling, Adam "
-                    f"at the benchmark's {EPOCHS} epochs and at {LONGER * EPOCHS:,}, "
+                    f"at the benchmark's {STEPS} steps and at {LONGER * STEPS:,}, "
                     "and alternating least squares on the whole grid from a random "
                     f"start, after {SWEEPS[0]} and {SWEEPS[1]} sweeps.",
             "header": [("", "Dataset"), ("", "R"), ("", "Certified (ALS)"),
-                       ("", "Ceiling"), ("Adam", f"{EPOCHS} epochs"),
-                       ("Adam", f"{LONGER * EPOCHS:,} epochs"),
+                       ("", "Ceiling"), ("Adam", f"{STEPS} steps"),
+                       ("Adam", f"{LONGER * STEPS:,} steps"),
                        ("ALS, random start", f"{SWEEPS[0]} sweeps"),
                        ("ALS, random start", f"{SWEEPS[1]} sweeps")],
             "rows": rows,

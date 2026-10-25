@@ -103,7 +103,7 @@ def encode_futon(
     *,
     subsample: float = 1.0,
     lr: float = 0.1,
-    num_epochs: int = 500,
+    num_steps: int = 500,
     alpha: float = 0.005,
     quant_max: int = 127,
     quant_interval: int = -1,
@@ -121,15 +121,15 @@ def encode_futon(
     Args:
         image: Path or PIL image (converted to RGB), or ``uint8`` tensor
             of shape ``(C, H, W)``.
-        subsample: Fraction of pixels sampled each epoch, in ``(0, 1]``.
+        subsample: Fraction of pixels sampled each step, in ``(0, 1]``.
         lr: Initial learning rate.
-        num_epochs: Training epochs, each with one optimizer step.
+        num_steps: Number of training steps.
         alpha: Weight of the parameters' Laplace entropy estimate in the loss.
         quant_max: Largest quantization level. Each parameter tensor is scaled
             by ``quant_max / max(abs(w))`` and rounded to integers.
         quant_interval: If positive, round parameters to the quantization grid
-            in place every this many epochs. Final quantization always runs.
-        log_interval: Epochs between log messages; non-positive disables them.
+            in place every this many steps. Final quantization always runs.
+        log_interval: Steps between training records; see :func:`train`.
         device: Training device; ``None`` selects CUDA if available, else CPU.
         seed: Training seed, set after model construction. Controls pixel
             sampling but not parameter initialization.
@@ -173,7 +173,7 @@ def encode_futon(
         dataset,
         loss_fn=partial(rate_distortion_loss, alpha=alpha),
         lr=lr,
-        num_epochs=num_epochs,
+        num_steps=num_steps,
         quantize=True,
         quant_max=quant_max,
         quant_interval=quant_interval,

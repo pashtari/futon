@@ -1,11 +1,13 @@
 """Per-scene NeRF training with random ray batches and mean squared error.
 
-Defaults follow torch-ngp: Adam with betas ``(0.9, 0.99)`` and ``eps=1e-15``,
-exponential learning-rate decay to ``0.1 * lr``, and a fresh per-pixel random
-background each step. The dataset background is used for evaluation.
+Adam keeps PyTorch's defaults, as :func:`neurofield.train` does, so the
+learning rate is the one setting to tune. As in torch-ngp, the learning rate
+decays exponentially to ``0.1 * lr`` and each step composites onto a fresh
+per-pixel random background. The dataset background is used for evaluation.
 Results and logging follow the package-level :func:`neurofield.train` API.
 """
 
+import math
 import os
 import time
 import warnings
@@ -17,7 +19,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 from tqdm.auto import tqdm
 
-from ..utils import count_parameters, setup_experiment_loggers
+from ..utils import _format_metrics, count_parameters, setup_experiment_loggers
 from .datasets import BlenderDataset
 from .evaluation import evaluate
 from .renderers import VolumeRenderer
@@ -31,14 +33,14 @@ def train(
     train_dataset: BlenderDataset,
     eval_dataset: BlenderDataset | None = None,
     *,
-    num_steps: int = 20000,
+    num_steps: int = 25000,
     num_rays: int = 4096,
     max_samples_per_ray: int | None = 1024,
     lr: float = 1e-2,
     color_lr: float | None = None,
     weight_decay: float = 0.0,
-    adam_betas: tuple[float, float] = (0.9, 0.99),
-    adam_eps: float = 1e-15,
+    adam_betas: tuple[float, float] = (0.9, 0.999),
+    adam_eps: float = 1e-8,
     random_background: bool = True,
     metrics: Mapping[str, Callable[[Tensor, Tensor], float]] | None = None,
     eval_interval: int | None = None,
@@ -78,12 +80,15 @@ def train(
         eval_interval: Evaluate every this many steps and at the final step.
             ``None`` evaluates only at the end; non-positive values disable it.
         eval_indices: Evaluation view indices; ``None`` selects all views.
-        log_interval: Steps between history entries. Final and evaluation
-            steps are always recorded; non-positive values record only those.
+        log_interval: Steps between history entries, which update the progress
+            bar and the text log. Final and evaluation steps are always
+            recorded; non-positive values record only those.
         device: Compute device; ``None`` selects CUDA if available, else CPU.
-        log_dir: Directory for ``log.txt``, ``log.json``, the field's final
-            ``checkpoint.pt``, and ``renderer.pt``, the renderer's state with
-            its occupancy grid. ``None`` logs only to the console.
+        log_dir: Directory for ``log.txt``, with a line per history entry,
+            ``log.json``, the field's final ``checkpoint.pt``, and
+            ``renderer.pt``, the renderer's state with its occupancy grid.
+            ``None`` keeps no files; the console shows a progress bar and a
+            summary either way.
         seed: Seed passed to ``torch.manual_seed`` before training, after the
             supplied field and renderer have already been constructed.
 
@@ -136,7 +141,7 @@ def train(
         "grid_resolution": renderer.grid_resolution,
         "density_threshold": renderer.density_threshold,
     }
-    logger.info("Model: %s (%d params)", config["density_net"], num_parameters)
+    logger.debug("Config: %s", config)
 
     groups = [{"params": field.parameters()}]
     if color_lr is not None:
@@ -159,6 +164,7 @@ def train(
     if eval_interval is None:
         eval_interval = num_steps
     history: list[dict[str, Any]] = []
+    status = ""
     elapsed = 0.0
     skipped_steps = 0
     progress = tqdm(range(1, num_steps + 1), desc="Training")
@@ -220,37 +226,28 @@ def train(
             "step": step,
             "elapsed": elapsed,
             "loss": mse,
-            "psnr": 10.0 * torch.log10(torch.tensor(1.0 / max(mse, 1e-12))).item(),
+            "psnr": 10 * math.log10(1 / max(mse, 1e-12)),
             "num_samples": result["num_samples"],
         }
+        status = _format_metrics(entry)
+        progress.set_postfix_str(status)
+
         if should_eval:
-            eval_result = evaluate(
+            entry["eval"] = evaluate(
                 field,
                 renderer,
                 eval_dataset,
                 indices=eval_indices,
                 metrics=metrics,
-            )
-            entry["eval"] = eval_result["mean"]
-        progress.set_postfix(
-            {
-                key: f"{value:.4f}"
-                for key, value in entry.items()
-                if isinstance(value, float) and key != "elapsed"
-            }
-        )
-        logger.info(
-            "Training - Step [%d/%d] - loss=%.5f psnr=%.2f",
-            step,
-            num_steps,
-            entry["loss"],
-            entry["psnr"],
-        )
+            )["mean"]
+            status += " - eval " + _format_metrics(entry["eval"])
+
+        logger.debug("Step [%d/%d] - %s", step, num_steps, status)
         json_logger.log(entry)
         history.append(entry)
         start_time = time.perf_counter()  # evaluating and logging is not training
 
-    logger.info("Training completed in %.1f s", elapsed)
+    logger.info("Training completed in %.1f s - %s", elapsed, status)
     if skipped_steps:
         warnings.warn(
             f"{skipped_steps} of {num_steps} steps had no occupied samples and "

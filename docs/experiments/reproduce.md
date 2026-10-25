@@ -1,6 +1,6 @@
 # Reproducing the paper
 
-Every number and figure of the paper comes from the training scripts, one that reports, and one that times. This page is the full pipeline, from an empty `data/` folder to `results/`.
+Every number and figure of the paper comes from the training scripts and one that reports. This page is the full pipeline, from an empty `data/` folder to `results/`.
 
 ## 1. Data
 
@@ -31,12 +31,12 @@ The four scripts share one command line:
 | `--data PATH ...` | Signals to fit; default: every signal under `data/` for the task. |
 | `--models NAME ...` | Model names from the config; default: all. |
 | `--config FILE ...` | Configs, deep-merged in order; the last names the log directory (`configs/<name>.yaml` writes to `logs/<name>/`). |
-| `--set KEY.PATH=VALUE ...` | Override one value, read as YAML, e.g. `train.num_epochs=500` or `models.SIREN.train.lr=3e-4`. |
+| `--set KEY.PATH=VALUE ...` | Override one value, read as YAML, e.g. `train.num_steps=500` or `models.SIREN.train.lr=3e-4`. |
 | `--log-dir DIR` | Where the runs go. |
 | `--overwrite` | Rerun runs that already finished. |
 | `--device DEV` | `cuda` when available, else `cpu`. |
 
-A config holds the shared `data` and `train` settings and, per model, its NeuroField class, constructor `kwargs` and training overrides (the learning rate, and for the hash grid its Adam settings). Image configs may use expressions in the image height `H` and width `W`, such as `[H // 2, W // 2]`; the super-resolution config sizes its models from the high-resolution image, and FUTON's entry names a parameter `budget` whose largest CP rank the script fills in. Comments beside each learning rate record what the neighbouring values cost, and `# deviation` marks a setting that departs from the authors' code and why.
+A config holds the shared `data` and `train` settings and, per model, its NeuroField class, constructor `kwargs` and training overrides (the learning rate). Image configs may use expressions in the image height `H` and width `W`, such as `[H // 2, W // 2]`; the super-resolution config sizes its models from the high-resolution image, and FUTON's entry names a parameter `budget` whose largest CP rank the script fills in. Comments beside each learning rate record what the neighbouring values cost, and `# deviation` marks a setting that departs from the authors' code and why.
 
 Finished runs are skipped, so an interrupted sweep restarts where it stopped, and a failed run writes `error.txt` and lets the sweep continue. Runs are keyed by model name, so a variant needs its own name or its own `--log-dir`:
 
@@ -48,7 +48,7 @@ python scripts/train_image.py --config configs/ablation-futon/basis.yaml       #
 
 Each run directory holds `log.txt`, `log.json`, `checkpoint.pt`, the final reconstruction (images) or two rendered test views (NeRF; super-resolution saves none, the report renders them), and `results.json` with the training configuration, the model's `setup` from the YAML, `num_params`, `train_time`, the final `metrics` (NeRF: the mean over the 200 test views, with every view under `test_views`) and the `history`. Occupancy runs write no mesh, since rendering needs a display; the report rebuilds them from the checkpoints.
 
-Measured on one A100 (2000 epochs; NeRF 37,500 steps):
+Measured on one A100 (2000 steps; NeRF 37,500):
 
 | Task | Per model | Per signal | Whole sweep |
 | --- | --- | --- | --- |
@@ -67,15 +67,13 @@ The FUTON ablations are configs in `configs/ablation-futon/`, run through the sa
 | --- | --- | --- | --- |
 | `basis.yaml` | image | 6 | The six bases at the benchmark's size. |
 | `components_rank.yaml` | image | 50 | The components per axis as a fraction $\alpha$ of the pixels, $K = (\alpha H, \alpha W)$, and the rank as a fraction $\beta$ of the smaller count, $R = \beta \min(K_1, K_2)$, both over {1/8, 1/4, 1/2, 1, 2}, sinc and Lanczos. |
-| `tensor_net.yaml` | image | 4 | Tensor-ring against CP, both bases. |
-| `decoder.yaml` | image | 4 | Linear against MLP decoder, at equal size. |
-| `components_nerf.yaml` | nerf | 2 | $K = 256$ at the rank that pays for it, against the benchmark. |
+| `tensor_net.yaml` | image | 6 | Tensor-ring and Tucker against CP, for the sinc and the Lanczos basis. |
+| `decoder.yaml` | image | 8 | MLP decoders 64, 128 and 256 wide and the linear decoder, at equal size, for the sinc and the Lanczos basis. |
 
-The image studies run on all 24 Kodak images at the benchmark's settings (2000 epochs on 10 % of the pixels per step, learning rate 3e-2); a model's name carries its fractions as decimals, so `FUTON-sinc-a0.5-b1` has $K = (H/2, W/2)$ and $R = H/2$.
+The studies run on all 24 Kodak images at the benchmark's settings (1000 steps on the whole image); a model's name carries its fractions as decimals, so `FUTON-sinc-a0.5-b1` has $K = (H/2, W/2)$ and $R = H/2$.
 
 ```bash
 python scripts/train_image.py --config configs/ablation-futon/components_rank.yaml
-python scripts/train_nerf.py --config configs/ablation-futon/components_nerf.yaml --data data/nerf/blender/lego
 ```
 
 ## 4. Report
@@ -92,7 +90,6 @@ results/
 ├── <task>/table.{tex,md}            size, the cost of both phases and final metrics, every shape's and scene's too, best in bold, second underlined
 ├── <task>/qualitative_<signal>.pdf  the signal with two regions boxed and magnified for every featured model (bicubic for TensoRF in super-resolution), above each model's |error| for images and super-resolution
 ├── <task>/panels/<signal>/          the renders those magnifications are cut from, rebuilt from the checkpoints
-├── tuning/<task>.{tex,md}           every model's score at each learning rate tried, by which its rate was chosen
 ├── ablation/                        a table and a convergence plot each for the bases, the combiners and the decoders, and PSNR against each fraction
 └── bound/                           the error bound against trained FUTONs, from the records of scripts/futon_bound.py: figures and tables of the bound page
 ```
@@ -107,7 +104,7 @@ python scripts/report_paper.py --orbit 60               # plus an orbit GIF of e
 
 The signals the paper shows are listed in `EXAMPLES` at the top of the script, and their magnified regions and the radiance-field views are set by hand in `CENTERS` and `VIEWS`, on parts of the signal where the models visibly differ. Any other signal gets them by rule: the view at the median of FUTON's gain over the strongest other model shown, and the two squares where the models shown disagree most, weighted by the detail the reference carries there, which favours no model. Images and super-resolution add each model's absolute error beneath its magnifications, on one scale per figure. Drawing the panels needs the signals in `data/` and a GPU; they are kept and reused, so recomposing a figure costs seconds. Figures come as PDF and as PGF for LaTeX, sized for a NeurIPS page: a plot is a third of the 5.5-inch text width, a strip of magnifications spans it, plot text is 7 to 8 pt, a strip labels every panel in one size, at most 7 pt, at which its widest label fits, and every tick falls on a whole or half number. The image and super-resolution tables fit the text width in 9 pt type; the occupancy and NeRF ones, with every shape's and scene's scores, are wider and take a page turned sideways. The `±` in the tables is a paired standard error over the signals: each signal's own level is removed before the error is taken, which is the uncertainty of a comparison between models rather than of an absolute level; IoU, which saturates near 100 % on every shape, takes the plain standard error over the shapes. A band in a figure spans one of them, the same error.
 
-Timings recorded during a sweep carry whatever else ran beside it: retrained alone on the GPU, Instant-NGP was 1.7× faster, MFN and TensoRF 1.2×, the other models within a few percent. The report therefore takes accuracy from the sweeps and every cost from separate runs: the same training scripts, with `--compile`, retrain every model into `logs/timing/<task>/`, one model at a time, each compiled with `torch.compile` in a warm-up pass that keeps compilation out of the clock. Every timing job runs twice, the second time into `repeat/`, and the report keeps the faster run of each model and signal, since jobs running beside it can only add time; the two runs of a job agreeing says that they did not. Wherever a timing run exists, its training times replace the sweep's in the tables and figures while the metrics stay the sweep's, and the mean training time is taken over the timed signals: every image and shape, the lego and hotdog scenes, and DIV2K images 0801 and 0882. The same runs give inference: every evaluation records how long the reconstruction took and the most memory it allocated, so a model's throughput is the median over its evaluations of one signal per task (for a radiance field, over its 200 test views), and its peak memories are those of its training steps and evaluations there.
+Costs come from the benchmark runs themselves: the training time counts the training steps alone, after a warm-up pass that compiles the model, and every evaluation records how long it took and its peak memory. Each cost in the tables is the median over a task's signals, which sets aside the runs slowed by other jobs on a shared node.
 
 Or skip the report and read the runs directly:
 

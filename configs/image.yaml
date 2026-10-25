@@ -1,17 +1,22 @@
 # Image representation: fit each model to one Kodak image.
 #
-# Each model has a neurofield class, its constructor arguments, and training
-# arguments that override the shared ones. Arguments may be expressions in the
+# Each model gives a neurofield class, its constructor arguments, and training
+# arguments that override the shared ones; arguments may be expressions in the
 # image height H and width W. "deviation" marks a departure from the authors'
-# published settings.
+# published settings. Every learning rate is the best of the grid {1e-4, 3e-4,
+# ..., 3e-1} on two images, and every model trains with PyTorch's default Adam.
+#
+# Every model has about 197k parameters: each baseline is the smallest of its
+# kind that reaches 197,123, and FUTON has CP rank 280 and a one-layer MLP
+# decoder 64 wide (197,379).
 
 data:
-  subsample: 0.1  # fraction of pixels in each training step
+  subsample: 1.0  # the whole image at every step
 
 train:
-  num_epochs: 2000
-  log_interval: 100
-  eval_interval: 100
+  num_steps: 1000
+  log_interval: 50
+  eval_interval: 50
   seed: 0
 
 models:
@@ -21,34 +26,31 @@ models:
       hidden_features: 212
       hidden_layers: 3
       num_frequencies: 256
-      # deviation: tuned on four images at the rate below, where Tancik's 10
-      # on [0, 1] coordinates, 5 here, costs 0.9 dB and 20 costs 0.7
-      sigma: 10.0
+      sigma: 10.0  # deviation: tuned; Tancik's 10 on [0, 1] coordinates is 5 here
       output_activation: tanh
-    train: {lr: 3.0e-3}  # 1e-3 costs 1.2 dB and 1e-2 3.8
+    train: {lr: 3.0e-3}
 
   PE-MLP:  # FINER image benchmark
     class: PEMLP
     kwargs:
-      hidden_features: 248
+      hidden_features: 256
       hidden_layers: 4
       num_frequencies: 10
       output_activation: tanh
-    train: {lr: 1.0e-3}
+    train: {lr: 3.0e-3}
 
   MFN:  # GaborNet (Fathony et al., ICLR 2021)
     class: MFN
     kwargs:
-      hidden_features: 252
+      hidden_features: 256
       hidden_layers: 4
-      # deviation: the official input_scale 256 and alpha 6 (tuned for
-      # 256 x 256 images) are 6 dB worse here.
+      # deviation: tuned; the official input_scale 256 and alpha 6 suit 256 x 256 images
       input_scale: 1024.0
       alpha: 1.25
       beta: 0.125
       weight_scale: 1.0
       output_activation: tanh
-    train: {lr: 1.0e-2}
+    train: {lr: 3.0e-2}
 
   SIREN:  # FINER image benchmark
     class: SIREN
@@ -57,7 +59,7 @@ models:
       hidden_layers: 4
       omega: 30.0
       output_activation: tanh
-    train: {lr: 1.0e-3}  # 3e-4 costs 1.9 dB; 3e-3 diverges
+    train: {lr: 1.0e-3}
 
   FreSh:  # Kania et al. (ICLR 2025): the SIREN above, its first omega chosen per image
     class: SIREN
@@ -67,7 +69,7 @@ models:
       hidden_layers: 4
       omega: 30.0  # the later layers; FreSh picks the first one's
       output_activation: tanh
-    train: {lr: 1.0e-3}  # 3e-4 costs 1.6 dB; 3e-3 diverges
+    train: {lr: 1.0e-3}
 
   Gauss:  # FINER image benchmark
     class: Gauss
@@ -76,9 +78,7 @@ models:
       hidden_layers: 4
       scale: 30.0
       output_activation: tanh
-    # deviation: the published 5e-3 is unstable here, losing 6-9 dB on some
-    # images; 1e-3, as in the occupancy benchmark, is stable and 3.5 dB better.
-    train: {lr: 1.0e-3}
+    train: {lr: 3.0e-3}  # the grid's rate nearest the published 5e-3
 
   WIRE:  # FINER image benchmark, real Gabor layer
     class: RealWIRE
@@ -97,12 +97,12 @@ models:
       hidden_layers: 4
       omega: 30.0
       output_activation: tanh
-    train: {lr: 1.0e-3}  # 3e-4 costs 1.9 dB; 3e-3 diverges
+    train: {lr: 1.0e-3}
 
   Instant-NGP:  # instant-ngp configs/image/base.json
     class: InstantNGP
     kwargs:
-      num_levels: 19  # deviation: 16 in the reference; 19 meets the budget
+      num_levels: 20  # deviation: 16 in the reference; 20 meet the budget
       features_per_level: 2
       log2_hashmap_size: 13
       base_resolution: 16
@@ -110,8 +110,7 @@ models:
       hidden_features: 64
       hidden_layers: 2
       output_activation: tanh
-    # deviation: the reference 1e-2 costs 0.8 dB on four images, 1e-1 2.6
-    train: {lr: 3.0e-2, adam_betas: [0.9, 0.99], adam_eps: 1.0e-15}
+    train: {lr: 3.0e-2}  # deviation: 1e-2 in the reference
 
   TensoRF:
     class: TensoRF
@@ -127,49 +126,38 @@ models:
   GA-Planes:
     class: GAPlanes
     kwargs:
-      features: 25
+      features: 26
       resolution: [256, 64]
       hidden_features: 256
       hidden_layers: 2
       output_activation: tanh
-    train: {lr: 1.0e-2}  # 3e-2 costs 0.1 to 1 dB on seven images, 3e-3 1.8 on four
+    train: {lr: 1.0e-2}
 
   F-INR:  # Vemuri et al. (WACV 2026): SIREN axes and CP, as in its image benchmark
     class: FINR
     kwargs:
-      rank: 140  # W + 1: a channel's rank is at most W + 1 in 2D
-      # deviation: 256 in the reference; 139 meets the budget, and rank 64 at
-      # width 177, the same size, is 0.8 dB worse
-      hidden_features: 139
-      # as the authors' public config; the four their paper names, at the same
-      # size, cost 0.2 dB
-      hidden_layers: 3
+      rank: 141  # a channel's rank is at most the width plus one in 2D
+      hidden_features: 140  # deviation: 256 in the reference; 140 meets the budget
+      hidden_layers: 3  # as the authors' public config
       mode: cp
-      # tuned: the authors' image code has 100 (0.3 dB worse) and their paper
-      # 30 (1.5 dB); 300 ties, and 500 and 1000 lose 0.4 and 1.2 dB. The
-      # positional encoding of their image experiments (positional_encoding 10)
-      # at the same size, width 137 and rank 138, is 0.4 dB worse at its best
-      # first omega, 200, and 0.7 dB at their 100.
-      first_omega: 200.0
+      first_omega: 200.0  # deviation: tuned; the authors' image code has 100
       output_activation: tanh
-    # 3e-4 costs 1.3 dB (1.1 at first omega 300) and 3e-3 6 dB; the reference's
-    # 1e-4, 3 dB
     train: {lr: 1.0e-3}
 
   FUTON-sinc:
     class: FUTON
     kwargs:
       basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 252}]  # the largest within the budget at width 128
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      combiner: [cp, {rank: 280}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
     train: {lr: 3.0e-2}
 
-  FUTON-lanczos:
+  FUTON-cosine:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
-      combiner: [cp, {rank: 252}]  # the largest within the budget at width 128
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
+      combiner: [cp, {rank: 280}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}

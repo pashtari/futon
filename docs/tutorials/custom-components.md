@@ -64,7 +64,7 @@ model = nf.FUTON(
 
 ## A loss
 
-`nf.train` calls `loss_fn(batch, model)` and expects a scalar loss and a dictionary of metrics for the log, as floats or as scalar tensors. Tensors are read only when an epoch is logged, so the training steps never wait for the GPU in between. `batch` is the dataset item with its tensors on the training device (keys with a leading underscore stay on the CPU). A loss that fits only the pixels a mask marks as known:
+`nf.train` calls `loss_fn(batch, model)` and expects a scalar loss and a dictionary of metrics for the log, as floats or as scalar tensors. Tensors are read only when a step is logged, so the training steps never wait for the GPU in between. `batch` is the dataset item with its tensors on the training device (keys with a leading underscore stay on the CPU). A loss that fits only the pixels a mask marks as known:
 
 ```python
 import torch.nn.functional as F

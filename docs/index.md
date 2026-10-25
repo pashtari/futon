@@ -21,7 +21,7 @@ model = nf.FUTON(
     in_features=2,
     out_features=3,
     basis=("sinc", {"num_components": 256}),
-    combiner=("cp", {"rank": 252}),
+    combiner=("cp", {"rank": 256}),
     decoder=("mlp", {"hidden_layers": 1, "hidden_features": 128}),
     output_activation=torch.tanh,
 )

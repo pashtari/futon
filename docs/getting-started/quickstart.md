@@ -16,7 +16,7 @@ model = nf.FUTON(
     in_features=2,
     out_features=3,
     basis=("sinc", {"num_components": 256}),
-    combiner=("cp", {"rank": 252}),
+    combiner=("cp", {"rank": 256}),
     decoder=("mlp", {"hidden_layers": 1, "hidden_features": 128}),
     output_activation=torch.tanh,
 )
@@ -25,7 +25,7 @@ result = nf.train(
     model,
     train_set,
     dataset,
-    num_epochs=2000,
+    num_steps=2000,
     lr=3e-2,
     metrics={"psnr": nf.psnr, "ssim": nf.ssim},
     log_interval=500,
@@ -37,15 +37,15 @@ print(result["history"][-1]["eval"])
 On a GPU this takes about ten seconds and ends near 37 dB PSNR. Step by step:
 
 1. **The dataset turns the image into coordinate/value pairs.** `dataset.input` holds the pixel-centre coordinates, shape `(H, W, 2)` in $[-1, 1]$; `dataset.target` the RGB values, shape `(H, W, 3)`, also in $[-1, 1]$. With `subsample=0.1` each access draws a fresh random 10 % of the pixels, flattened to `(N, 2)` and `(N, 3)`.
-2. **The model is a function of coordinates.** `FUTON` is assembled from three specs, each a registry key, a `(key, kwargs)` pair, a class, or a module instance. The sinc basis here has 256 functions per axis, evaluated once per image row and column; the CP combiner has rank 252; the decoder is an MLP with one hidden layer of width 128. `output_activation=torch.tanh` matches the target range.
-3. **`nf.train` runs Adam with cosine annealing** from `lr` down to `lr / 100`, one optimizer step per epoch (the dataset has one item, and the batch size is one). Every `eval_interval` epochs it evaluates on `dataset`, mapping predictions back to `uint8` with `dataset.postprocess` before computing the metrics.
+2. **The model is a function of coordinates.** `FUTON` is assembled from three specs, each a registry key, a `(key, kwargs)` pair, a class, or a module instance. The sinc basis here has 256 functions per axis, evaluated once per image row and column; the CP combiner has rank 256; the decoder is an MLP with one hidden layer of width 128. `output_activation=torch.tanh` matches the target range.
+3. **`nf.train` runs Adam with cosine annealing** from `lr` down to `lr / 100`, one optimizer step per batch; this dataset has one item, so every step draws fresh pixels. A progress bar shows the training metrics. Every `eval_interval` steps, and at the last one, it evaluates on `dataset`, mapping predictions back to `uint8` with `dataset.postprocess` before computing the metrics.
 
 The result is a plain dictionary:
 
 ```python
 result["config"]       # seed, device, model, num_params, optimizer settings, ...
 result["model_dict"]   # the final state dict
-result["history"][-1]  # {"epoch": 2000, "elapsed": ..., "mse": ..., "psnr": ...,
+result["history"][-1]  # {"step": 2000, "elapsed": ..., "mse": ..., "psnr": ...,
                        #  "eval": {"psnr": ..., "ssim": ...}}
 ```
 
@@ -68,10 +68,10 @@ Coordinates need not lie on the pixel grid. `nf.create_coordinates((2 * H, 2 * W
 Pass `log_dir` to keep a record of the run:
 
 ```python
-result = nf.train(model, train_set, dataset, num_epochs=2000, lr=3e-2, log_dir="logs/quickstart")
+result = nf.train(model, train_set, dataset, num_steps=2000, lr=3e-2, log_dir="logs/quickstart")
 ```
 
-This writes `log.txt`, `log.json` (one JSON record per logged epoch, read back with `nf.read_json_records`), the final `checkpoint.pt`, and the evaluation reconstruction `kodim19_reconstructed.png`.
+This writes `log.txt` (a line per logged step, which the console shows as a progress bar), `log.json` (the same records as JSON, read back with `nf.read_json_records`), the final `checkpoint.pt`, and the evaluation reconstruction `kodim19_reconstructed.png`.
 
 ## Swap the model
 
@@ -79,7 +79,7 @@ Every model in the [zoo](../concepts/models.md) takes `in_features` and `out_fea
 
 ```python
 model = nf.SIREN(2, 3, hidden_features=256, hidden_layers=4, output_activation=torch.tanh)
-result = nf.train(model, train_set, dataset, num_epochs=2000, lr=1e-3, metrics={"psnr": nf.psnr})
+result = nf.train(model, train_set, dataset, num_steps=2000, lr=1e-3, metrics={"psnr": nf.psnr})
 ```
 
 The learning rates that the benchmark uses for each model are in `configs/image.yaml`; the [image tutorial](../tutorials/image.md) walks through them. The same loop fits occupancy volumes and, through `nf.nerf`, radiance fields; the [tutorials](../tutorials/index.md) cover each.

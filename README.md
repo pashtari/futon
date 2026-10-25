@@ -86,14 +86,14 @@ model = nf.FUTON(
     in_features=2,
     out_features=3,
     basis=("sinc", {"num_components": 256}),
-    combiner=("cp", {"rank": 252}),
+    combiner=("cp", {"rank": 256}),
     decoder=("mlp", {"hidden_layers": 1, "hidden_features": 128}),
     output_activation=torch.tanh,
 )
 
 result = nf.train(
     model, train_set, dataset,
-    num_epochs=2000, lr=3e-2,
+    num_steps=2000, lr=3e-2,
     metrics={"psnr": nf.psnr, "ssim": nf.ssim},
     eval_interval=500,
 )
@@ -148,13 +148,13 @@ train_set = nf.nerf.BlenderDataset(root, split="train", downsample=4, skip=4)
 test_set = nf.nerf.BlenderDataset(root, split="test", downsample=4)
 
 field = nf.nerf.RadianceField(
-    (nf.FUTON, {"basis": ("lanczos", {"num_components": 128, "radius": 3}),
-                "combiner": ("cp", {"rank": 128}), "decoder": ("mlp", {"hidden_layers": 1})}),
+    (nf.FUTON, {"basis": ("sinc", {"num_components": 128}), "combiner": ("cp", {"rank": 150}),
+                "decoder": ("mlp", {"hidden_layers": 1, "hidden_features": 64})}),
     ("mlp", {"hidden_features": 64, "hidden_layers": 2}),
     aabb=train_set.aabb,
 )
 renderer = nf.nerf.create_renderer(aabb=train_set.aabb, near=train_set.near, far=train_set.far)
-nf.nerf.train(field, renderer, train_set, num_steps=37500, lr=3e-2)
+nf.nerf.train(field, renderer, train_set, num_steps=25000, lr=1e-2)
 print(nf.nerf.evaluate(field, renderer, test_set)["mean"])
 ```
 

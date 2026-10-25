@@ -9,7 +9,12 @@ import torch
 from torch import Tensor, nn
 from torch.utils.data import DataLoader, Dataset
 
-from .utils import count_parameters, encode_dict, setup_experiment_loggers
+from .utils import (
+    _format_metrics,
+    count_parameters,
+    encode_dict,
+    setup_experiment_loggers,
+)
 
 __all__ = ["evaluate", "chunked_inference"]
 
@@ -98,7 +103,6 @@ def evaluate(
     rate_metrics = rate_metrics or {}
 
     logger, json_logger = setup_experiment_loggers(log_dir, __name__, mode="a")
-    config: dict[str, Any] = {}
 
     dataloader = DataLoader(
         dataset,
@@ -111,16 +115,12 @@ def evaluate(
         model.load_state_dict(torch.load(ckpt_path, map_location=device))
     model.to(device)
 
-    config["model"] = type(model).__name__
-    logger.info("Model: %s", config["model"])
-
-    num_params = count_parameters(model)
-    logger.info("Learnable parameters: %d", num_params)
-    config["num_params"] = num_params
-
     chunk_size = chunk_size or -1
-    logger.info("Chunk size: %d", chunk_size)
-    config["chunk_size"] = chunk_size
+    config: dict[str, Any] = {
+        "model": type(model).__name__,
+        "num_params": count_parameters(model),
+        "chunk_size": chunk_size,
+    }
 
     # Parameters are fixed during evaluation, so every sample shares one bitstream.
     encoded = encode_dict(model_dict) if rate_metrics else b""
@@ -158,34 +158,23 @@ def evaluate(
         }
 
         for metric_name, metric_fn in metrics.items():
-            metric_value = metric_fn(reconstruction, original)
-            logger.info("%s: %.4f", metric_name, metric_value)
-            results[metric_name] = metric_value
-
+            results[metric_name] = metric_fn(reconstruction, original)
         for metric_name, metric_fn in rate_metrics.items():
-            metric_value = metric_fn(encoded, original)
-            logger.info("%s: %.4f", metric_name, metric_value)
-            results[metric_name] = metric_value
+            results[metric_name] = metric_fn(encoded, original)
 
-        metrics_str = ", ".join(
-            f"{key}={value:.4f}"
-            for key, value in results.items()
-            if isinstance(value, float)
-        )
-        logger.info(
-            "Evaluation - Sample [%d/%d], ID %s - %s",
+        logger.debug(
+            "Evaluation [%d/%d] %s - %s",
             i + 1,
             len(dataloader),
             item_id,
-            metrics_str,
+            _format_metrics(results),
         )
         json_logger.log(results)
-
         history.append(results)
 
         if log_dir and save_reconstruction:
             reconstruction_path = os.path.join(log_dir, f"{item_id}_reconstructed")
             dataset.save(reconstruction, reconstruction_path)
-            logger.info("Reconstructed signal saved to %s", reconstruction_path)
+            logger.debug("Saved the reconstruction to %s", reconstruction_path)
 
     return {"config": config, "history": history}

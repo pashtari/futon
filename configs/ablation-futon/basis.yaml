@@ -1,16 +1,17 @@
 # FUTON ablation on the image task: the basis. Every basis at the benchmark's
-# size: K = (H / 2, W / 2) components, CP rank 252 and a one-layer MLP decoder
-# 128 wide (194,051 parameters on a Kodak image).
+# size, K = (H / 2, W / 2) components, CP rank 280 and a one-layer MLP decoder
+# 64 wide, at the sinc basis's rate, 3e-2; the cosine basis keeps its own,
+# 1e-1, as in configs/image.yaml.
 #     python scripts/train_image.py --config configs/ablation-futon/basis.yaml
 # The data and training settings repeat configs/image.yaml.
 
 data:
-  subsample: 0.1
+  subsample: 1.0
 
 train:
-  num_epochs: 2000
-  log_interval: 100
-  eval_interval: 100
+  num_steps: 1000
+  log_interval: 50
+  eval_interval: 50
   seed: 0
 
 models:
@@ -18,17 +19,17 @@ models:
     class: FUTON
     kwargs:
       basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 252}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      combiner: [cp, {rank: 280}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
   FUTON-lanczos:
     class: FUTON
     kwargs:
       basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
-      combiner: [cp, {rank: 252}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      combiner: [cp, {rank: 280}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
     train: {lr: 3.0e-2}
 
@@ -36,8 +37,8 @@ models:
     class: FUTON
     kwargs:
       basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 252}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      combiner: [cp, {rank: 280}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
     train: {lr: 3.0e-2}
 
@@ -45,8 +46,8 @@ models:
     class: FUTON
     kwargs:
       basis: [triangle, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 252}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      combiner: [cp, {rank: 280}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
     train: {lr: 3.0e-2}
 
@@ -54,8 +55,8 @@ models:
     class: FUTON
     kwargs:
       basis: [chebyshev, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 252}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      combiner: [cp, {rank: 280}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
     train: {lr: 3.0e-2}
 
@@ -63,7 +64,7 @@ models:
     class: FUTON
     kwargs:
       basis: [legendre, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 252}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      combiner: [cp, {rank: 280}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
     train: {lr: 3.0e-2}

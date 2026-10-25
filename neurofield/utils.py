@@ -106,6 +106,16 @@ def _average_dicts(dicts: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     return groups
 
 
+def _format_metrics(record: Mapping[str, Any]) -> str:
+    """``name=value`` for a record's float metrics, its times and memory left out."""
+    skip = ("elapsed", "duration", "peak_memory")
+    return " ".join(
+        f"{name}={value:.4g}"
+        for name, value in record.items()
+        if isinstance(value, float) and name not in skip
+    )
+
+
 def count_parameters(model: nn.Module, trainable_only: bool = True) -> int:
     """Count parameters as real numbers, counting complex elements twice.
 
@@ -151,8 +161,10 @@ def setup_experiment_loggers(
 ) -> tuple[logging.Logger, JSONLogger]:
     """Configure console, text and JSON logging for an experiment.
 
-    Replaces the named logger's handlers and disables propagation. Text files
-    append after an optional initial truncation, allowing training and
+    Replaces the named logger's handlers and disables propagation. The console
+    shows ``INFO`` messages, and the text file also keeps ``DEBUG`` ones, such
+    as the trainers' line per step, which a progress bar shows instead. Text
+    files append after an optional initial truncation, allowing training and
     evaluation loggers to share a file. JSON records always append.
 
     Args:
@@ -175,15 +187,15 @@ def setup_experiment_loggers(
 
     logger = logging.getLogger(logger_name)
     logger.handlers.clear()
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
     logger.propagate = False
 
     formatter = logging.Formatter(
-        fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        fmt="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
 
     stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
     stream_handler.setFormatter(formatter)
     logger.addHandler(stream_handler)
 
@@ -196,10 +208,6 @@ def setup_experiment_loggers(
         logger.addHandler(file_handler)
 
     json_logger = JSONLogger(json_log_path)
-
-    if log_dir:
-        logger.info("Logging to %s", log_dir)
-
     return logger, json_logger
 
 

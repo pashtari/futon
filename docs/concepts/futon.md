@@ -41,7 +41,7 @@ This is the three-stage pipeline `decoder(combiner(basis(x)))`:
 
 A point costs $O(R \sum_c K_c)$, linear in the spectral resolution and in the number of axes. A local basis (below) reduces the basis term to the $2a$ nonzero taps per axis, $O(aRC)$.
 
-On a grid the projections $\boldsymbol{U}^{(c)\top} \boldsymbol{\varphi}(x_c)$ are shared, since each depends on one coordinate alone. When every axis of a batch repeats its coordinates, as an image's pixels or any batch drawn from them do, `FUTON` evaluates and projects each distinct coordinate once and every point gathers its rows: $N$ points with $S_c$ distinct coordinates per axis cost $O(R \sum_c S_c K_c + NCR)$ instead of $O(NR \sum_c K_c)$, for the same function and gradients. Every basis does this, the local ones too; scattered points, such as a radiance field's samples, and coordinates that need gradients are evaluated point by point. A basis given `grid_size`, the sizes of the grid every input lies on, such as a coordinate dataset's `grid_size`, evaluates its features on that grid once, when it is built, and finds each point's row by rounding instead of by searching every batch for its distinct coordinates, which costs a sort and a GPU synchronization per axis and a break in the compiled graph. A point off the declared grid would read its nearest grid point's row, so `grid_size` stays unset for any other inputs.
+On a grid the projections $\boldsymbol{U}^{(c)\top} \boldsymbol{\varphi}(x_c)$ are shared, since each depends on one coordinate alone. When every axis of a batch repeats its coordinates, as an image's pixels or any batch drawn from them do, `FUTON` evaluates and projects each distinct coordinate once and every point gathers its rows: $N$ points with $S_c$ distinct coordinates per axis cost $O(R \sum_c S_c K_c + NCR)$ instead of $O(NR \sum_c K_c)$, for the same function and gradients. Every basis does this, and a local basis's tables hold only its $2a$ taps per coordinate, $O(2aR \sum_c S_c + NCR)$; scattered points, such as a radiance field's samples, and coordinates that need gradients are evaluated point by point. A basis given `grid_size`, the sizes of the grid every input lies on, such as a coordinate dataset's `grid_size`, evaluates its features on that grid once, when it is built, and finds each point's row by rounding instead of by searching every batch for its distinct coordinates, which costs a sort and a GPU synchronization per axis and a break in the compiled graph. A point off the declared grid would read its nearest grid point's row, so `grid_size` stays unset for any other inputs.
 
 ```python
 model = nf.FUTON(
@@ -89,7 +89,7 @@ The kernel families are centred on the uniform grid $\mu_k = -1 + k w$ with spac
 Two options shape the features:
 
 - **`normalize`** (default `True`) L2-normalizes the feature *vector* $\boldsymbol{\varphi}(x_c)$ at each point, not the basis functions. It stabilizes training and is what the experiments use. `normalize=False` recovers the plain series; for the cardinal bases it gives exact cardinal interpolation, and for the triangle basis with a CP combiner it recovers the TensoRF-CP parameterization (a linear map of the hat features equals sampling a 1D feature grid with `align_corners=True`).
-- **`sparse`** (`triangle` and `lanczos` only, default `True`) returns each axis of scattered points as `Taps`, only the $2a$ nonzero features of each point and the column of the first. A product with a factor gathers $2a$ consecutive rows per point, which `torch.compile` fuses into one kernel (eagerly, `embedding_bag` computes it). Sparse mode expects a flat batch `(N, C)`; `FUTON.forward` reshapes for you.
+- **`sparse`** (`triangle` and `lanczos` only, default `True`) returns each axis as `Taps`, only the $2a$ nonzero features of each coordinate and the column of the first: one per point for scattered points, one per row for the tables of a grid. A product with a factor gathers $2a$ consecutive rows per coordinate, which `torch.compile` fuses into one kernel (eagerly, `embedding_bag` computes it). Sparse mode expects a flat batch `(N, C)`; `FUTON.forward` reshapes for you.
 
 The paper proves that FUTON with the cosine basis is a universal approximator. In practice the choice of family barely moves accuracy on the grid, and moves training time a lot; the [basis ablation](../experiments/ablations.md#basis) measures both.
 
@@ -118,15 +118,16 @@ $$
 R \sum_{c=1}^{C} K_c \;+\; (RM + M) \;+\; (MD + D).
 $$
 
-The benchmark configurations, all chosen to match the parameter budget of the other models in their task, have a decoder 128 wide and give the rest of the budget to the rank:
+The benchmark configurations give each task's parameter budget to the rank, rounded. Every task uses the same decoder, one hidden layer 64 wide: wider ones add at most 0.1 dB, and radiance fields need at least 64, since their density network also feeds the colour network 15 features. The benchmarks run the sinc and the cosine basis at these sizes:
 
 | Task | `num_components` | `rank` | Decoder | Parameters |
 | --- | --- | --- | --- | --- |
-| Images, $512 \times 768$ Kodak | `[H // 2, W // 2]` | 252 | MLP, 1 hidden layer of width 128 | 194,051 |
-| Occupancy, $256^3$ | 128 | 256 | MLP, 1 hidden layer of width 128 | 131,329 |
-| Radiance fields, density network with 16 outputs | 128 | 128 | MLP, 1 hidden layer of width 128 | 67,728 (74,131 with the colour network) |
+| Images, $512 \times 768$ Kodak | `[H // 2, W // 2]` | 280 | MLP, 1 hidden layer of width 64 | 197,379 |
+| Occupancy, $256^3$ | 128 | 300 | MLP, 1 hidden layer of width 64 | 134,529 |
+| Super-resolution, $2040 \times 1356$ DIV2K | `[H // 4, W // 4]` | 547 | MLP, 1 hidden layer of width 64 | 499,670 |
+| Radiance fields, density network with 16 outputs | 128 | 150 | MLP, 1 hidden layer of width 64 | 68,304 (74,707 with the colour network) |
 
-Two rules of thumb come out of the ablations. First, `num_components` is the bandwidth: half the sampling resolution per axis is enough for images, and $K = 128$ for $256^3$ volumes, because the MLP decoder recovers what a coarser basis loses. Second, at a fixed budget the rank matters more than extra components, so spend a larger budget on $R$ before $K$. The learning rate is 3e-2 for images and radiance fields and 1e-2 for volumes.
+Two rules of thumb come out of the ablations. First, `num_components` is the bandwidth: half the sampling resolution per axis is enough for images, and $K = 128$ for $256^3$ volumes, because the MLP decoder recovers what a coarser basis loses. Second, at a fixed budget the rank matters more than extra components, so spend a larger budget on $R$ before $K$. With PyTorch's default Adam, the sinc basis takes a learning rate of 3e-2 for images and volumes and 1e-2 for super-resolution and radiance fields; the cosine basis takes 1e-1 for images, 3e-2 for volumes and 1e-2 for super-resolution and radiance fields.
 
 ## Relation to the paper
 

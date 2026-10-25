@@ -456,7 +456,7 @@ class TestTraining:
             dataset,
             nf.ImageCoordinateDataset(image, item_id="image"),
             optimizer=solver(model, momentum=0.5),
-            num_epochs=20,
+            num_steps=20,
             eval_interval=20,
             metrics={"psnr": nf.psnr},
             log_dir=tmp_path,

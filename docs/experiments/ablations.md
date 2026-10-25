@@ -1,6 +1,6 @@
 # Ablations
 
-FUTON's four design choices, varied one at a time on the image task (the 24 Kodak images at 768 × 512, 2000 epochs on 10 % of the pixels per step, learning rate 3e-2), plus one supplementary study on a radiance field. Unless stated, the default model is the benchmark's: K = (H/2, W/2) components per axis, 384 × 256 for a landscape image, CP rank 224, a one-layer MLP decoder, 194,435 parameters. The configs are in `configs/ablation-futon/`, and every table and plot here is in `results/ablation/`. The times are the sweeps' own, on A100s that ran other jobs beside them, so they compare the variants with each other rather than with the benchmark tables.
+FUTON's four design choices, varied one at a time on the image task (the 24 Kodak images at 768 × 512, 2000 steps, each on a fresh 10 % of the pixels, learning rate 3e-2). Unless stated, the default model is the benchmark's: K = (H/2, W/2) components per axis, 384 × 256 for a landscape image, CP rank 224, a one-layer MLP decoder, 194,435 parameters. The configs are in `configs/ablation-futon/`, and every table and plot here is in `results/ablation/`. The times are the sweeps' own, on A100s that ran other jobs beside them, so they compare the variants with each other rather than with the benchmark tables.
 
 ## Basis
 
@@ -85,7 +85,3 @@ The paper's model has a linear decoder, which makes FUTON exactly a rank-$R$ CP 
 </figure>
 
 A natural image is far from a low-rank tensor in a smooth basis: at equal size the linear model stops at 30.4 dB, 8 dB below the MLP. It trains faster, its steps being cheaper, but it is flat from the first seconds where the MLP keeps climbing. The MLP decoder is therefore the default, and the linear decoder remains the model to reason about.
-
-## Radiance fields
-
-The components question, asked once of a radiance field (lego, `components_nerf.yaml`): twice the components, K = 256, at the rank that pays for them, R = 78 (73,733 parameters), against the benchmark's K = 128 and R = 128 (74,131). The benchmark's split wins by 0.8 dB, 30.91 against 30.12 dB on the test views, with the same training time: on a radiance field as on an image, the rank is where the budget belongs once the grid resolves the signal.

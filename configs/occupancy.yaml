@@ -1,24 +1,24 @@
 # Occupancy volume representation: fit each model to one Stanford shape.
 #
-# The FUTON entries use K = 128 components, CP rank 256 and a one-layer MLP
-# decoder 128 wide (131,329 parameters). A decoder narrower than the rank
-# leaves the budget to the rank: against R = 218 under a decoder as wide,
-# the earlier setting, it gained a little IoU on each of three shapes, in
-# two thirds of the training time. configs/ablation-futon/ varies the basis,
-# the components against the rank, and the tensor network.
-#
-# Each model has a neurofield class, its constructor arguments, and training
+# Each model gives a neurofield class, its constructor arguments, and training
 # arguments that override the shared ones. "deviation" marks a departure from
-# the authors' published settings.
+# the authors' published settings. Every learning rate is the best of the grid
+# {1e-4, 3e-4, ..., 3e-1} on two shapes, and every model trains with PyTorch's
+# default Adam.
+#
+# Every model has about 131k parameters: each baseline is the smallest of its
+# kind that reaches 131,329, and FUTON has K = 128 components per axis, CP rank
+# 300 and a one-layer MLP decoder 64 wide (134,529).
 
 data:
   resolution: 256  # occupancy grid resolution
-  subsample: 0.01  # fraction of voxels in each training step
+  subsample: 1.0
+  max_samples: 262144  # 2^18 random voxels per step, for every shape
 
 train:
-  num_epochs: 2000
-  log_interval: 100
-  eval_interval: 100
+  num_steps: 1000
+  log_interval: 50
+  eval_interval: 50
   chunk_size: 262144  # voxels per evaluation forward pass
   seed: 0
 
@@ -31,28 +31,28 @@ models:
       num_frequencies: 256
       sigma: 6.0  # sigma 12 on [0, 1] coordinates equals 6 on [-1, 1]
       output_activation: tanh
-    train: {lr: 1.0e-3}  # 3e-4 costs 1.7 IoU points
+    train: {lr: 3.0e-3}
 
   PE-MLP:  # FINER benchmark architecture
     class: PEMLP
     kwargs:
-      hidden_features: 240
+      hidden_features: 241  # 256 would add 13%
       hidden_layers: 3
       num_frequencies: 10
       output_activation: tanh
-    train: {lr: 3.0e-3}  # deviation: the published 1e-3 and 5e-4 lose 1-3 IoU points here
+    train: {lr: 3.0e-3}  # deviation: 1e-3 in the reference
 
   MFN:  # GaborNet (Fathony et al., ICLR 2021) defaults
     class: MFN
     kwargs:
-      hidden_features: 252
+      hidden_features: 256
       hidden_layers: 3
       input_scale: 256.0
       alpha: 6.0
       beta: 1.0
       weight_scale: 1.0
       output_activation: tanh
-    train: {lr: 1.0e-2}
+    train: {lr: 3.0e-2}
 
   SIREN:  # FINER benchmark
     class: SIREN
@@ -61,20 +61,19 @@ models:
       hidden_layers: 3
       omega: 30.0
       output_activation: tanh
-    train: {lr: 1.0e-3}  # the SDF lr 1e-4 is too slow for 2000 epochs; 3e-3 is worse
+    train: {lr: 3.0e-3}
 
   FreSh:  # Kania et al. (ICLR 2025): the SIREN above, its first omega chosen per shape
     class: SIREN
-    # Our adaptation: the 3D spectrum of the occupancy grid, in 32 shells, its
-    # number for SIREN radiance fields: shells stop at half the smallest side,
-    # and lucy's 78 voxels leave too few for the 64 of images.
+    # our adaptation: 32 shells of the grid's 3D spectrum, as for SIREN radiance
+    # fields, since the shells stop at half the smallest side of the volume
     fresh: {size: 32}
     kwargs:
       hidden_features: 256
       hidden_layers: 3
       omega: 30.0  # the later layers; FreSh picks the first one's
       output_activation: tanh
-    train: {lr: 1.0e-3}  # 3e-4 costs 0.4 IoU points and 3e-3 25
+    train: {lr: 3.0e-3}
 
   Gauss:  # FINER benchmark
     class: Gauss
@@ -83,7 +82,7 @@ models:
       hidden_layers: 3
       scale: 30.0
       output_activation: tanh
-    train: {lr: 1.0e-3}  # deviation: the published 1e-4 and 5e-3 lose 5-10 IoU points
+    train: {lr: 1.0e-3}  # deviation: 1e-4 and 5e-3 in the references
 
   WIRE:  # WIRE occupancy script, real Gabor layer
     class: RealWIRE
@@ -93,7 +92,7 @@ models:
       omega: 10.0
       scale: 40.0
       output_activation: tanh
-    train: {lr: 1.0e-3}  # deviation: the official 5e-3 diverges for the real Gabor layer
+    train: {lr: 3.0e-3}  # deviation: the official 5e-3 diverges for the real Gabor layer
 
   FINER:  # FINER benchmark
     class: FINER
@@ -102,7 +101,7 @@ models:
       hidden_layers: 3
       omega: 30.0
       output_activation: tanh
-    train: {lr: 1.0e-3}  # the SDF lr 1e-4 is too slow for 2000 epochs; 3e-3 is worse
+    train: {lr: 1.0e-3}
 
   Instant-NGP:  # instant-ngp configs/volume/base.json architecture
     class: InstantNGP
@@ -112,15 +111,10 @@ models:
       log2_hashmap_size: 12
       base_resolution: 16
       max_resolution: 256  # the grid resolution
-      # The hash tables alone hold 131,072 parameters, so the MLP is narrowed
-      # from 64 to 24 to match the other models (132,440 in all).
-      hidden_features: 24
+      hidden_features: 32  # deviation: 64 in the reference; the hash tables fill the budget
       hidden_layers: 2
       output_activation: tanh
-    # deviation: the volume lr 1e-4 (tuned for long schedules) loses 9 IoU
-    # points, and 1e-2, the reference lr for images and NeRF, 0.03; 3e-3 costs
-    # 0.08 and 1e-1 diverges.
-    train: {lr: 3.0e-2, adam_betas: [0.9, 0.99], adam_eps: 1.0e-15}
+    train: {lr: 3.0e-2}  # deviation: 1e-4 in the reference, for longer training
 
   TensoRF-CP:
     class: TensoRF
@@ -131,21 +125,20 @@ models:
       hidden_features: 128
       hidden_layers: 2
       output_activation: tanh
-    train: {lr: 1.0e-2}  # 3e-2, as for the VM mode, diverges on three shapes
+    train: {lr: 1.0e-2}
 
   TensoRF-VM:
     class: TensoRF
     kwargs:
-      # A VM plane costs resolution^2 parameters per rank, so at this size
-      # resolution beats rank: 96 with rank 4 reaches 99.74 IoU, against 99.40
-      # for 32 with rank 33 and 98.83 for 16 with rank 97.
+      # a VM plane costs resolution^2 parameters per rank, so resolution beats
+      # rank at this size
       rank: 4
-      resolution: 96
+      resolution: 97
       mode: vm
       hidden_features: 128
       hidden_layers: 2
       output_activation: tanh
-    train: {lr: 3.0e-2}  # 1e-2 ties; 1e-1 diverges
+    train: {lr: 1.0e-2}  # 3e-2 never leaves the empty solution on lucy
 
   GA-Planes:
     class: GAPlanes
@@ -155,40 +148,32 @@ models:
       hidden_features: 128
       hidden_layers: 2
       output_activation: tanh
-    train: {lr: 3.0e-2}  # 1e-2 costs 0.07 IoU points; 1e-1 diverges
+    train: {lr: 3.0e-2}
 
   F-INR:  # Vemuri et al. (WACV 2026): SIREN axes and CP
     class: FINR
     kwargs:
-      # Tuned at the budget: width 96 and rank 259 lead widths 32 to 144, by
-      # 0.02 to 5.3 IoU points; at width 128, the tensor train its authors pick
-      # for shapes, rank 15, is 0.05 points below CP, rank 83.
       rank: 259
-      hidden_features: 96  # deviation: 256 in its paper, 128 in its public SDF config
+      hidden_features: 96  # deviation: tuned; 256 in its paper, 128 in its public SDF config
       hidden_layers: 3
       mode: cp
-      # first omega 100, the model's default from the authors' image code: their
-      # paper's 30 costs 0.2 IoU points and 300 0.4, and the SIREN of their
-      # shape code (first omega 30, later layers at 1) 4.7
       output_activation: tanh
-    train: {lr: 1.0e-3}  # 3e-4 costs 1.9 IoU points and 3e-3 9
+    train: {lr: 1.0e-3}
 
   FUTON-sinc:
     class: FUTON
     kwargs:
-      # grid_size: the voxel grid, cropped to the shape
-      basis: [sinc, {num_components: 128, grid_size: [D, H, W]}]
-      combiner: [cp, {rank: 256}]  # the largest within the budget at width 128
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      basis: [sinc, {num_components: 128, grid_size: [D, H, W]}]  # the cropped voxel grid
+      combiner: [cp, {rank: 300}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 1.0e-2}
+    train: {lr: 3.0e-2}
 
-  FUTON-lanczos:
+  FUTON-cosine:
     class: FUTON
     kwargs:
-      # grid_size: the voxel grid, cropped to the shape
-      basis: [lanczos, {num_components: 128, radius: 3, grid_size: [D, H, W]}]
-      combiner: [cp, {rank: 256}]  # the largest within the budget at width 128
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      basis: [cosine, {num_components: 128, grid_size: [D, H, W]}]
+      combiner: [cp, {rank: 300}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 1.0e-2}
+    train: {lr: 3.0e-2}

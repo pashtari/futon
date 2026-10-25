@@ -103,7 +103,11 @@ def assign(config: dict[str, Any], setting: str) -> None:
         node = node[name]
     if key not in node:
         raise KeyError(f"{path!r} is not in the config")
-    node[key] = yaml.safe_load(value)
+    value = yaml.safe_load(value)
+    # YAML 1.1 reads exponent notation without a dot, such as 3e-4, as a string.
+    if isinstance(value, str) and re.fullmatch(r"[-+]?\d+(\.\d*)?[eE][-+]?\d+", value):
+        value = float(value)
+    node[key] = value
 
 
 def record(
@@ -271,7 +275,7 @@ def run(
         nargs="+",
         default=[],
         metavar="KEY.PATH=VALUE",
-        help="config overrides, e.g. train.num_epochs=500",
+        help="config overrides, e.g. train.num_steps=500",
     )
     parser.add_argument(
         "--log-dir", type=Path, help="default: logs/<name> for configs/<name>.yaml"

@@ -149,7 +149,7 @@ sbatch --clusters=accelgor --test-only --time=0:10:00 --gpus-per-node=1 \
   `--config configs/image.yaml changes.yaml`. Runs are keyed by model name,
   so give variants their own names or another `--log-dir`.
 
-Measured on A100s (2000 epochs; NeRF 37,500 steps), a run takes about:
+Measured on A100s (2000 steps; NeRF 37,500), a run takes about:
 
 | Task | Per model | Per signal | Whole sweep |
 | --- | --- | --- | --- |
@@ -210,7 +210,7 @@ jobs) queues better than one job per scene. Runs are written to
 
 ```bash
 models="RFF PE-MLP MFN SIREN Gauss WIRE FINER Instant-NGP TensoRF-CP TensoRF-VM
-        GA-Planes FUTON-sinc FUTON-lanczos"
+        GA-Planes FUTON-sinc FUTON-cosine"
 for scene in data/nerf/blender/*/; do
   for model in $models; do
     scripts/hpc/train.sh --clusters=accelgor nerf --data "$scene" --models "$model"

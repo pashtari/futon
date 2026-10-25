@@ -15,7 +15,7 @@ encoded = nf.compression.encode_futon(
     basis=("cosine", {"num_components": 128}),
     combiner=("cp", {"rank": 64}),
     decoder="linear",
-    num_epochs=500,
+    num_steps=500,
     lr=0.1,
     alpha=0.005,
     quant_max=127,
@@ -25,7 +25,7 @@ reconstruction = nf.compression.decode_futon(encoded)   # uint8 (3, H, W)
 
 `encode_futon` builds a `FUTON` from the keyword arguments (`in_features` and `out_features` default to 2 and the channel count), trains it with `nf.rate_distortion_loss`, quantizes every parameter tensor to `quant_max` levels, and packs the integer codes, their scales, the model configuration, the image ID and the spatial shape into gzip-compressed bytes. `decode_futon` rebuilds the model from those bytes and evaluates it on the pixel grid. The specs must be registry keys or `(key, dict)` pairs so that they survive the round trip.
 
-The rate-distortion loss is $\text{MSE} + \alpha \cdot H$, where $H$ is the size-weighted mean of a Laplace entropy estimate of each parameter tensor, in bits; `alpha=0` disables the rate term. `quant_interval` rounds the parameters to the quantization grid every so many epochs during training, so that the model adapts to it (quantization-aware training); the final quantization always runs.
+The rate-distortion loss is $\text{MSE} + \alpha \cdot H$, where $H$ is the size-weighted mean of a Laplace entropy estimate of each parameter tensor, in bits; `alpha=0` disables the rate term. `quant_interval` rounds the parameters to the quantization grid every so many steps during training, so that the model adapts to it (quantization-aware training); the final quantization always runs.
 
 ## Measuring a codec
 
@@ -37,7 +37,7 @@ futon = nf.compression.evaluate_compression(
     basis=("cosine", {"num_components": 128}),
     combiner=("cp", {"rank": 64}),
     decoder="linear",
-    num_epochs=500,
+    num_steps=500,
 )
 jpeg = nf.compression.evaluate_compression(
     image, nf.compression.encode_pil, nf.compression.decode_pil, format="JPEG", quality=50

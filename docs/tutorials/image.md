@@ -9,31 +9,30 @@ import torch
 import neurofield as nf
 
 path = "data/Kodak/kodim19.png"
-train_set = nf.ImageCoordinateDataset(path, subsample=0.1)
+train_set = nf.ImageCoordinateDataset(path)  # the whole image at every step
 eval_set = nf.ImageCoordinateDataset(path)
 H, W = eval_set.grid_size
 ```
 
-`subsample=0.1` draws a fresh random tenth of the pixels on every access, which is one training step; `max_samples` caps the draw for very large images. `mode="L"` loads a grayscale image (`out_features=1`). A tensor or PIL image can be passed instead of a path, with `item_id` naming it in logs.
+Each access is one training step; the benchmark trains on the whole image at every step, as the papers of the SIREN family do. `subsample` draws a fresh random share of the pixels instead, and `max_samples` caps the draw, for images too large for one step. `mode="L"` loads a grayscale image (`out_features=1`). A tensor or PIL image can be passed instead of a path, with `item_id` naming it in logs.
 
 ## Models at equal size
 
-Each benchmark model holds about 195k parameters. FUTON's basis size follows the image, half the sampling resolution per axis, and its `grid_size` declares the pixel grid, on which the basis is evaluated once and each point reads its row.
+Each benchmark model holds about 197k parameters. FUTON's basis size follows the image, half the sampling resolution per axis, and its `grid_size` declares the pixel grid, on which the basis is evaluated once and each point reads its row.
 
 ```python
 futon = nf.FUTON(
     2, 3,
     basis=("sinc", {"num_components": [H // 2, W // 2], "grid_size": (H, W)}),
-    combiner=("cp", {"rank": 252}),
-    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 128}),
+    combiner=("cp", {"rank": 280}),
+    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 64}),
     output_activation=torch.tanh,
 )
-futon_lanczos = nf.FUTON(
+futon_cosine = nf.FUTON(
     2, 3,
-    basis=("lanczos", {"num_components": [H // 2, W // 2], "radius": 3,
-                       "grid_size": (H, W)}),
-    combiner=("cp", {"rank": 252}),
-    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 128}),
+    basis=("cosine", {"num_components": [H // 2, W // 2], "grid_size": (H, W)}),
+    combiner=("cp", {"rank": 280}),
+    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 64}),
     output_activation=torch.tanh,
 )
 siren = nf.SIREN(2, 3, hidden_features=256, hidden_layers=4, omega=30.0,
@@ -42,7 +41,7 @@ finer = nf.FINER(2, 3, hidden_features=256, hidden_layers=4, omega=30.0,
                  output_activation=torch.tanh)
 ngp = nf.InstantNGP(
     2, 3,
-    num_levels=19, features_per_level=2, log2_hashmap_size=13,
+    num_levels=20, features_per_level=2, log2_hashmap_size=13,
     base_resolution=16, max_resolution=max(H, W) // 2,
     hidden_features=64, hidden_layers=2, output_activation=torch.tanh,
 )
@@ -50,7 +49,7 @@ tensorf = nf.TensoRF(2, 3, rank=176, resolution=256, mode="cp",
                      hidden_features=256, hidden_layers=2, output_activation=torch.tanh)
 ```
 
-`configs/image.yaml` lists all fourteen, with their learning rates and, where a setting departs from the authors' code, a comment saying why. The learning rate matters: FUTON trains at 3e-2, SIREN and FINER at 1e-3 (3e-3 diverges for SIREN), Instant-NGP at 1e-2 with `adam_betas=(0.9, 0.99)` and `adam_eps=1e-15`. Use `nf.count_parameters(model, trainable_only=False)` when you change a size.
+`configs/image.yaml` lists all fourteen, with their learning rates and, where a setting departs from the authors' code, a comment saying why. The learning rate matters: FUTON trains at 3e-2 with the sinc basis and at 1e-1 with the cosine basis, SIREN and FINER at 1e-3 (3e-3 diverges for SIREN), Instant-NGP at 3e-2, every model with PyTorch's default Adam. Use `nf.count_parameters(model, trainable_only=False)` when you change a size.
 
 ## Training
 
@@ -59,32 +58,32 @@ result = nf.train(
     futon,
     train_set,
     eval_set,
-    num_epochs=2000,
+    num_steps=1000,
     lr=3e-2,
     metrics={"psnr": nf.psnr, "ssim": nf.ssim, "ms_ssim": nf.ms_ssim, "lpips": nf.lpips},
-    log_interval=100,
-    eval_interval=100,
+    log_interval=50,
+    eval_interval=50,
     log_dir="logs/tutorial/kodim19/FUTON-sinc",
 )
 ```
 
-The metrics run on the `uint8` reconstruction against the original every 100 epochs. LPIPS is the slow one (it runs a VGG network each time); leave it out of `metrics` while iterating and compute it once at the end with `nf.evaluate`.
+The metrics run on the `uint8` reconstruction against the original every 50 steps. LPIPS is the slow one (it runs a VGG network each time); leave it out of `metrics` while iterating and compute it once at the end with `nf.evaluate`.
 
 ## Learning curves
 
-`history` is a list of records, one per logged epoch, with the evaluation metrics under `"eval"`:
+`history` is a list of records, one per logged step, with the evaluation metrics under `"eval"`:
 
 ```python
 import pandas as pd
 
 curve = pd.DataFrame(
-    {"epoch": h["epoch"], "time": h["elapsed"], **h["eval"]}
+    {"step": h["step"], "time": h["elapsed"], **h["eval"]}
     for h in result["history"] if "eval" in h
 )
 curve.plot(x="time", y="psnr")
 ```
 
-`nf.LinePlot` wraps seaborn for the multi-model case: collect one record per model and epoch and call `LinePlot(records).plot(x="time", y="psnr", hue="model")`. The notebook `notebooks/image_representation.ipynb` collects such records for seven models and draws them with seaborn itself.
+`nf.LinePlot` wraps seaborn for the multi-model case: collect one record per model and step and call `LinePlot(records).plot(x="time", y="psnr", hue="model")`. The notebook `notebooks/image_representation.ipynb` collects such records for seven models and draws them with seaborn itself.
 
 ## Reconstruction
 
@@ -107,7 +106,7 @@ eval_set.save(image, "kodim19_futon.png")
 ```bash
 python scripts/train_image.py                                        # all images, all models
 python scripts/train_image.py --data data/Kodak/kodim19.png --models FUTON-sinc SIREN
-python scripts/train_image.py --set train.num_epochs=500 --log-dir logs/short
+python scripts/train_image.py --set train.num_steps=500 --log-dir logs/short
 ```
 
 Sizes in the config may be expressions in the image height `H` and width `W`, such as `max(H, W) // 2`. See [Reproducing the paper](../experiments/reproduce.md) for the full command-line interface.

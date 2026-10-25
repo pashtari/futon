@@ -20,7 +20,9 @@ def fit(
     config: dict, model: dict, path: Path, out: Path, device: torch.device
 ) -> dict[str, Any]:
     data_kwargs = {**config["data"], "item_id": path.stem}
-    volume = nf.OccupancyCoordinateDataset(path, **{**data_kwargs, "subsample": 1.0})
+    # The whole volume, whatever share or cap of it each training step draws.
+    whole = {**data_kwargs, "subsample": 1.0, "max_samples": None}
+    volume = nf.OccupancyCoordinateDataset(path, **whole)
     # Sizes such as a basis's grid_size, [D, H, W], follow the cropped volume.
     model_class, kwargs = build(resolve(model, **dict(zip("DHW", volume.grid_size))))
     search = fresh(

@@ -65,49 +65,56 @@ def downsample(image: Tensor, kernels: Sequence[Tensor]) -> Tensor:
 class SuperResolutionDataset(nf.ImageCoordinateDataset):
     """LR pixels as targets, the HR coordinates under their kernels as inputs.
 
-    Each access draws random ``block x block`` groups of LR pixels that cover
-    a fraction ``subsample`` of the LR image. Neighbouring LR pixels share most
-    of their footprint, so a block needs far fewer field evaluations per pixel
-    than single pixels do: 30 in an 8 x 8 block against 256 alone. Items hold
-    ``input``, the HR coordinates of each block's footprint, of shape
-    ``(B, L, L, 2)``; ``weight_y`` and ``weight_x``, the kernel rows of each
-    block on its footprint, of shape ``(B, block, L)``; and ``target``, the LR
-    pixels in ``[-1, 1]``, of shape ``(B, block, block, C)``. Every tensor
-    lives on the kernels' device.
+    Each access draws ``num_blocks`` (B) random square blocks of
+    ``block_size`` (S) LR pixels a side over the whole LR image, as many
+    whatever its size. Neighbouring LR pixels share most of their footprint,
+    so a block needs far fewer field evaluations per pixel than single pixels
+    do: 30 in an 8 x 8 block against 256 alone. With footprints of L HR pixels
+    a side, items hold ``input``, the HR coordinates of each block's
+    footprint, of shape ``(B, L, L, 2)``; ``weight_y`` and ``weight_x``, the
+    kernel rows of each block on its footprint, of shape ``(B, S, L)``; and
+    ``target``, the LR pixels in ``[-1, 1]``, of shape ``(B, S, S, C)``. Every
+    tensor lives on the kernels' device.
     """
 
     def __init__(
-        self, image: Path, kernels: Sequence[Tensor], subsample: float, block: int
+        self,
+        image: Path,
+        kernels: Sequence[Tensor],
+        num_blocks: int,
+        block_size: int,
     ) -> None:
         device = kernels[0].device
         self.original = self.load(image, mode="RGB")  # uint8 (C, h, w)
         self.id = image.stem
-        self.kernels, self.subsample, self.block = kernels, subsample, block
+        self.kernels = kernels
+        self.num_blocks, self.block_size = num_blocks, block_size
         self.grid_size = tuple(kernel.shape[1] for kernel in kernels)  # (H, W)
         self.input = self.create_input().to(device)  # HR coordinates, (H, W, 2)
         self.target = self.preprocess(self.original).to(device)  # (h, w, C)
 
-        # The first tap of each kernel row, and the footprint of a block along one axis.
+        # The first tap of each kernel row, and the side L of a block's footprint.
         self.first = [(kernel != 0).int().argmax(1) for kernel in kernels]
         taps = max(int((kernel != 0).sum(1).max()) for kernel in kernels)
         scale = self.grid_size[0] // self.target.shape[0]
-        self.length = scale * (block - 1) + taps
+        self.footprint = scale * (block_size - 1) + taps
 
     def __getitem__(self, index: int) -> dict[str, Any]:
         device = self.target.device
         h, w = self.target.shape[:2]
-        count = max(1, round(self.subsample * h * w / self.block**2))
-        offsets = torch.arange(self.block, device=device)
-        span = torch.arange(self.length, device=device)
+        offsets = torch.arange(self.block_size, device=device)
+        span = torch.arange(self.footprint, device=device)
 
         pixels, taps, weights = [], [], []
         for size, full, kernel, first in zip(
             (h, w), self.grid_size, self.kernels, self.first
         ):
-            start = torch.randint(size - self.block + 1, (count, 1), device=device)
-            pixel = start + offsets  # (B, b)
-            tap = first[start].clamp(max=full - self.length) + span  # (B, L)
-            weights.append(kernel[pixel[:, :, None], tap[:, None, :]])  # (B, b, L)
+            start = torch.randint(
+                size - self.block_size + 1, (self.num_blocks, 1), device=device
+            )
+            pixel = start + offsets  # (B, S)
+            tap = first[start].clamp(max=full - self.footprint) + span  # (B, L)
+            weights.append(kernel[pixel[:, :, None], tap[:, None, :]])  # (B, S, L)
             pixels.append(pixel)
             taps.append(tap)
 
@@ -184,7 +191,7 @@ def interpolate(
         name: metric(reconstruction, original)
         for name, metric in metrics(device, scale).items()
     }
-    history = [{"epoch": 0, "elapsed": 0.0, "duration": 0.0, "eval": evaluation}]
+    history = [{"step": 0, "elapsed": 0.0, "duration": 0.0, "eval": evaluation}]
     return record({"config": {"num_params": 0}, "history": history}, model, evaluation)
 
 
@@ -256,8 +263,8 @@ def fit(
         train_dataset = SuperResolutionDataset(
             low_resolution(path, scale),
             kernels,
-            config["data"]["subsample"],
-            config["data"]["block"],
+            config["data"]["num_blocks"],
+            config["data"]["block_size"],
         )
         loss_fn = field_loss
     warm_up(network, train_dataset, device, config["compile"])

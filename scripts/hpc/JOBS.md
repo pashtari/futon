@@ -7,91 +7,84 @@ simply submitted again; `--overwrite` reruns finished runs instead.
 
 ## Benchmarks
 
-Every model of `configs/<task>.yaml` on every signal of the task:
+Every model of `configs/<task>.yaml` on every signal of the task, compiled
+(`--compile`), one signal per job where the signals are named by number:
 
-| Task | Runs | Time | Logs |
+| Task | Runs | Jobs | Logs |
 | --- | --- | --- | --- |
-| image | 24 Kodak images x 14 models = 336 | ~4 h | `logs/image/<image>/<model>/` |
-| occupancy | 5 Stanford shapes x 15 models = 75 | ~30 min | `logs/occupancy/<shape>/<model>/` |
-| nerf | 8 Blender scenes x 15 models = 120 | ~3 h per scene | `logs/nerf/<scene>/<model>/` |
-| super_resolution | 100 DIV2K images x 18 models = 1800 | ~1.6 h per image | `logs/super_resolution/<image>/<model>/` |
+| image | 24 Kodak images x 14 models = 336 | an array of 24, one image each | `logs/image/<image>/<model>/` |
+| occupancy | 5 Stanford shapes x 15 models = 75 | one per shape | `logs/occupancy/<shape>/<model>/` |
+| nerf | 8 Blender scenes x 15 models = 120 | two per scene, each half the models | `logs/nerf/<scene>/<model>/` |
+| super_resolution | 100 DIV2K images x 18 models = 1800 | an array of 100, one image each | `logs/super_resolution/<image>/<model>/` |
 
 ```bash
-scripts/hpc/train.sh --clusters=accelgor --time=5:00:00 image
-scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 occupancy
-for scene in data/nerf/blender/*/; do
-  scripts/hpc/train.sh --clusters=accelgor --time=4:00:00 nerf --data "$scene"
+scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 --array=1-24 image \
+  --data data/Kodak/kodim%2a.png --compile
+for shape in armadillo dragon happy_buddha lucy thai_statue; do
+  scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 occupancy \
+    --data data/occupancy/$shape.ply --compile
 done
-# One image per array task: %4a becomes the task id, zero-padded to four digits.
-# An image takes about 85 minutes on one GPU and the tasks backfill singly, so
-# a two-hour wall time starts them far sooner than one long job.
+A="RFF PE-MLP MFN SIREN FreSh Gauss WIRE FINER"
+B="Instant-NGP TensoRF-CP TensoRF-VM GA-Planes F-INR FUTON-sinc FUTON-cosine"
+for scene in chair drums ficus hotdog lego materials mic ship; do
+  for group in A B; do
+    scripts/hpc/train.sh --clusters=accelgor --time=2:00:00 nerf \
+      --data data/nerf/blender/$scene --models ${!group} --compile
+  done
+done
+# %4a becomes the task id, zero-padded to four digits.
 scripts/hpc/train.sh --clusters=accelgor --time=2:00:00 --array=801-900 super_resolution \
-  --data data/DIV2K/DIV2K_valid_HR/%4a.png
+  --data data/DIV2K/DIV2K_valid_HR/%4a.png --compile
 ```
 
 ## Learning rates
 
-Every model trains at one learning rate from {3e-1, 1e-1, 3e-2, 1e-2, 3e-3,
-1e-3, 3e-4, 1e-4}: the best on the task, with both of its neighbours on the
-grid measured. Images and volumes are chosen on all their signals by the mean
-PSNR or IoU, super-resolution on the three DIV2K training images by the mean
-gain over bicubic, radiance fields on lego's validation views (25 of them),
-never on test views. The benchmark's own rates rerun as the benchmark; each
-neighbour runs into `logs/tune-lr/<task>/<lr>/`, and a model whose neighbour
-wins moves one step further until both sides lose:
+Every model trains with PyTorch's default Adam at one learning rate from
+{3e-1, 1e-1, 3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4}, chosen on two or three
+signals per task (kodim01 and kodim17; Thai Statue and Dragon; the DIV2K
+training images 0395, 0431 and 0777; lego and drums on their validation
+views): a neighbour on the grid replaces a model's rate only if it beats it by
+more than 0.1 dB (0.02 IoU points) and loses on no signal by more, and a
+winner at the edge is tried one step further. The configs hold the chosen
+rates. To measure a neighbour, override the rate and send the runs elsewhere:
 
 ```bash
-# The image models with a neighbour at 1e-2, one Kodak image per array task:
-models=(WIRE TensoRF GA-Planes FUTON-sinc FUTON-lanczos)
-scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 --array=1-24 image \
-  --data data/Kodak/kodim%2a.png --models "${models[@]}" \
-  --set $(printf "models.%s.train.lr=1.0e-2 " "${models[@]}") --log-dir logs/tune-lr/image/1.0e-2
+scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 image --models SIREN \
+  --data data/Kodak/kodim01.png data/Kodak/kodim17.png \
+  --set models.SIREN.train.lr=3.0e-3 --log-dir logs/tune-lr/image/3.0e-3 --compile
 ```
-
-The radiance fields share one colour network, which by default learns at the
-density network's rate, so that a sine network's colour network learned at
-3e-4. `train.color_lr` gives it a rate of its own; each model is run at 3e-3,
-1e-2 and 3e-2 (and at its own rate where that is lower) before its density
-rate is tuned at the chosen colour rate.
 
 ## FUTON ablations
 
 Four studies on the image task, each a config in `configs/ablation-futon/`
 whose runs go to the folder of the same name in `logs/ablation-futon/`. All
-keep the benchmark's settings (24 Kodak images, 2000 epochs on 10% of the
-pixels, lr 3e-2), so only the model changes. The default model is the
-benchmark's FUTON: K = (H/2, W/2) components, CP rank 252 and a one-layer MLP
-decoder 128 wide (194,051 parameters); every variant has the same decoder unless
-the decoder is what varies.
+keep the benchmark's settings (24 Kodak images, 1000 steps on the whole
+image), so only the model changes. The default model is the benchmark's
+FUTON: K = (H/2, W/2) components, CP rank 280 and a one-layer MLP decoder 64
+wide (197,379 parameters); every variant has the same decoder unless the
+decoder is what varies, and the studies vary the sinc and the Lanczos basis.
 
 | Study | Models | What varies |
 | --- | --- | --- |
 | `basis` | `FUTON-<basis>`, 6 | cosine, lanczos, sinc, triangle, chebyshev and legendre, at the default size |
-| `components_rank` | `FUTON-<basis>-a<alpha>-b<beta>`, 50 | K = (alpha H, alpha W) and R = beta min(K), both over {1/8, 1/4, 1/2, 1, 2}, for lanczos and sinc |
-| `tensor_net` | `FUTON-<basis>`, `-TR` and `-Tucker`, 6 | tensor-ring and Tucker combiners against the default CP one, for lanczos and sinc |
-| `decoder` | `FUTON-<basis>`, `-w64`, `-w224` and `-linear`, 8 | the MLP's width (128, 64 and 224, as wide as its rank) and the paper's linear decoder, each at the largest rank within the budget |
+| `components_rank` | `FUTON-<basis>-a<alpha>-b<beta>`, 50 | K = (alpha H, alpha W) and R = beta min(K), both over {1/8, 1/4, 1/2, 1, 2} |
+| `tensor_net` | `FUTON-<basis>`, `-TR` and `-Tucker`, 6 | tensor-ring and Tucker combiners against the default CP one |
+| `decoder` | `FUTON-<basis>`, `-w128`, `-w256` and `-linear`, 8 | the MLP's width (64, 128 and 256) and the paper's linear decoder |
 
-A tensor ring of rank `r` feeds the decoder `r^2` features; rank 16 gives
-197,123 parameters, the closest to the CP model's 194,051, and Tucker of ranks
-`R_c = 0.161 K_c`, (41, 61) with a `41 x 61 x 61` core, 194,804. The decoder
-study keeps the image budget of 194,435 parameters: the 128-wide MLP holds
-32,771 of the benchmark's, 17% of the model, and a linear decoder returns them
-to the combiner as CP rank 302 (194,189 parameters), while MLPs 64 and 224 wide
-take ranks 275 and 224 (193,859 and 194,435). The CP models of `tensor_net` and
-`decoder` repeat those of `basis`, so that each study stands alone. One image per job keeps the jobs short:
+The variants take the largest rank within the image budget of 197,123
+parameters: tensor-ring rank 16 (180,483), Tucker ranks `R_c = 0.163 K_c`
+(196,135), and CP ranks 256, 218 and 306 behind the 128- and 256-wide MLPs and
+the linear decoder. The CP models of `tensor_net` and `decoder` repeat those
+of `basis`, so that each study stands alone. One image per array task:
 
 ```bash
-# Every run costs about 20 s on top of its training (data, model and LPIPS
-# set-up, evaluation), so the basis study takes close to two hours over the 24
-# images with its two slow polynomial bases, the other two about an hour.
 for study in basis tensor_net decoder; do
-  scripts/hpc/train.sh --clusters=accelgor --time=2:30:00 image --config configs/ablation-futon/$study.yaml
+  scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 --array=1-24 image \
+    --config configs/ablation-futon/$study.yaml --data data/Kodak/kodim%2a.png --compile
 done
-# The components grid holds models up to 5.5M parameters, so one image per task.
-scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 --array=1-24 image \
-  --config configs/ablation-futon/components_rank.yaml --data data/Kodak/kodim%2a.png
-scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 nerf \
-  --config configs/ablation-futon/components_nerf.yaml --data data/nerf/blender/lego
+# The components grid holds models up to 5.5M parameters.
+scripts/hpc/train.sh --clusters=accelgor --time=2:00:00 --array=1-24 image \
+  --config configs/ablation-futon/components_rank.yaml --data data/Kodak/kodim%2a.png --compile
 ```
 
 ## Error bound
@@ -101,7 +94,7 @@ page on the 24 Kodak images and the 5 occupancy volumes: in the sinc basis,
 at every spectral resolution and rank, it bounds the best error of FUTON
 with a linear decoder, builds the FUTON that attains the upper bound, and
 trains the same FUTON with Adam; then, on every signal at K = N/2 and one
-rank, it trains for five times the epochs and runs least squares on the
+rank, it trains for five times the steps and runs least squares on the
 whole grid. It records into `logs/bound/` and is resumable. One A100 does it
 all in about two hours, bound and Adam in the same job, so that the cost of
 the two is compared under the same conditions.
@@ -145,47 +138,11 @@ python scripts/report_paper.py          # -> results/, the paper's figures
 python scripts/report_paper.py --no-panels   # without the renders, which need a GPU
 ```
 
-Timings from the sweeps carry whatever else shared the node: Instant-NGP,
-eager then, trained 1.7x faster alone on a node, MFN and TensoRF-VM 1.2x, the
-rest within a few percent. So the sweeps give the accuracy and separate jobs
-give every cost. They retrain every model one at a time, compiled with
-`torch.compile` in a warm-up pass that keeps compilation out of the clock,
-into `logs/timing/<task>/`, which also cuts the kernel launches that made the
-eager models sensitive to their neighbours. Every timing job runs twice, the
-second into `repeat/`, on whatever nodes the scheduler picks, and the report
-keeps the faster run of each model and signal, since a neighbour can only add
-time. From those runs come the training times (all 24 images and 5 shapes,
-the lego and hotdog scenes, DIV2K 0801 and 0882) and, on one signal per task,
-the inference throughput and the peak memories: every evaluation records how
-long its reconstruction took and the most memory it allocated, and every
-training step its own peak.
-
-```bash
-common="--clusters=accelgor --gpus-per-node=1 --cpus-per-task=8 --chdir=$VSC_DATA/projects/neurofield --output=logs/slurm/%x-%j.out"
-venv="source $VSC_DATA/venvs/neurofield-env/bin/activate"
-for copy in "" /repeat; do
-  for part in 1 2 3 4; do  # six Kodak images each
-    images=$(for i in $(seq $((6 * part - 5)) $((6 * part))); do printf "data/Kodak/kodim%02d.png " $i; done)
-    sbatch $common --time=1:45:00 --job-name=nf-timing-image-$part --wrap \
-      "$venv && python scripts/train_image.py --data $images --compile --overwrite --log-dir logs/timing/image$copy"
-  done
-  sbatch $common --time=1:45:00 --job-name=nf-timing-occupancy --wrap \
-    "$venv && python scripts/train_occupancy.py --compile --overwrite --log-dir logs/timing/occupancy$copy"
-  for image in 0882 0801; do
-    sbatch $common --time=2:00:00 --job-name=nf-timing-super_resolution-$image --wrap \
-      "$venv && python scripts/train_super_resolution.py --data data/DIV2K/DIV2K_valid_HR/$image.png --compile --overwrite --log-dir logs/timing/super_resolution$copy"
-  done
-  # Each scene as two balanced model groups.
-  A="Instant-NGP Gauss GA-Planes FINER TensoRF-CP FUTON-lanczos FreSh"
-  B="MFN WIRE TensoRF-VM SIREN PE-MLP FUTON-sinc RFF F-INR"
-  for scene in lego hotdog; do
-    for group in A B; do
-      sbatch $common --time=1:45:00 --job-name=nf-timing-nerf-$scene-$group --wrap \
-        "$venv && python scripts/train_nerf.py --data data/nerf/blender/$scene --models ${!group} --compile --overwrite --log-dir logs/timing/nerf$copy"
-    done
-  done
-done
-```
+Costs come from the benchmark runs themselves: the training time counts the
+training steps alone, after a warm-up pass that compiles the model, every
+evaluation records how long it took and its peak memory, and every training
+step its own peak. Each cost in the tables is the median over a task's
+signals, which sets aside the runs slowed by other jobs on a shared node.
 
 `report_paper.py` writes everything the paper needs into `results/`, and
 nothing else. Per task, in `results/<task>/` so that each is a LaTeX

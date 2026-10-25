@@ -19,7 +19,7 @@ Coordinates must lie in $[-1, 1]$ on every axis. The coordinate datasets generat
 Pass `chunk_size` to `nf.train`, `nf.evaluate` or `nf.chunked_inference`; the occupancy benchmark evaluates $256^3$ volumes with `chunk_size=262144`. In `nf.nerf.train`, lower `num_rays` or `max_samples_per_ray`; in `nf.nerf.evaluate` and `render_image`, pass `chunk_size` (rays per pass).
 
 **CUDA out of memory during training.**
-Lower `subsample` (the fraction of coordinates per step); the benchmarks use 0.1 for images and 0.01 for volumes.
+Draw fewer coordinates per step with `subsample` (a fraction) or `max_samples` (a count); the benchmarks train on the whole image and on 262,144 voxels per step.
 
 ## Backends
 
