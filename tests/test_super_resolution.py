@@ -69,22 +69,45 @@ def test_blocks_downsample_to_the_low_resolution_pixels(task, image_pair):
     torch.testing.assert_close(fitted, batch["target"], atol=2 / 255, rtol=0)
 
 
-@pytest.mark.parametrize("hidden", [None, 128])
-def test_futon_rank_is_the_largest_within_the_budget(task, hidden):
-    for h, w, budget in ((339, 510, 500_000), (510, 510, 500_000), (64, 96, 20_000)):
-        rank = task.futon_rank(h, w, budget, hidden)
+@pytest.mark.parametrize("outputs", [1, 3])
+def test_futon_rank_is_the_largest_multiple_of_5_within_the_budget(task, outputs):
+    from train_common import futon_rank  # the fixture put the scripts on the path
+
+    for components, budget in (((339, 510), 500_006), ((69, 115, 59), 131_456)):
+        rank = futon_rank(components, budget, 64, outputs)
 
         def count(rank: int) -> int:
-            decoder = {"hidden_layers": 1}
-            if hidden is not None:
-                decoder["hidden_features"] = hidden
             model = nf.FUTON(
-                in_features=2,
-                out_features=3,
-                basis=("lanczos", {"num_components": (h, w), "radius": 3}),
+                in_features=len(components),
+                out_features=outputs,
+                basis=("lanczos", {"num_components": components, "radius": 3}),
                 combiner=("cp", {"rank": rank}),
-                decoder=("mlp", decoder),
+                decoder=("mlp", {"hidden_layers": 1, "hidden_features": 64}),
             )
             return nf.count_parameters(model)
 
-        assert count(rank) <= budget < count(rank + 1)
+        assert rank % 5 == 0
+        assert count(rank) <= budget < count(rank + 5)
+
+
+def test_prepare_fills_futon_rank_from_the_budget(task, image_pair):
+    path, _, _ = image_pair  # 32 x 48 pixels
+    entry = {
+        "class": "FUTON",
+        "budget": 20_000,
+        "kwargs": {
+            "basis": ["sinc", {"num_components": ["H // 4", "W // 4"]}],
+            "combiner": ["cp", {"rank": "budget"}],
+            "decoder": ["mlp", {"hidden_layers": 1, "hidden_features": 64}],
+        },
+    }
+    model = task.prepare(entry, path)
+    assert model["kwargs"]["basis"][1]["num_components"] == [8, 12]
+    # (20,000 - 64 - 64 * 3 - 3) // (8 + 12 + 64) = 235, a multiple of 5
+    assert model["kwargs"]["combiner"][1]["rank"] == 235
+    # a model without a budget, a baseline, passes through as it is
+    siren = {"class": "SIREN", "kwargs": {"hidden_features": "H // 2"}}
+    assert task.prepare(siren, path) == {
+        "class": "SIREN",
+        "kwargs": {"hidden_features": 16},
+    }

@@ -148,7 +148,7 @@ train_set = nf.nerf.BlenderDataset(root, split="train", downsample=4, skip=4)
 test_set = nf.nerf.BlenderDataset(root, split="test", downsample=4)
 
 field = nf.nerf.RadianceField(
-    (nf.FUTON, {"basis": ("sinc", {"num_components": 128}), "combiner": ("cp", {"rank": 150}),
+    (nf.FUTON, {"basis": ("sinc", {"num_components": 100}), "combiner": ("cp", {"rank": 180}),
                 "decoder": ("mlp", {"hidden_layers": 1, "hidden_features": 64})}),
     ("mlp", {"hidden_features": 64, "hidden_layers": 2}),
     aabb=train_set.aabb,

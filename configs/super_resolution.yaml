@@ -12,7 +12,10 @@
 #
 # Every model has about 500k parameters, close to the 519k values of a
 # 339 x 510 low-resolution image: each baseline is the smallest of its kind
-# that reaches the budget, and FUTON takes the largest CP rank within it.
+# that reaches 500,000, and FUTON, with one component per low-resolution pixel
+# along each axis and a one-layer MLP decoder 64 wide, takes the largest CP
+# rank, a multiple of 5, that keeps it smaller than every baseline (RFF,
+# 500,007): 545 on a 2040 x 1356 image (497,844).
 
 data:
   scale: 4
@@ -171,7 +174,7 @@ models:
 
   FUTON-sinc:
     class: FUTON
-    budget: 500000  # parameters; "budget" below is the largest rank within it
+    budget: 500006  # parameters; "budget" below is the largest rank within it
     kwargs:
       # one basis function per low-resolution pixel along each axis
       basis: [sinc, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
@@ -182,7 +185,7 @@ models:
 
   FUTON-cosine:
     class: FUTON
-    budget: 500000
+    budget: 500006
     kwargs:
       basis: [cosine, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
       combiner: [cp, {rank: budget}]

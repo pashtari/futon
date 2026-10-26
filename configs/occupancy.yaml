@@ -7,8 +7,10 @@
 # default Adam.
 #
 # Every model has about 131k parameters: each baseline is the smallest of its
-# kind that reaches 131,329, and FUTON has K = 128 components per axis, a
-# one-layer MLP decoder 64 wide and the largest CP rank within it, 292 (130,945).
+# kind that reaches 131,329, and FUTON, with K = N / 2 components per axis of
+# the cropped voxel grid and a one-layer MLP decoder 64 wide, takes the largest
+# CP rank, a multiple of 5, that keeps it smaller than every baseline
+# (TensoRF-CP, 131,457): 360 to 475 by shape (130,024 to 131,229).
 
 data:
   resolution: 256  # occupancy grid resolution
@@ -162,18 +164,21 @@ models:
 
   FUTON-sinc:
     class: FUTON
+    budget: 131456  # parameters; "budget" below is the largest rank within it
     kwargs:
-      basis: [sinc, {num_components: 128, grid_size: [D, H, W]}]  # the cropped voxel grid
-      combiner: [cp, {rank: 292}]
+      # half the cropped voxel grid along each axis
+      basis: [sinc, {num_components: [D // 2, H // 2, W // 2], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
     train: {lr: 3.0e-2}
 
   FUTON-cosine:
     class: FUTON
+    budget: 131456
     kwargs:
-      basis: [cosine, {num_components: 128, grid_size: [D, H, W]}]
-      combiner: [cp, {rank: 292}]
+      basis: [cosine, {num_components: [D // 2, H // 2, W // 2], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
     train: {lr: 3.0e-2}

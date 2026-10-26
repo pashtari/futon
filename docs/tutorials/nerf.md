@@ -25,8 +25,8 @@ test_set = nf.nerf.BlenderDataset(root, split="test", downsample=4)
 ```python
 field = nf.nerf.RadianceField(
     density_net=(nf.FUTON, {
-        "basis": ("sinc", {"num_components": 128}),
-        "combiner": ("cp", {"rank": 150}),
+        "basis": ("sinc", {"num_components": 100}),
+        "combiner": ("cp", {"rank": 180}),
         "decoder": ("mlp", {"hidden_layers": 1, "hidden_features": 64}),
     }),
     color_net=("mlp", {"hidden_features": 64, "hidden_layers": 2}),

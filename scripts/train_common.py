@@ -65,6 +65,37 @@ def resolve(value: Any, **sizes: int) -> Any:
     return value
 
 
+def futon_rank(
+    components: Sequence[int], budget: int, hidden: int, outputs: int
+) -> int:
+    """The largest CP rank, a multiple of 5, at which FUTON has at most ``budget``
+    parameters.
+
+    Rank ``R`` costs ``R * sum(components)`` factor entries and ``R * hidden`` in
+    a decoder of one hidden layer of width ``hidden``, whose bias and output
+    layer add ``hidden + hidden * outputs + outputs``.
+    """
+    rank = (budget - hidden - hidden * outputs - outputs) // (sum(components) + hidden)
+    return rank // 5 * 5
+
+
+def fill_rank(model: dict[str, Any], outputs: int) -> dict[str, Any]:
+    """A resolved FUTON entry whose ``rank: budget`` takes the rank of its
+    ``budget``; any other entry as it is."""
+    if "budget" not in model:
+        return model
+    combiner, settings = model["kwargs"]["combiner"]
+    if settings.get("rank") != "budget":
+        return model
+    _, basis = model["kwargs"]["basis"]
+    _, decoder = model["kwargs"]["decoder"]
+    rank = futon_rank(
+        basis["num_components"], model["budget"], decoder["hidden_features"], outputs
+    )
+    kwargs = {**model["kwargs"], "combiner": [combiner, {**settings, "rank": rank}]}
+    return {**model, "kwargs": kwargs}
+
+
 def default_log_dir(config: Path) -> Path:
     """``logs/<name>`` for ``configs/<name>.yaml``, so each config's runs stay apart."""
     config, configs = config.resolve(), ROOT / "configs"

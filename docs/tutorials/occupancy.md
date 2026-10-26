@@ -22,19 +22,21 @@ At 256 samples per unit length a volume, cropped to the shape's bounds, holds 2 
 
 ## Model
 
-The benchmark FUTON uses 128 components per axis, a one-layer MLP decoder 64 wide and the largest CP rank within the budget of 131,329 parameters, 292, for 130,945:
+The benchmark FUTON uses half the voxels along each axis of the cropped grid, a one-layer MLP decoder 64 wide, and the largest CP rank, a multiple of 5, that keeps it smaller than every baseline, the smallest of which has 131,457 parameters. Rank $R$ costs $R$ times the components plus the width, and the decoder adds $2 \cdot 64 + 1$, so the Thai statue's $138 \times 231 \times 119$ grid gets 425, for 130,604 parameters:
 
 ```python
+components = [size // 2 for size in eval_set.grid_size]
+rank = (131_456 - 129) // (sum(components) + 64) // 5 * 5
 model = nf.FUTON(
     3, 1,
-    basis=("sinc", {"num_components": 128, "grid_size": eval_set.grid_size}),
-    combiner=("cp", {"rank": 292}),
+    basis=("sinc", {"num_components": components, "grid_size": eval_set.grid_size}),
+    combiner=("cp", {"rank": rank}),
     decoder=("mlp", {"hidden_layers": 1, "hidden_features": 64}),
     output_activation=torch.tanh,
 )
 ```
 
-The cosine variant replaces the basis with `("cosine", {"num_components": 128, "grid_size": eval_set.grid_size})`. On the voxel grid, which `grid_size` declares and which the crop sizes differently for every shape, either basis is evaluated once, when it is built, and each point reads its rows.
+The cosine variant replaces the basis with `("cosine", {"num_components": components, "grid_size": eval_set.grid_size})`. On the voxel grid, which `grid_size` declares and which the crop sizes differently for every shape, either basis is evaluated once, when it is built, and each point reads its rows.
 
 ## Training and evaluation
 

@@ -16,7 +16,6 @@ Usage:
     python scripts/train_super_resolution.py --data data/DIV2K/DIV2K_valid_HR/0882.png --models Bicubic FUTON-sinc
 """
 
-import math
 import time
 from collections.abc import Callable, Sequence
 from functools import partial
@@ -28,7 +27,17 @@ import torch.nn.functional as F
 from PIL import Image
 from torch import Tensor, nn
 from torchvision.transforms.functional import pil_to_tensor
-from train_common import ROOT, build, fresh, on_grid, record, resolve, run, warm_up
+from train_common import (
+    ROOT,
+    build,
+    fill_rank,
+    fresh,
+    on_grid,
+    record,
+    resolve,
+    run,
+    warm_up,
+)
 
 import neurofield as nf
 
@@ -195,32 +204,10 @@ def interpolate(
     return record({"config": {"num_params": 0}, "history": history}, model, evaluation)
 
 
-def futon_rank(h: int, w: int, budget: int, hidden: int | None = None) -> int:
-    """The largest CP rank at which FUTON has at most ``budget`` parameters.
-
-    Rank ``R`` costs ``R * (h + w)`` factor entries and a decoder of one hidden
-    layer of width ``H``, ``R * H + H`` for it and ``3 * H + 3`` for the output
-    layer, where ``H`` is ``hidden`` if given and ``R`` otherwise.
-    """
-    if hidden is not None:
-        return (budget - 4 * hidden - 3) // (h + w + hidden)
-    b = h + w + 4
-    return int((math.sqrt(b * b + 4 * (budget - 3)) - b) / 2)
-
-
 def prepare(model: dict, path: Path) -> dict[str, Any]:
     """Fill in the HR height H and width W, and FUTON's rank from its budget."""
     width, height = Image.open(path).size
-    model = resolve(model, H=height, W=width)
-    if "budget" in model:
-        name, options = model["kwargs"]["basis"]
-        combiner, settings = model["kwargs"]["combiner"]
-        if settings.get("rank") == "budget":
-            _, decoder = model["kwargs"]["decoder"]
-            hidden = decoder.get("hidden_features")
-            rank = futon_rank(*options["num_components"], model["budget"], hidden)
-            model["kwargs"]["combiner"] = [combiner, {**settings, "rank": rank}]
-    return model
+    return fill_rank(resolve(model, H=height, W=width), outputs=3)
 
 
 def fit(
