@@ -35,13 +35,17 @@ Writes results/, which holds the paper's figures and tables and nothing else:
                                      recomposing a figure needs no GPU
     ablation/basis.{tex,md,pdf,pgf}  every basis at the benchmark's size, as a
                                      table and as PSNR against training time
-    ablation/combiner.{tex,md,pdf,pgf}  the tensor-ring combiner against CP,
-                                     for both bases, likewise
+    ablation/combiner.{tex,md,pdf,pgf}  the tensor-ring and Tucker combiners
+                                     against CP, for both bases, likewise
     ablation/decoder.{tex,md,pdf,pgf}  the MLP decoder's width and the
                                      linear decoder, likewise
     ablation/rank_<basis>.{pdf,pgf}  PSNR against the rank fraction at each
                                      component fraction, and components_<basis>
                                      the reverse, for the fractions 1/4 to 2
+    ablation/components_width.{pdf,pgf}  every components-width configuration's
+                                     quality against its training time, a panel
+                                     per task, and components_width_<task>.{tex,md}
+                                     the table of each task, with its memory
     bound/gap.{pdf,pgf}              the error bound of FUTON with a linear
                                      decoder, from scripts/futon_bound.py: PSNR
                                      above Adam's at K = N/2 per rank, of the
@@ -117,8 +121,8 @@ from matplotlib.ticker import (
 )
 from PIL import Image
 from futon_bound import CHECKS, LONGER, STEPS, SWEEPS, of_basis, psnr
-from train_common import ROOT, build, merge, resolve
-from train_super_resolution import INTERPOLATIONS, low_resolution
+from train_common import ROOT, build, fill_rank, merge, resolve
+from train_super_resolution import INTERPOLATIONS, interpolate, low_resolution, prepare
 
 import neurofield as nf
 
@@ -383,8 +387,33 @@ CURVES = {
 
 # The bottom of a study's PSNR axis where the range the converged values set
 # would cut a slow model's rise: the Tucker combiners pass 32 dB only after
-# 4.5 s, and 34 dB after 7 s.
+# about 10 s, and 34 dB after 14 s.
 FLOORS = {"tensor_net": 32}
+# The components study on every task (components_width_<task>.yaml): K = N/L
+# components per axis against the decoder's width, at the rank that fills the
+# budget. A level's colour, a width's marker size; sinc filled and solid,
+# cosine open and dashed; a ring around the benchmark's model. Super-resolution
+# runs on its three tuning images, and its levels above the low-resolution
+# grid fall far below bicubic, under the axis.
+WIDTH_STUDY = "components_width"
+WIDTH_NAME = re.compile(r"FUTON-(?P<basis>sinc|cosine)-N(?P<level>\d)-w(?P<width>\d+)$")
+LEVELS = {
+    8: ("N/8", PALETTE[3]),
+    4: ("N/4", PALETTE[2]),
+    2: ("N/2", PALETTE[0]),
+    1: ("N", PALETTE[1]),
+}
+WIDTHS = (16, 32, 64, 128, 256)
+MARKERS = dict(zip(WIDTHS, (3.0, 6.0, 10.0, 16.0, 24.0)))  # marker areas, pt^2
+BENCHMARK_LEVEL = {"super_resolution": 4}  # N/2 elsewhere
+QUALITY = {
+    "image": "psnr",
+    "occupancy": "iou",
+    "nerf": "psnr",
+    "super_resolution": "psnr",
+}
+TITLES = {"image": "Images", "occupancy": "Volumes", "nerf": "Radiance fields",
+          "super_resolution": "Super-resolution"}  # fmt: skip
 
 # The error bound of FUTON with a linear decoder against FUTONs trained by Adam
 # (scripts/futon_bound.py): the datasets its figures and tables report, and the
@@ -538,10 +567,19 @@ def curves(runs: list[dict[str, Any]]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def signal_path(task: str, signal: str) -> Path:
+    """Where one of a task's signals lives; super-resolution's tuning images
+    are DIV2K training images."""
+    path = ROOT / SIGNALS[task].format(signal)
+    if task == "super_resolution" and not path.exists():
+        path = ROOT / SIGNALS[task].replace("valid", "train").format(signal)
+    return path
+
+
 @cache
 def points(task: str, signal: str) -> int:
     """The pixels or voxels of one of the task's signals."""
-    path = ROOT / SIGNALS[task].format(signal)
+    path = signal_path(task, signal)
     if task == "occupancy":
         data = yaml.safe_load((ROOT / "configs" / "occupancy.yaml").read_text())
         return math.prod(nf.OccupancyCoordinateDataset(path, **data["data"]).grid_size)
@@ -1157,11 +1195,11 @@ def render_occupancy(signal: str, runs: list[dict], directory: Path, device) -> 
     up = UP.get(signal, 1)
     dataset.save(dataset.original, directory / "truth", up=up, mesh=False)
     for run in runs:
-        # Sizes such as a basis's grid_size, [D, H, W], follow the cropped volume.
+        # Sizes such as a basis's grid_size, [D, H, W], follow the cropped
+        # volume, and so does the rank that fills FUTON's budget.
         sizes = dict(zip("DHW", dataset.grid_size))
-        model = load_model(
-            {**run, "setup": resolve(run["setup"], **sizes)}, 3, 1, device
-        )
+        setup = fill_rank(resolve(run["setup"], **sizes), outputs=1)
+        model = load_model({**run, "setup": setup}, 3, 1, device)
         output = nf.chunked_inference(
             model, dataset.input, chunk_size=512**2, device=device
         )
@@ -1961,6 +1999,158 @@ def ablation(out_dir: Path) -> None:
                 out_dir / OUTPUTS.get(name, name),
                 FLOORS.get(name),
             )
+    components_width(out_dir)
+
+
+def width_runs(task: str) -> list[dict]:
+    """A task's runs of the components-width study whose setup matches its config."""
+    name = f"{WIDTH_STUDY}_{task}"
+    log_dir = ROOT / "logs" / "ablation-futon" / name
+    if not log_dir.exists():
+        return []
+    config = ROOT / "configs" / "ablation-futon" / f"{name}.yaml"
+    setups = yaml.safe_load(config.read_text())["models"]
+
+    def expected(run: dict) -> dict | None:
+        setup = setups.get(run["model"])
+        if setup is None or task not in ("image", "super_resolution"):
+            return setup  # volumes and radiance fields record it as written
+        if task == "image":
+            return resolve_setup(setup, run)
+        return prepare(setup, signal_path(task, run["data"]))
+
+    return [run for run in read(log_dir, task) if expected(run) == run["setup"]]
+
+
+def width_frame(task: str) -> pd.DataFrame:
+    """One row per run of the components-width study: quality, costs and its
+    basis, level and width."""
+    runs = width_runs(task)
+    if not runs:
+        return pd.DataFrame()
+    frame = results(runs).merge(costs(runs, task), on=["signal", "model"])
+    frame = frame.join(frame["model"].str.extract(WIDTH_NAME))
+    frame[["level", "width"]] = frame[["level", "width"]].astype(int)
+    return frame
+
+
+def bicubic_level(signals: Sequence[str]) -> float:
+    """Bicubic interpolation's mean PSNR on super-resolution images."""
+    model = {"interpolation": "bicubic"}
+    scores = [
+        interpolate(model, signal_path("super_resolution", signal), 4, "cpu")
+        for signal in signals
+    ]
+    return float(np.mean([score["metrics"]["psnr"] for score in scores]))
+
+
+def width_figure(frames: dict[str, pd.DataFrame]) -> plt.Figure:
+    """Every configuration's mean quality against its median training time, a
+    panel per task."""
+    tasks = [task for task in TASKS if not frames[task].empty]
+    figure, axes = plt.subplots(
+        1, len(tasks), figsize=(WIDTH, SIZE[1] + LEGEND_ROW), layout="constrained"
+    )
+    for plot, task in zip(np.atleast_1d(axes), tasks):
+        frame, metric = frames[task], QUALITY[task]
+        means = (
+            frame.groupby(["basis", "level", "width"])
+            .agg(time=("time", "median"), value=(metric, "mean"))
+            .reset_index()
+        )
+        if task == "super_resolution":
+            level = bicubic_level(sorted(frame["signal"].unique()))
+            plot.axhline(level, color="0.4", ls=":", lw=0.8, zorder=0)
+            plot.annotate("bicubic", (0.98, level), xycoords=("axes fraction", "data"),
+                          xytext=(0, 1.5), textcoords="offset points", ha="right",
+                          va="bottom", fontsize=LABEL_FLOOR, color="0.4")  # fmt: skip
+            means = means[means["value"] > level - 2]  # the levels that work
+        for (basis, level), rows in means.groupby(["basis", "level"]):
+            rows = rows.sort_values("width")
+            color, sinc = LEVELS[level][1], basis == "sinc"
+            plot.plot(rows["time"], rows["value"], color=color, lw=0.7,
+                      ls="-" if sinc else (0, (3, 1.5)), zorder=1)  # fmt: skip
+            plot.scatter(rows["time"], rows["value"],
+                         s=[MARKERS[width] for width in rows["width"]],
+                         facecolor=color if sinc else "white", edgecolor=color,
+                         lw=0.7, zorder=2, clip_on=False)  # fmt: skip
+        benchmark = means[
+            (means["level"] == BENCHMARK_LEVEL.get(task, 2)) & (means["width"] == 64)
+        ]
+        plot.scatter(benchmark["time"], benchmark["value"], s=70, facecolor="none",
+                     edgecolor="0.15", lw=0.8, zorder=3, clip_on=False)  # fmt: skip
+        # Whole decibels or half points, rounded outward past every marker.
+        quality_ticks(plot, metric, means["value"].min(), means["value"].max())
+        if task != "nerf":  # NeRF's times lie within a few percent
+            plot.set_xscale("log")
+            log_ticks(plot.xaxis)
+        plot.set(xlabel="Training time (s)", ylabel=METRICS[metric][0],
+                 title=TITLES[task])  # fmt: skip
+    handles = [
+        Line2D([], [], color=color, marker="o", ls="", markersize=3.5, label=f"K = {name}")
+        for level, (name, color) in LEVELS.items()
+        if any(level in frames[task]["level"].values for task in tasks)
+    ] + [
+        Line2D([], [], color="0.3", marker="o", markersize=3.5, label="sinc"),
+        Line2D([], [], color="0.3", marker="o", markersize=3.5,
+               markerfacecolor="white", ls=(0, (3, 1.5)), label="cosine"),
+        Line2D([], [], color="0.15", marker="o", markersize=7, markerfacecolor="none",
+               ls="", label="benchmark's FUTON"),
+    ]  # fmt: skip
+    figure.legend(handles=handles, loc="outside lower center", ncol=len(handles),
+                  frameon=False, columnspacing=1.0, handletextpad=0.4)  # fmt: skip
+    return figure
+
+
+def width_table(frame: pd.DataFrame, task: str) -> dict[str, str]:
+    """A task's configurations of the components-width study, both bases."""
+    metric = QUALITY[task]
+    name, decimals = METRICS[metric][0], METRICS[metric][3]
+    frame = frame.assign(row=[f"{LEVELS[level][0]}, {width} wide"
+                              for level, width in zip(frame["level"], frame["width"])])  # fmt: skip
+    # The basis changes the values in FUTON's tables, not their sizes, so one
+    # memory column serves both bases.
+    memory = frame.groupby("row")["train_memory"].median()
+    unit, factor, digits = memory_unit(memory)
+    spec = {
+        "parameters": PARAMS,
+        "memory": ("", f"Training memory ({unit})", False, digits),
+    }
+    values = {row: {"memory": peak * factor} for row, peak in memory.items()}
+    errors = {}
+    for basis in PAIR:
+        group = display_name(f"FUTON-{basis}")
+        spec[f"time_{basis}"] = (group, "Training time (s)", False, 1)
+        spec[f"{metric}_{basis}"] = (group, name, True, decimals)
+        part = frame[frame["basis"] == basis].assign(model=lambda f: f["row"])
+        summary = part.groupby("model").agg(
+            parameters=("parameters", "median"),
+            time=("time", "median"),
+            value=(metric, "mean"),
+        )
+        summary["error"] = paired_error(part, (metric,))[("mean", metric)]
+        for row, entry in summary.iterrows():
+            values.setdefault(row, {})["parameters"] = entry["parameters"]
+            values[row][f"time_{basis}"] = entry["time"]
+            values[row][f"{metric}_{basis}"] = entry["value"]
+            errors.setdefault(row, {})[f"{metric}_{basis}"] = entry["error"]
+    order = [
+        f"{LEVELS[level][0]}, {width} wide" for level in LEVELS for width in WIDTHS
+    ]
+    return table(pd.DataFrame(values).T, spec, pd.DataFrame(errors).T, order=order,
+                 index="Components, decoder")  # fmt: skip
+
+
+def components_width(out_dir: Path) -> None:
+    """The components-width study's figure and its table per task."""
+    frames = {task: width_frame(task) for task in TASKS}
+    found = {task: len(frame) for task, frame in frames.items() if not frame.empty}
+    print(f"ablation: components_width runs {found}")
+    if not found:
+        return
+    save(width_figure(frames), out_dir / WIDTH_STUDY)
+    for task in found:
+        write(width_table(frames[task], task), out_dir / f"{WIDTH_STUDY}_{task}")
 
 
 def resolution(alpha: float) -> str:
