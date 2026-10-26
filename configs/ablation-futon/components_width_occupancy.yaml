@@ -1,0 +1,322 @@
+# FUTON ablation on the occupancy task: the components per axis, K = N/L for L
+# in {4, 2, 1}, against the width of the one-layer MLP decoder, 16 to 256, each
+# at the largest CP rank, a multiple of 5, that keeps FUTON smaller than every
+# baseline (TensoRF-CP, 131,457), for the sinc and the cosine basis at their
+# benchmark rates. N is the cropped voxel grid of the shape. Model names carry
+# L and the width: FUTON-sinc-N2-w64 is the benchmark's model.
+#     python scripts/train_occupancy.py \
+#       --config configs/ablation-futon/components_width_occupancy.yaml
+# The data and training settings repeat configs/occupancy.yaml.
+
+data:
+  resolution: 256  # occupancy grid resolution
+  subsample: 1.0
+  max_samples: 262144  # 2^18 random voxels per step, for every shape
+
+train:
+  num_steps: 1000
+  log_interval: 50
+  eval_interval: 50
+  chunk_size: 262144  # voxels per evaluation forward pass
+  seed: 0
+
+models:
+  FUTON-sinc-N4-w16:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 4, H // 4, W // 4], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 16}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N4-w32:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 4, H // 4, W // 4], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 32}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N4-w64:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 4, H // 4, W // 4], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N4-w128:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 4, H // 4, W // 4], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N4-w256:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 4, H // 4, W // 4], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 256}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N2-w16:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 2, H // 2, W // 2], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 16}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N2-w32:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 2, H // 2, W // 2], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 32}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N2-w64:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 2, H // 2, W // 2], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N2-w128:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 2, H // 2, W // 2], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N2-w256:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 2, H // 2, W // 2], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 256}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N1-w16:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 1, H // 1, W // 1], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 16}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N1-w32:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 1, H // 1, W // 1], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 32}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N1-w64:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 1, H // 1, W // 1], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N1-w128:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 1, H // 1, W // 1], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-sinc-N1-w256:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [sinc, {num_components: [D // 1, H // 1, W // 1], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 256}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N4-w16:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 4, H // 4, W // 4], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 16}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N4-w32:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 4, H // 4, W // 4], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 32}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N4-w64:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 4, H // 4, W // 4], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N4-w128:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 4, H // 4, W // 4], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N4-w256:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 4, H // 4, W // 4], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 256}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N2-w16:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 2, H // 2, W // 2], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 16}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N2-w32:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 2, H // 2, W // 2], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 32}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N2-w64:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 2, H // 2, W // 2], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N2-w128:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 2, H // 2, W // 2], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N2-w256:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 2, H // 2, W // 2], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 256}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N1-w16:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 1, H // 1, W // 1], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 16}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N1-w32:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 1, H // 1, W // 1], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 32}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N1-w64:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 1, H // 1, W // 1], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N1-w128:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 1, H // 1, W // 1], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}
+
+  FUTON-cosine-N1-w256:
+    class: FUTON
+    budget: 131456
+    kwargs:
+      basis: [cosine, {num_components: [D // 1, H // 1, W // 1], grid_size: [D, H, W]}]
+      combiner: [cp, {rank: budget}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 256}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}

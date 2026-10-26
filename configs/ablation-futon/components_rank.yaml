@@ -2,7 +2,7 @@
 # the image. The components per axis are a fraction alpha of the pixels,
 # K = (alpha H, alpha W), and the rank a fraction beta of the smaller count,
 # R = beta min(K_1, K_2), both over {1/8, 1/4, 1/2, 1, 2}, for the sinc and the
-# Lanczos basis and the benchmark's one-layer MLP decoder 64 wide. Model names
+# cosine basis and the benchmark's one-layer MLP decoder 64 wide. Model names
 # carry alpha and beta as decimals: FUTON-sinc-a0.5-b1 has K = (H / 2, W / 2)
 # and R = H / 2.
 #     python scripts/train_image.py --config configs/ablation-futon/components_rank.yaml
@@ -18,230 +18,230 @@ train:
   seed: 0
 
 models:
-  FUTON-lanczos-a0.125-b0.125:
+  FUTON-cosine-a0.125-b0.125:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 8, W // 8], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 8, W // 8], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 64"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.125-b0.25:
+  FUTON-cosine-a0.125-b0.25:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 8, W // 8], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 8, W // 8], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 32"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.125-b0.5:
+  FUTON-cosine-a0.125-b0.5:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 8, W // 8], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 8, W // 8], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 16"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.125-b1:
+  FUTON-cosine-a0.125-b1:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 8, W // 8], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 8, W // 8], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 8"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.125-b2:
+  FUTON-cosine-a0.125-b2:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 8, W // 8], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 8, W // 8], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.25-b0.125:
+  FUTON-cosine-a0.25-b0.125:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 4, W // 4], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 32"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.25-b0.25:
+  FUTON-cosine-a0.25-b0.25:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 4, W // 4], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 16"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.25-b0.5:
+  FUTON-cosine-a0.25-b0.5:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 4, W // 4], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 8"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.25-b1:
+  FUTON-cosine-a0.25-b1:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 4, W // 4], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.25-b2:
+  FUTON-cosine-a0.25-b2:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 4, W // 4], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 2"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.5-b0.125:
+  FUTON-cosine-a0.5-b0.125:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 16"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.5-b0.25:
+  FUTON-cosine-a0.5-b0.25:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 8"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.5-b0.5:
+  FUTON-cosine-a0.5-b0.5:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.5-b1:
+  FUTON-cosine-a0.5-b1:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 2"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a0.5-b2:
+  FUTON-cosine-a0.5-b2:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H // 2, W // 2], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a1-b0.125:
+  FUTON-cosine-a1-b0.125:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H, W], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H, W], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 8"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a1-b0.25:
+  FUTON-cosine-a1-b0.25:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H, W], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H, W], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a1-b0.5:
+  FUTON-cosine-a1-b0.5:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H, W], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H, W], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 2"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a1-b1:
+  FUTON-cosine-a1-b1:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H, W], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H, W], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a1-b2:
+  FUTON-cosine-a1-b2:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [H, W], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [H, W], grid_size: [H, W]}]
       combiner: [cp, {rank: "2 * min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a2-b0.125:
+  FUTON-cosine-a2-b0.125:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [2 * H, 2 * W], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [2 * H, 2 * W], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 4"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a2-b0.25:
+  FUTON-cosine-a2-b0.25:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [2 * H, 2 * W], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [2 * H, 2 * W], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W) // 2"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a2-b0.5:
+  FUTON-cosine-a2-b0.5:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [2 * H, 2 * W], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [2 * H, 2 * W], grid_size: [H, W]}]
       combiner: [cp, {rank: "min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a2-b1:
+  FUTON-cosine-a2-b1:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [2 * H, 2 * W], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [2 * H, 2 * W], grid_size: [H, W]}]
       combiner: [cp, {rank: "2 * min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
-  FUTON-lanczos-a2-b2:
+  FUTON-cosine-a2-b2:
     class: FUTON
     kwargs:
-      basis: [lanczos, {num_components: [2 * H, 2 * W], radius: 3, grid_size: [H, W]}]
+      basis: [cosine, {num_components: [2 * H, 2 * W], grid_size: [H, W]}]
       combiner: [cp, {rank: "4 * min(H, W)"}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
-    train: {lr: 3.0e-2}
+    train: {lr: 1.0e-1}
 
   FUTON-sinc-a0.125-b0.125:
     class: FUTON

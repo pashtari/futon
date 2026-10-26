@@ -116,7 +116,7 @@ from matplotlib.ticker import (
     StrMethodFormatter,
 )
 from PIL import Image
-from futon_bound import CHECKS, LONGER, STEPS, SWEEPS, psnr, sinc_only
+from futon_bound import CHECKS, LONGER, STEPS, SWEEPS, of_basis, psnr
 from train_common import ROOT, build, merge, resolve
 from train_super_resolution import INTERPOLATIONS, low_resolution
 
@@ -311,7 +311,7 @@ UNITS = {"psnr": "{:.2f} dB", "iou": "{:.2f}%"}
 
 # The FUTON ablations, all on the image task: the bases from the smoothest to
 # the most local, and the variants of the two stages after the basis, both for
-# a basis that spans the axis, sinc, and a local one, Lanczos. The components
+# the benchmark's two bases, sinc and cosine. The components
 # study sets the components per axis as a fraction alpha of the pixels and the
 # rank as a fraction beta of the smaller count, both named as decimals in the
 # model's name.
@@ -324,7 +324,7 @@ FIGURES = {"alpha": "components", "beta": "rank"}
 GRID = re.compile(r"FUTON-(?P<basis>\w+)-a(?P<alpha>[\d.]+)-b(?P<beta>[\d.]+)$")
 FRACTIONS = {0.125: "1/8", 0.25: "1/4", 0.5: "1/2", 1.0: "1", 2.0: "2"}
 BASES = ("Cosine", "Chebyshev", "Legendre", "Triangle", "Lanczos", "Sinc")
-PAIR = ("sinc", "lanczos")
+PAIR = ("sinc", "cosine")
 # Per study, its table's rows and the model each stands for, with the basis to
 # fill in; the benchmark's model heads both.
 COMBINERS = {
@@ -334,9 +334,9 @@ COMBINERS = {
 }
 DECODERS = {
     "MLP, 64 wide (R = 280)": "FUTON-{basis}",
-    "MLP, 128 wide (R = 256)": "FUTON-{basis}-w128",
-    "MLP, 256 wide (R = 218)": "FUTON-{basis}-w256",
-    "Linear (R = 306)": "FUTON-{basis}-linear",
+    "MLP, 128 wide (R = 255)": "FUTON-{basis}-w128",
+    "MLP, 256 wide (R = 220)": "FUTON-{basis}-w256",
+    "Linear (R = 305)": "FUTON-{basis}-linear",
 }
 # The fractions the grid figures draw: the 1/8 level only compresses the axis.
 SHOWN = (0.25, 0.5, 1.0, 2.0)
@@ -363,21 +363,21 @@ CURVES = {
     },
     "tensor_net": {
         "FUTON-sinc": ("CP, sinc", PALETTE[0], DASHES[0]),
-        "FUTON-lanczos": ("CP, Lanczos", PALETTE[0], DASHES[1]),
+        "FUTON-cosine": ("CP, cosine", PALETTE[0], DASHES[1]),
         "FUTON-sinc-TR": ("TR, sinc", PALETTE[2], DASHES[0]),
-        "FUTON-lanczos-TR": ("TR, Lanczos", PALETTE[2], DASHES[1]),
+        "FUTON-cosine-TR": ("TR, cosine", PALETTE[2], DASHES[1]),
         "FUTON-sinc-Tucker": ("Tucker, sinc", PALETTE[3], DASHES[0]),
-        "FUTON-lanczos-Tucker": ("Tucker, Lanczos", PALETTE[3], DASHES[1]),
+        "FUTON-cosine-Tucker": ("Tucker, cosine", PALETTE[3], DASHES[1]),
     },
     "decoder": {
         "FUTON-sinc": ("MLP 64, sinc", PALETTE[0], DASHES[0]),
-        "FUTON-lanczos": ("MLP 64, Lanczos", PALETTE[0], DASHES[1]),
+        "FUTON-cosine": ("MLP 64, cosine", PALETTE[0], DASHES[1]),
         "FUTON-sinc-w128": ("MLP 128, sinc", PALETTE[2], DASHES[0]),
-        "FUTON-lanczos-w128": ("MLP 128, Lanczos", PALETTE[2], DASHES[1]),
+        "FUTON-cosine-w128": ("MLP 128, cosine", PALETTE[2], DASHES[1]),
         "FUTON-sinc-w256": ("MLP 256, sinc", PALETTE[3], DASHES[0]),
-        "FUTON-lanczos-w256": ("MLP 256, Lanczos", PALETTE[3], DASHES[1]),
+        "FUTON-cosine-w256": ("MLP 256, cosine", PALETTE[3], DASHES[1]),
         "FUTON-sinc-linear": ("Linear, sinc", PALETTE[1], DASHES[0]),
-        "FUTON-lanczos-linear": ("Linear, Lanczos", PALETTE[1], DASHES[1]),
+        "FUTON-cosine-linear": ("Linear, cosine", PALETTE[1], DASHES[1]),
     },
 }
 
@@ -1969,14 +1969,12 @@ def resolution(alpha: float) -> str:
 
 
 def bound_records(task: str) -> pd.DataFrame:
-    """Every recorded sinc setting of the error bound on a task, one row each,
-    with PSNRs."""
+    """Every recorded setting of the error bound on a task, in the study's basis,
+    one row each, with PSNRs."""
     rows = []
     for path in sorted((ROOT / "logs" / "bound" / task).glob("*.json")):
         record = json.loads(path.read_text())
-        rows += [
-            {"signal": record["signal"], **c} for c in sinc_only(record["configs"])
-        ]
+        rows += [{"signal": record["signal"], **c} for c in of_basis(record["configs"])]
     frame = pd.DataFrame(rows).drop(columns="basis", errors="ignore")
     for key in ("truncation", "lower", "upper", "certified", "adam", "closed"):
         if key in frame:
@@ -2246,7 +2244,7 @@ def bound_tables(
         path = ROOT / "logs" / "bound" / f"{task}_checks.json"
         if not path.exists():
             continue
-        runs = pd.DataFrame(json.loads(path.read_text()))
+        runs = pd.DataFrame(of_basis(json.loads(path.read_text())))
         setting = frame[(frame["alpha"] == 0.5) & (frame["R"] == CHECKS[task])]
         runs["adam"] = runs["signal"].map(setting.set_index("signal")["adam"])
         long = runs.melt(id_vars="signal", value_vars=methods, var_name="model")

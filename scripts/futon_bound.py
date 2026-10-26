@@ -6,7 +6,7 @@ Usage:
     python scripts/report_paper.py --tasks bound   # then the figures and tables
 
 For every signal, spectral resolution K = (alpha N_1, ..., alpha N_C) and CP
-rank R, the script bounds the best grid error of the paper's FUTON, a sinc
+rank R, the script bounds the best grid error of the paper's FUTON, a cosine
 basis, a CP combiner and a linear decoder without bias (``nf.futon_bound``);
 evaluates the certified FUTON, which attains the upper bound and is built
 from the bound's factors without training, in its ALS form, the default, and
@@ -48,17 +48,22 @@ TASKS = {
         "alphas": (0.125, 0.25, 0.5, 1.0),
         "ranks": (32, 64, 128, 256),
         "data": {},  # the whole image at every step, as configs/image.yaml
+        "lr": 1e-1,
     },
     "occupancy": {
         "signals": ["armadillo", "dragon", "happy_buddha", "lucy", "thai_statue"],
         "alphas": (0.125, 0.25, 0.5, 1.0),
         "ranks": (32, 64, 128, 256),
         "data": {"max_samples": 262144},  # as configs/occupancy.yaml
+        "lr": 3e-1,
     },
 }
-# The benchmark's 1000 steps at its batches, at the rate that was best of the
-# grid at K = N/2 and the checked ranks on two signals per task.
-STEPS, LR = 1000, 1e-1
+# The paper's basis. Records carry it, so that settings of another basis, which
+# earlier studies ran, are never mistaken for its own.
+BASIS = "cosine"
+# The benchmark's 1000 steps at its batches, at each task's "lr" above: the best
+# rate of the grid at K = N/2 and the checked ranks on two signals per task.
+STEPS = 1000
 # The optimizer checks at K = N/2 and the middle rank of each task: Adam for
 # LONGER times the steps, and alternating least squares on the whole grid,
 # read after each number of SWEEPS.
@@ -81,10 +86,10 @@ def dataset(task: str, name: str, **data):
 
 
 def futon(sizes: list[int], channels: int, alpha: float, rank: int) -> nf.FUTON:
-    """The paper's FUTON with the benchmark's sinc basis: a CP combiner and a
-    linear decoder, no bias."""
+    """The paper's FUTON: the cosine basis, a CP combiner and a linear decoder,
+    no bias."""
     components = [max(2, int(alpha * size)) for size in sizes]
-    basis = ("sinc", {"num_components": components, "grid_size": sizes})
+    basis = (BASIS, {"num_components": components, "grid_size": sizes})
     return nf.FUTON(len(sizes), channels, basis, ("cp", {"rank": rank}),
                     ("linear", {"bias": False}))  # fmt: skip
 
@@ -108,7 +113,7 @@ def evaluate(model: nf.FUTON, data, device) -> tuple[float, float | None]:
     return mse, 100 * float((inside & truth).sum() / (inside | truth).sum())
 
 
-def train(model: nf.FUTON, data, device, lr: float = LR, steps: int = STEPS,
+def train(model: nf.FUTON, data, device, lr: float, steps: int = STEPS,
           seed: int = 0) -> float:  # fmt: skip
     """Train in place with Adam as the benchmark does; returns the seconds taken."""
     torch.manual_seed(seed)
@@ -129,12 +134,19 @@ def warm_up(task: str, device: torch.device) -> None:
     features = features_of(futon(sizes, channels, 0.125, 1), sizes, device)
     nf.futon_bound(full.target.to(device), features, [8], sweeps=5)
     train_data = dataset(task, name, **TASKS[task]["data"])
-    train(futon(sizes, channels, 0.125, 8), train_data, device, steps=10)
+    train(
+        futon(sizes, channels, 0.125, 8),
+        train_data,
+        device,
+        TASKS[task]["lr"],
+        steps=10,
+    )
 
 
-def sinc_only(configs: list[dict]) -> list[dict]:
-    """The records' sinc settings; an earlier study also ran a Lanczos basis."""
-    return [c for c in configs if c.get("basis", "sinc") == "sinc"]
+def of_basis(rows: list[dict]) -> list[dict]:
+    """The records' rows of the study's basis; a row without one is sinc's, the
+    basis of an earlier study."""
+    return [row for row in rows if row.get("basis", "sinc") == BASIS]
 
 
 def run(task: str, name: str, device: torch.device) -> None:
@@ -142,7 +154,7 @@ def run(task: str, name: str, device: torch.device) -> None:
     settings = TASKS[task]
     path = LOGS / task / f"{name}.json"
     record = json.loads(path.read_text()) if path.exists() else {"configs": []}
-    done = {(c["alpha"], c["R"]) for c in sinc_only(record["configs"])}
+    done = {(c["alpha"], c["R"]) for c in of_basis(record["configs"])}
     todo = [
         (alpha, rank)
         for alpha in settings["alphas"]
@@ -172,9 +184,10 @@ def run(task: str, name: str, device: torch.device) -> None:
             bound.initialize(certified)
             certified_mse, certified_iou = evaluate(certified, full, device)
             model = futon(sizes, channels, alpha, rank)
-            adam_seconds = train(model, train_data, device)
+            adam_seconds = train(model, train_data, device, settings["lr"])
             adam_mse, adam_iou = evaluate(model, full, device)
             config = {
+                "basis": BASIS,
                 "alpha": alpha,
                 "K": [max(2, int(alpha * n)) for n in sizes],
                 "R": rank,
@@ -208,17 +221,17 @@ def checks(task: str, device: torch.device) -> None:
     rows = json.loads(path.read_text()) if path.exists() else []
     rank = CHECKS[task]
     for name in TASKS[task]["signals"]:
-        if any(row["signal"] == name for row in rows):
+        if any(row["signal"] == name for row in of_basis(rows)):
             continue
         full = dataset(task, name)
         sizes, channels = list(full.target.shape[:-1]), full.target.shape[-1]
         batch = {"input": full.input.to(device), "target": full.target.to(device)}
         model = futon(sizes, channels, 0.5, rank)
         bound = nf.futon_bound(batch["target"], features_of(model, sizes, device), rank)
-        row = {"signal": name, "R": rank, "upper": float(bound.upper[0]),
-               "lower": float(bound.lower[0])}  # fmt: skip
+        row = {"signal": name, "basis": BASIS, "R": rank,
+               "upper": float(bound.upper[0]), "lower": float(bound.lower[0])}  # fmt: skip
         train_data = dataset(task, name, **TASKS[task]["data"])
-        train(model, train_data, device, steps=LONGER * STEPS)
+        train(model, train_data, device, TASKS[task]["lr"], steps=LONGER * STEPS)
         row["adam_longer"] = evaluate(model, full, device)[0]
         torch.manual_seed(0)
         solver = nf.LeastSquares(model.to(device), momentum=0.0)

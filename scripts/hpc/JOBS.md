@@ -62,7 +62,8 @@ keep the benchmark's settings (24 Kodak images, 1000 steps on the whole
 image), so only the model changes. The default model is the benchmark's
 FUTON: K = (H/2, W/2) components, CP rank 280 and a one-layer MLP decoder 64
 wide (197,379 parameters); every variant has the same decoder unless the
-decoder is what varies, and the studies vary the sinc and the Lanczos basis.
+decoder is what varies. The basis study runs all six bases; the others run
+the benchmark's two, sinc and cosine, cosine at its own rate, 1e-1.
 
 | Study | Models | What varies |
 | --- | --- | --- |
@@ -71,10 +72,10 @@ decoder is what varies, and the studies vary the sinc and the Lanczos basis.
 | `tensor_net` | `FUTON-<basis>`, `-TR` and `-Tucker`, 6 | tensor-ring and Tucker combiners against the default CP one |
 | `decoder` | `FUTON-<basis>`, `-w128`, `-w256` and `-linear`, 8 | the MLP's width (64, 128 and 256) and the paper's linear decoder |
 
-The variants take the largest rank within the image budget of 197,123
-parameters: tensor-ring rank 16 (180,483), Tucker ranks `R_c = 0.163 K_c`
-(196,135), and CP ranks 256, 218 and 306 behind the 128- and 256-wide MLPs and
-the linear decoder. The CP models of `tensor_net` and `decoder` repeat those
+The variants take the largest rank that keeps FUTON smaller than every
+baseline (F-INR, 198,806 parameters): tensor-ring rank 16 (180,483), Tucker
+ranks `R_c = 0.163 K_c` (196,135), and CP ranks, multiples of 5, 255, 220 and
+305 behind the 128- and 256-wide MLPs and the linear decoder. The CP models of `tensor_net` and `decoder` repeat those
 of `basis`, so that each study stands alone. One image per array task:
 
 ```bash
@@ -87,10 +88,39 @@ scripts/hpc/train.sh --clusters=accelgor --time=2:00:00 --array=1-24 image \
   --config configs/ablation-futon/components_rank.yaml --data data/Kodak/kodim%2a.png --compile
 ```
 
+## Components against width, on every task
+
+One study per task, `configs/ablation-futon/components_width_<task>.yaml`,
+whose runs go to `logs/ablation-futon/components_width_<task>/`: the
+components per axis, K = N/L for L in {4, 2, 1} (and 8 in super-resolution),
+against the width of the one-layer MLP decoder, 16 to 256, at the rank that
+fills the task's budget, for the sinc and the cosine basis. Each study's
+`-N2-w64` model (`-N4-w64` in super-resolution) is the benchmark's FUTON.
+Super-resolution runs on the three DIV2K training images its settings were
+tuned on, so that nothing is chosen on the test images.
+
+```bash
+scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 --array=1-24 image \
+  --config configs/ablation-futon/components_width_image.yaml --data data/Kodak/kodim%2a.png --compile
+for shape in armadillo dragon happy_buddha lucy thai_statue; do
+  scripts/hpc/train.sh --clusters=accelgor --time=1:30:00 occupancy \
+    --config configs/ablation-futon/components_width_occupancy.yaml --data data/occupancy/$shape.ply --compile
+done
+for scene in chair drums ficus hotdog lego materials mic ship; do
+  scripts/hpc/train.sh --clusters=accelgor --time=4:00:00 nerf \
+    --config configs/ablation-futon/components_width_nerf.yaml --data data/nerf/blender/$scene --compile
+done
+for image in 0395 0431 0777; do
+  scripts/hpc/train.sh --clusters=accelgor --time=1:30:00 super_resolution \
+    --config configs/ablation-futon/components_width_super_resolution.yaml \
+    --data data/DIV2K/DIV2K_train_HR/$image.png --compile
+done
+```
+
 ## Error bound
 
 `scripts/futon_bound.py` runs the error-bound study of the docs' concepts
-page on the 24 Kodak images and the 5 occupancy volumes: in the sinc basis,
+page on the 24 Kodak images and the 5 occupancy volumes: in the cosine basis,
 at every spectral resolution and rank, it bounds the best error of FUTON
 with a linear decoder, builds the FUTON that attains the upper bound, and
 trains the same FUTON with Adam; then, on every signal at K = N/2 and one
