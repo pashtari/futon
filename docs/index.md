@@ -20,9 +20,9 @@ import neurofield as nf
 model = nf.FUTON(
     in_features=2,
     out_features=3,
-    basis=("sinc", {"num_components": 256}),
-    combiner=("cp", {"rank": 256}),
-    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 128}),
+    basis=("sinc", {"num_components": [384, 256]}),  # half of a 768 x 512 image per axis
+    combiner=("cp", {"rank": 280}),
+    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 64}),
     output_activation=torch.tanh,
 )
 rgb = model(torch.rand(4096, 2) * 2 - 1)  # coordinates in [-1, 1]^2 -> (4096, 3)
@@ -90,14 +90,14 @@ Most implicit neural representations hide their prior in the nonlinearity: sines
 
 ## Results at a glance
 
-Every model of a task has the same parameter budget, the hyperparameters of its authors' code, and a learning rate chosen on the task. Times are mean training times per signal on an A100, every model compiled with `torch.compile` and retrained in runs of its own, each run twice and the faster kept, on two scenes for radiance fields and two images for super-resolution. See [Benchmarks](experiments/benchmarks.md) for every model, metric and error bar.
+Every model of a task has the same parameter budget, the hyperparameters of its authors' code, and a learning rate chosen on the task. Times are median training times per signal on an A100, from the same runs as the scores, every model compiled with `torch.compile`; Instant-NGP is the fastest to train on every task. See [Benchmarks](experiments/benchmarks.md) for every model, metric and error bar.
 
-| Task | Signals | #Params | FUTON (sinc) | FUTON (Lanczos) | Strongest baseline |
+| Task | Signals | #Params | FUTON (sinc) | FUTON (cosine) | Strongest baseline |
 | --- | --- | --- | --- | --- | --- |
-| Images (Kodak) | 24 | 195k | **38.54 dB** in 8.1 s | 38.20 dB in **5.6 s** | Instant-NGP, 36.76 dB in 6.3 s |
-| Occupancy (Stanford) | 5 | 132k | **99.90 % IoU** in 10.3 s | **99.90 % IoU** in 7.4 s | Instant-NGP, 99.87 % in 10.3 s |
-| Radiance fields (Blender) | 8 | 75k | **28.95 dB** in 360 s | 28.93 dB in **312 s** | FINER, 28.85 dB in 502 s |
-| Super-resolution (DIV2K, 4×) | 100 | 500k | **28.83 dB** in 93 s | 28.65 dB in **48 s** | SIREN, 28.69 dB in 131 s |
+| Images (Kodak) | 24 | 197k | 37.44 dB in 5.4 s | **38.14 dB** in 5.4 s | MFN, 36.72 dB in 57.3 s |
+| Occupancy (Stanford) | 5 | 131k | **99.95 % IoU** in 7.8 s | **99.95 % IoU** in 7.6 s | RFF, 99.91 % in 11.7 s |
+| Radiance fields (Blender) | 8 | 74k | **29.26 dB** in 192 s | 29.18 dB in 192 s | FINER, 28.62 dB in 219 s |
+| Super-resolution (DIV2K, 4×) | 100 | 500k | **28.53 dB** in 6.7 s | 28.20 dB in 6.5 s | Instant-NGP, 28.22 dB in 2.9 s |
 
 <figure markdown="span">
   ![Kodak: convergence, training-time trade-off and throughput](assets/results_image.svg){ width="960" }
@@ -106,7 +106,7 @@ Every model of a task has the same parameter budget, the hyperparameters of its 
 
 <figure markdown="span">
   ![Qualitative comparison on kodim19](assets/qualitative_kodim19.png)
-  <figcaption>kodim19 at about 195k parameters. The two boxed regions are magnified for the ground truth and every featured model, above each model's |error|; the PSNR is over the whole image.</figcaption>
+  <figcaption>kodim19 at about 197k parameters. The two boxed regions are magnified for the ground truth and every featured model, above each model's |error|; the PSNR is over the whole image.</figcaption>
 </figure>
 
 ## Citation

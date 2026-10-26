@@ -118,7 +118,7 @@ $$
 R \sum_{c=1}^{C} K_c \;+\; (RM + M) \;+\; (MD + D).
 $$
 
-Every task uses the same rule for the components, half the resolution per axis but never more than the data observes, and the same decoder, one hidden layer 64 wide; the rank is the largest multiple of 5 that keeps FUTON smaller than every baseline of the task. Wider decoders add at most 0.1 dB on images and radiance fields and nothing measurable on volumes, and radiance fields need at least 64, since their density network also feeds the colour network 15 features. The benchmarks run the sinc and the cosine basis at these sizes:
+Every task uses the same rule for the components, half the resolution per axis but never more than the data observes, and the same decoder, one hidden layer 64 wide; the rank is the largest multiple of 5 that keeps FUTON smaller than every baseline of the task. Wider decoders add at most 0.1 dB on images, 0.12 dB on radiance fields and nothing measurable on volumes, and narrower ones lose up to 1.4 dB on images and 0.4 dB on radiance fields, whose density network also feeds the colour network 15 features; the [components-width ablation](../experiments/ablations.md#components-against-width-on-every-task) has every configuration. The benchmarks run the sinc and the cosine basis at these sizes:
 
 | Task | `num_components` | `rank` | Decoder | Parameters |
 | --- | --- | --- | --- | --- |

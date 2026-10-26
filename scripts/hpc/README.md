@@ -149,18 +149,19 @@ sbatch --clusters=accelgor --test-only --time=0:10:00 --gpus-per-node=1 \
   `--config configs/image.yaml changes.yaml`. Runs are keyed by model name,
   so give variants their own names or another `--log-dir`.
 
-Measured on A100s (2000 steps; NeRF 37,500), a run takes about:
+Measured on A100s (1000 steps; NeRF 25,000), a run takes about:
 
 | Task | Per model | Per signal | Whole sweep |
 | --- | --- | --- | --- |
-| image | 37 s | 7.5 min (12 models) | 3 h (24 images) |
-| occupancy | 19 s | 4 min (13 models) | 20 min (5 shapes) |
-| nerf | 10 min | 2.2 h (13 models) | 18 h (8 scenes) |
+| image | 56 s | 13 min (14 models) | 5.2 h (24 images) |
+| occupancy | 27 s | 7 min (15 models) | 34 min (5 shapes) |
+| nerf | 5 min | 77 min (15 models) | 10 h (8 scenes) |
+| super_resolution | 1 min | 15 min (15 trained models, 3 interpolations) | 25 h (100 images) |
 
-Training a model takes about 17 s in the image and occupancy tasks; the image
-figure is higher because of the 20 LPIPS evaluations. The NeRF figure includes
-scoring the 200 test views, and was measured with eight jobs sharing nodes, so
-a single job is faster.
+A run's time includes compiling its model and its 20 evaluations, with LPIPS
+on images and super-resolution; the NeRF figure includes scoring the 200 test
+views. Training alone takes from 3 s to a minute per image. The jobs shared
+nodes with others, so a run alone is a little faster.
 
 Pending jobs run whichever code is in the repository when they start, so a
 later `train.sh` call with new commits also affects jobs that are still queued.
@@ -181,7 +182,7 @@ mix freely.
 
 ### Image representation
 
-All 12 models on the 24 Kodak images, written to `logs/image/<image>/<model>/`.
+All 14 models on the 24 Kodak images, written to `logs/image/<image>/<model>/`.
 One job per image (about 9 minutes each) instead of one 3.5-hour job:
 
 ```bash
@@ -192,7 +193,7 @@ done
 
 ### Occupancy
 
-All 13 models on the 5 Stanford shapes, written to
+All 15 models on the 5 Stanford shapes, written to
 `logs/occupancy/<shape>/<model>/`. One job per shape (about 5 minutes each):
 
 ```bash
@@ -203,14 +204,14 @@ done
 
 ### NeRF
 
-All 13 models on the 8 Blender scenes, with 37,500 steps per model. This is by
-far the longest task: one job per scene and model (about 10 minutes each, 104
+All 15 models on the 8 Blender scenes, with 25,000 steps per model. This is by
+far the longest task: one job per scene and model (about 5 minutes each, 120
 jobs) queues better than one job per scene. Runs are written to
 `logs/nerf/<scene>/<model>/`:
 
 ```bash
-models="RFF PE-MLP MFN SIREN Gauss WIRE FINER Instant-NGP TensoRF-CP TensoRF-VM
-        GA-Planes FUTON-sinc FUTON-cosine"
+models="RFF PE-MLP MFN SIREN FreSh Gauss WIRE FINER Instant-NGP TensoRF-CP
+        TensoRF-VM GA-Planes F-INR FUTON-sinc FUTON-cosine"
 for scene in data/nerf/blender/*/; do
   for model in $models; do
     scripts/hpc/train.sh --clusters=accelgor nerf --data "$scene" --models "$model"
@@ -218,7 +219,7 @@ for scene in data/nerf/blender/*/; do
 done
 ```
 
-Submitting 104 jobs opens 104 SSH connections; either set up `ControlMaster`
+Submitting 120 jobs opens 120 SSH connections; either set up `ControlMaster`
 (step 1) or run the loop on a login node.
 
 ### Splitting and resuming

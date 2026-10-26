@@ -32,14 +32,14 @@ Most implicit neural representations hide their prior in the nonlinearity: sines
 
 ## Results
 
-Every model of a task has the same parameter budget, the hyperparameters of its authors' code, and a learning rate chosen on the task. Times are mean training times per signal on an A100, every model compiled with `torch.compile` and retrained in runs of its own, each run twice and the faster kept, on two scenes for radiance fields and two images for super-resolution. The [benchmarks page](https://pashtari.github.io/neurofield/experiments/benchmarks/) has every model, metric and error bar.
+Every model of a task has the same parameter budget, the hyperparameters of its authors' code, and a learning rate chosen on the task. Times are median training times per signal on an A100, from the same runs as the scores, every model compiled with `torch.compile`; Instant-NGP is the fastest to train on every task. The [benchmarks page](https://pashtari.github.io/neurofield/experiments/benchmarks/) has every model, metric and error bar.
 
-| Task | Signals | #Params | FUTON (sinc) | FUTON (Lanczos) | Strongest baseline |
+| Task | Signals | #Params | FUTON (sinc) | FUTON (cosine) | Strongest baseline |
 | --- | --- | --- | --- | --- | --- |
-| Images (Kodak) | 24 | 195k | **38.54 dB** in 8.1 s | 38.20 dB in **5.6 s** | Instant-NGP, 36.76 dB in 6.3 s |
-| Occupancy (Stanford) | 5 | 132k | **99.90 % IoU** in 10.3 s | **99.90 % IoU** in 7.4 s | Instant-NGP, 99.87 % in 10.3 s |
-| Radiance fields (Blender) | 8 | 75k | **28.95 dB** in 360 s | 28.93 dB in **312 s** | FINER, 28.85 dB in 502 s |
-| Super-resolution (DIV2K, 4×) | 100 | 500k | **28.83 dB** in 93 s | 28.65 dB in **48 s** | SIREN, 28.69 dB in 131 s |
+| Images (Kodak) | 24 | 197k | 37.44 dB in 5.4 s | **38.14 dB** in 5.4 s | MFN, 36.72 dB in 57.3 s |
+| Occupancy (Stanford) | 5 | 131k | **99.95 % IoU** in 7.8 s | **99.95 % IoU** in 7.6 s | RFF, 99.91 % in 11.7 s |
+| Radiance fields (Blender) | 8 | 74k | **29.26 dB** in 192 s | 29.18 dB in 192 s | FINER, 28.62 dB in 219 s |
+| Super-resolution (DIV2K, 4×) | 100 | 500k | **28.53 dB** in 6.7 s | 28.20 dB in 6.5 s | Instant-NGP, 28.22 dB in 2.9 s |
 
 <p align="center">
   <img src="docs/assets/results_image.svg" width="920" alt="Kodak: PSNR against training time for FUTON and the strongest model of each family; every model's final PSNR against its training time; and against its inference throughput">
@@ -72,32 +72,32 @@ pip install -e ".[3d,nerf,dev]"
 
 ## Quick start
 
-Fit FUTON to an image and score it. On a GPU this takes about ten seconds and reaches about 37 dB.
+Fit FUTON to an image and score it. On a GPU this takes about half a minute and reaches about 37 dB.
 
 ```python
 import torch
 import neurofield as nf
 
-image = "data/Kodak/kodim19.png"                              # any RGB image
-dataset = nf.ImageCoordinateDataset(image)                   # every pixel, for evaluation
-train_set = nf.ImageCoordinateDataset(image, subsample=0.1)  # 10 % of the pixels per step
+image = "data/Kodak/kodim19.png"            # any RGB image
+dataset = nf.ImageCoordinateDataset(image)  # every pixel, at every step
+H, W, _ = dataset.target.shape
 
 model = nf.FUTON(
     in_features=2,
     out_features=3,
-    basis=("sinc", {"num_components": 256}),
-    combiner=("cp", {"rank": 256}),
-    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 128}),
+    basis=("sinc", {"num_components": [H // 2, W // 2]}),  # half the pixels per axis
+    combiner=("cp", {"rank": 280}),
+    decoder=("mlp", {"hidden_layers": 1, "hidden_features": 64}),
     output_activation=torch.tanh,
 )
 
 result = nf.train(
-    model, train_set, dataset,
-    num_steps=2000, lr=3e-2,
+    model, dataset, dataset,
+    num_steps=1000, lr=3e-2,
     metrics={"psnr": nf.psnr, "ssim": nf.ssim},
-    eval_interval=500,
+    eval_interval=250,
 )
-print(result["history"][-1]["eval"])                         # {"psnr": 37.0, "ssim": 0.944, ...}
+print(result["history"][-1]["eval"])        # {"psnr": 37.3, "ssim": 0.949, ...}
 
 output = nf.chunked_inference(model, dataset.input, chunk_size=65536)  # (H, W, 3) in [-1, 1]
 dataset.save(dataset.postprocess(output.cpu()), "kodim19_futon.png")
