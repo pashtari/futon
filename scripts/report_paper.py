@@ -35,17 +35,19 @@ Writes results/, which holds the paper's figures and tables and nothing else:
                                      recomposing a figure needs no GPU
     ablation/basis.{tex,md,pdf,pgf}  every basis at the benchmark's size, as a
                                      table and as PSNR against training time
+    ablation/bandwidth.{tex,md,pdf,pgf}  the cosine basis's relative bandwidth
+                                     kappa = K / N at the benchmark's size, as a
+                                     table and as PSNR against kappa
+    ablation/rank.{tex,md,pdf,pgf}   its rank at the benchmark's kappa = 1/2,
+                                     beyond the budget, likewise against the rank
     ablation/combiner.{tex,md,pdf,pgf}  the tensor-ring and Tucker combiners
-                                     against CP, for both bases, likewise
+                                     against CP, for the cosine basis, as a table
+                                     and as PSNR against training time
     ablation/decoder.{tex,md,pdf,pgf}  the MLP decoder's width and the
-                                     linear decoder, likewise
-    ablation/rank_<basis>.{pdf,pgf}  PSNR against the rank fraction at each
-                                     component fraction, and components_<basis>
-                                     the reverse, for the fractions 1/4 to 2
-    ablation/components_width.{pdf,pgf}  every components-width configuration's
-                                     quality against its training time, a panel
-                                     per task, and components_width_<task>.{tex,md}
-                                     the table of each task, with its memory
+                                     linear decoder, likewise.
+                                     Every ablation table has the benchmark's
+                                     columns, size, costs and every metric of
+                                     the image task, a row per model
     bound/gap.{pdf,pgf}              the error bound of FUTON with a linear
                                      decoder, from scripts/futon_bound.py: PSNR
                                      above Adam's at K = N/2 per rank, of the
@@ -122,7 +124,7 @@ from matplotlib.ticker import (
 from PIL import Image
 from futon_bound import CHECKS, LONGER, STEPS, SWEEPS, of_basis, psnr
 from train_common import ROOT, build, fill_rank, merge, resolve
-from train_super_resolution import INTERPOLATIONS, interpolate, low_resolution, prepare
+from train_super_resolution import INTERPOLATIONS, low_resolution
 
 import neurofield as nf
 
@@ -200,15 +202,15 @@ RAMP = ("#9ec5f4", "#5598e7", "#2a78d6", "#184f95", "#0d366b")
 # FUTON and the baselines, by family: periodic activations (SIREN and FINER,
 # which is SIREN with a variable-periodic one), hash grids (Instant-NGP) and
 # grid factorizations (TensoRF). A hue names the family and the line style the
-# member, the stronger of a pair solid, and for FUTON the sinc basis, the one
-# its error bound speaks of. Colour, dashes, and a filled marker.
+# member, the stronger of a pair solid, and for FUTON the cosine basis.
+# Colour, dashes, and a filled marker.
 FEATURED = {
     "SIREN": (PALETTE[1], (4, 2), False),
     "FINER": (PALETTE[1], "", True),
     "Instant-NGP": (PALETTE[2], "", True),
     "TensoRF": (PALETTE[3], "", True),
-    "FUTON-sinc": (PALETTE[0], "", True),
-    "FUTON-cosine": (PALETTE[0], (4, 2), False),
+    "FUTON-sinc": (PALETTE[0], (4, 2), False),
+    "FUTON-cosine": (PALETTE[0], "", True),
 }
 OTHERS = "0.7"  # gray of every other model
 # The models a task's qualitative strip magnifies, where they differ from the
@@ -313,37 +315,30 @@ def text_width(text: str, weight: str = "normal") -> float:
 
 UNITS = {"psnr": "{:.2f} dB", "iou": "{:.2f}%"}
 
-# The FUTON ablations, all on the image task: the bases from the smoothest to
-# the most local, and the variants of the two stages after the basis, both for
-# the benchmark's two bases, sinc and cosine. The components
-# study sets the components per axis as a fraction alpha of the pixels and the
-# rank as a fraction beta of the smaller count, both named as decimals in the
-# model's name.
-STUDIES = ("basis", "components_rank", "tensor_net", "decoder")
+# The FUTON ablations, all on the image task and, but for the bases themselves,
+# with the cosine basis: the bases from the smoothest to the most local; the
+# relative bandwidth kappa = K / N at the benchmark's size, the rank filling
+# the budget; the rank at the benchmark's K, the size growing with it; and the
+# variants of the two stages after the basis.
+STUDIES = ("basis", "bandwidth", "rank", "tensor_net", "decoder")
 # A study's files are named for what it compares, where that differs from
 # the name of its config and logs.
 OUTPUTS = {"tensor_net": "combiner"}
-# The components study's figures, by the fraction on their x axis.
-FIGURES = {"alpha": "components", "beta": "rank"}
-GRID = re.compile(r"FUTON-(?P<basis>\w+)-a(?P<alpha>[\d.]+)-b(?P<beta>[\d.]+)$")
 FRACTIONS = {0.125: "1/8", 0.25: "1/4", 0.5: "1/2", 1.0: "1", 2.0: "2"}
 BASES = ("Cosine", "Chebyshev", "Legendre", "Triangle", "Lanczos", "Sinc")
-PAIR = ("sinc", "cosine")
-# Per study, its table's rows and the model each stands for, with the basis to
-# fill in; the benchmark's model heads both.
+# Per study, its table's rows and the model each stands for; the benchmark's
+# model heads both.
 COMBINERS = {
-    "CP": "FUTON-{basis}",
-    "TR": "FUTON-{basis}-TR",
-    "Tucker": "FUTON-{basis}-Tucker",
+    "CP": "FUTON-cosine",
+    "TR": "FUTON-cosine-TR",
+    "Tucker": "FUTON-cosine-Tucker",
 }
 DECODERS = {
-    "MLP, 64 wide (R = 280)": "FUTON-{basis}",
-    "MLP, 128 wide (R = 255)": "FUTON-{basis}-w128",
-    "MLP, 256 wide (R = 220)": "FUTON-{basis}-w256",
-    "Linear (R = 305)": "FUTON-{basis}-linear",
+    "MLP, 64 wide (R = 280)": "FUTON-cosine",
+    "MLP, 128 wide (R = 255)": "FUTON-cosine-w128",
+    "MLP, 256 wide (R = 220)": "FUTON-cosine-w256",
+    "Linear (R = 305)": "FUTON-cosine-linear",
 }
-# The fractions the grid figures draw: the 1/8 level only compresses the axis.
-SHOWN = (0.25, 0.5, 1.0, 2.0)
 # The room an ablation figure adds above its plot per row of its legend, in
 # inches, so that its plot is as large as a benchmark panel's.
 LEGEND_ROW = 0.15
@@ -352,71 +347,45 @@ LEGEND_ROW = 0.15
 PARAMS = ("", "#Params (k)", None, 1)
 DASHES = ("", (4, 2), (1, 1.5))  # solid, dashed, dotted
 # The convergence of the three studies that get a curve, as label, colour and
-# dashes per model: a hue names the choice under study and the dashes the basis
-# it is made with, but for the bases themselves, where the hue separates the
-# compactly supported ones from those that span the axis. The rank study keeps
-# to its figures.
+# dashes per model, in the order the legend takes them, a column at a time: a
+# hue and dashes per variant, and for the bases a hue per family, the
+# interpolation kernels in the first column and the orthogonal families in the
+# second, the dashes pairing them across a row.
 CURVES = {
     "basis": {
-        "FUTON-cosine": ("Cosine", PALETTE[1], DASHES[0]),
-        "FUTON-chebyshev": ("Chebyshev", PALETTE[1], DASHES[1]),
-        "FUTON-legendre": ("Legendre", PALETTE[1], DASHES[2]),
         "FUTON-triangle": ("Triangle", PALETTE[0], DASHES[2]),
         "FUTON-lanczos": ("Lanczos", PALETTE[0], DASHES[1]),
         "FUTON-sinc": ("Sinc", PALETTE[0], DASHES[0]),
+        "FUTON-legendre": ("Legendre", PALETTE[1], DASHES[2]),
+        "FUTON-chebyshev": ("Chebyshev", PALETTE[1], DASHES[1]),
+        "FUTON-cosine": ("Cosine", PALETTE[1], DASHES[0]),
     },
     "tensor_net": {
-        "FUTON-sinc": ("CP, sinc", PALETTE[0], DASHES[0]),
-        "FUTON-cosine": ("CP, cosine", PALETTE[0], DASHES[1]),
-        "FUTON-sinc-TR": ("TR, sinc", PALETTE[2], DASHES[0]),
-        "FUTON-cosine-TR": ("TR, cosine", PALETTE[2], DASHES[1]),
-        "FUTON-sinc-Tucker": ("Tucker, sinc", PALETTE[3], DASHES[0]),
-        "FUTON-cosine-Tucker": ("Tucker, cosine", PALETTE[3], DASHES[1]),
+        "FUTON-cosine": ("CP", PALETTE[0], DASHES[0]),
+        "FUTON-cosine-TR": ("TR", PALETTE[2], DASHES[1]),
+        "FUTON-cosine-Tucker": ("Tucker", PALETTE[3], DASHES[2]),
     },
     "decoder": {
-        "FUTON-sinc": ("MLP 64, sinc", PALETTE[0], DASHES[0]),
-        "FUTON-cosine": ("MLP 64, cosine", PALETTE[0], DASHES[1]),
-        "FUTON-sinc-w128": ("MLP 128, sinc", PALETTE[2], DASHES[0]),
-        "FUTON-cosine-w128": ("MLP 128, cosine", PALETTE[2], DASHES[1]),
-        "FUTON-sinc-w256": ("MLP 256, sinc", PALETTE[3], DASHES[0]),
-        "FUTON-cosine-w256": ("MLP 256, cosine", PALETTE[3], DASHES[1]),
-        "FUTON-sinc-linear": ("Linear, sinc", PALETTE[1], DASHES[0]),
-        "FUTON-cosine-linear": ("Linear, cosine", PALETTE[1], DASHES[1]),
+        "FUTON-cosine": ("MLP 64", PALETTE[0], DASHES[0]),
+        "FUTON-cosine-w128": ("MLP 128", PALETTE[2], DASHES[1]),
+        "FUTON-cosine-w256": ("MLP 256", PALETTE[3], DASHES[2]),
+        "FUTON-cosine-linear": ("Linear", PALETTE[1], DASHES[0]),
     },
+}
+# The two sweeps, by the quantity on their x axis and its label there: the
+# relative bandwidth at the budget, and the rank at the benchmark's bandwidth.
+SWEPT = {
+    "bandwidth": ("kappa", r"Relative bandwidth $\kappa$"),
+    "rank": ("rank", r"Rank $R$"),
 }
 
 # The bottom of a study's PSNR axis where the range the converged values set
 # would cut a slow model's rise: the Tucker combiners pass 32 dB only after
 # about 10 s, and 34 dB after 14 s.
 FLOORS = {"tensor_net": 32}
-# The components study on every task (components_width_<task>.yaml): K = N/L
-# components per axis against the decoder's width, at the rank that fills the
-# budget. A level's colour, a width's marker size; sinc filled and solid,
-# cosine open and dashed; a ring around the benchmark's model. Super-resolution
-# runs on its three tuning images, and its levels above the low-resolution
-# grid fall far below bicubic, under the axis.
-WIDTH_STUDY = "components_width"
-WIDTH_NAME = re.compile(r"FUTON-(?P<basis>sinc|cosine)-N(?P<level>\d)-w(?P<width>\d+)$")
-LEVELS = {
-    8: ("N/8", PALETTE[3]),
-    4: ("N/4", PALETTE[2]),
-    2: ("N/2", PALETTE[0]),
-    1: ("N", PALETTE[1]),
-}
-WIDTHS = (16, 32, 64, 128, 256)
-MARKERS = dict(zip(WIDTHS, (3.0, 6.0, 10.0, 16.0, 24.0)))  # marker areas, pt^2
-# The configuration each task's config takes from its study, (L, width).
-BENCHMARK_POINT = {"image": (2, 64), "occupancy": (2, 64), "nerf": (2, 64),
-                   "super_resolution": (4, 128)}  # fmt: skip
-QUALITY = {
-    "image": "psnr",
-    "occupancy": "iou",
-    "nerf": "psnr",
-    "super_resolution": "psnr",
-}
-TITLES = {"image": "Images", "occupancy": "Volumes", "nerf": "Radiance fields",
-          "super_resolution": "Super-resolution"}  # fmt: skip
-
+# The columns of a study's legend where two would not suit it: the three
+# combiners fit one row.
+LEGEND_COLUMNS = {"tensor_net": 3}
 # The error bound of FUTON with a linear decoder against FUTONs trained by Adam
 # (scripts/futon_bound.py): the datasets its figures and tables report, and the
 # PSNRs (dB) its design table finds the smallest setting for.
@@ -597,6 +566,8 @@ def costs(runs: list[dict[str, Any]], task: str) -> pd.DataFrame:
     a run's evaluations, for a radiance field over its 200 test views, gives
     millions of pixels or voxels per second, and for a radiance field rendered
     views per second (FPS); a first evaluation that compiles does not move it.
+    A run evaluated fewer than three times has no throughput: its first
+    evaluation compiles.
     The interpolations run on the CPU and train nothing, so they have no memory.
     """
     rows = []
@@ -606,7 +577,8 @@ def costs(runs: list[dict[str, Any]], task: str) -> pd.DataFrame:
             if task == "nerf"
             else [entry["eval"] for entry in run["history"] if "eval" in entry]
         )
-        seconds = statistics.median(entry["duration"] for entry in evaluations)
+        durations = [entry["duration"] for entry in evaluations]
+        seconds = statistics.median(durations) if len(durations) >= 3 else math.nan
         peaks = [
             entry["peak_memory"] for entry in evaluations if "peak_memory" in entry
         ]
@@ -987,8 +959,9 @@ def table(
     spec: dict,
     errors: pd.DataFrame | None = None,
     order: Sequence[str] = ROWS,
-    index: str = "Model",
+    index: str | Sequence[str] = "Model",
     highlight: bool = False,
+    labels: dict[str, Sequence[str]] | None = None,
 ) -> dict[str, str]:
     """LaTeX and Markdown of models by columns, best bold and second underlined.
 
@@ -998,11 +971,17 @@ def table(
     ``errors`` follows its value as ``mean+-error``. Consecutive columns of one
     group share a spanning header. Rows follow ``order``, which the ablations
     give their own, and ``index`` heads them, each named as
-    :func:`display_name` names it. ``highlight`` tints the two best cells of
-    every ranked column, which reads from the back of a room but would be
-    noise in a printed table.
+    :func:`display_name` names it; ``labels`` names each row instead by its
+    cells, one under each header of ``index``. ``highlight`` tints the two
+    best cells of every ranked column, which reads from the back of a room
+    but would be noise in a printed table.
     """
     models = [model for model in order if model in values.index]
+    heads = [index] if isinstance(index, str) else list(index)
+    names_of = {
+        model: list(labels[model]) if labels else [display_name(model)]
+        for model in models
+    }
     cells = {}
     for name, (_, _, larger_is_better, decimals) in spec.items():
         shown = values[name].reindex(models).round(decimals)
@@ -1021,17 +1000,17 @@ def table(
     def line(model: str, mark: dict[int, str], spread: str) -> list[str]:
         # The mean carries the emphasis; the error follows it, set smaller, so
         # that a column of values reads down the page before it reads across.
-        return [display_name(model)] + [
+        return names_of[model] + [
             mark.get(rank, "{}").format(text) + (spread.format(error) if error else "")
             for text, error, rank in (cells[model, name] for name in spec)
         ]
 
-    groups = [""] + [group for group, *_ in spec.values()]
+    groups = [""] * len(heads) + [group for group, *_ in spec.values()]
     # A title under a group is a lowercase phrase, "time (s)" under
     # "Training", so that the flat header reads "Training time (s)"; LaTeX
     # capitalizes it on its own row.
-    titles = [index] + [title for _, title, _, _ in spec.values()]
-    arrows = [""] + [
+    titles = heads + [title for _, title, _, _ in spec.values()]
+    arrows = [""] * len(heads) + [
         "" if larger_is_better is None else "↑" if larger_is_better else "↓"
         for _, _, larger_is_better, _ in spec.values()
     ]
@@ -1044,7 +1023,7 @@ def table(
     # direction, so that a column is as wide as its numbers rather than its
     # header. No padding outside the first and last columns, so that the
     # rules end with the text.
-    columns = "l" + "r" * (len(titles) - 1)
+    columns = "l" * len(heads) + "r" * (len(titles) - len(heads))
     latex = [rf"\begin{{tabular}}{{@{{}}{columns}@{{}}}}", r"\toprule"]
     if any(groups):  # a spanning header over each group's columns
         latex += spanning(groups)
@@ -1055,7 +1034,9 @@ def table(
         for unit, arrow in zip(units, arrows)
     ]
     for row in (names, units) if any(units) else (names,):
-        header = [row[0]] + [rf"\multicolumn{{1}}{{c}}{{{cell}}}" for cell in row[1:]]
+        header = list(row[: len(heads)]) + [
+            rf"\multicolumn{{1}}{{c}}{{{cell}}}" for cell in row[len(heads) :]
+        ]
         latex.append(" & ".join(header) + r" \\")
     latex.append(r"\midrule")
     markdown = ["| " + " | ".join(flat) + " |", "| --- " * len(flat) + "|"]
@@ -1065,7 +1046,7 @@ def table(
         else {1: r"\textbf{{{}}}", 2: r"\underline{{{}}}"}
     )
     for model in models:
-        if model == "FUTON-sinc":
+        if model == "FUTON-sinc" and not labels:
             latex.append(r"\midrule")
         latex.append(
             " & ".join(line(model, tex_mark, r"{{\scriptsize$\pm${}}}")) + r" \\"
@@ -1079,6 +1060,7 @@ def table(
     for symbol, command in (
         ("↑", r"$\uparrow$"),
         ("↓", r"$\downarrow$"),
+        ("κ", r"$\kappa$"),
         ("%", r"\%"),
         ("#", r"\#"),
         ("_", r"\_"),
@@ -1122,19 +1104,10 @@ def per_signal(
     return frame, spec
 
 
-def tables(final: pd.DataFrame, task: str) -> dict[str, str]:
-    """The task's table, with its metrics per signal where the signals are few.
-
-    Every model's size, the cost of each phase and its mean metrics over the
-    signals, each mean with one paired standard error. The shapes and the
-    scenes are few, so their table gives each one's scores as well, under a
-    super column per scene for NeRF's three metrics: wider than the text, it
-    takes a page turned sideways.
-    """
-    metrics = TASKS[task][2]
-    # Every table opens with the size and the cost of each phase: training
-    # time, as TensoRF, K-Planes and NeuRBF report it, inference throughput,
-    # and the peak memory of both.
+def cost_columns(final: pd.DataFrame, task: str) -> tuple[pd.DataFrame, dict]:
+    """Each model's size and the cost of each phase, as a table's values and
+    spec: training time, as TensoRF, K-Planes and NeuRBF report it, inference
+    throughput, and the peak memory of both, each memory in its axis' unit."""
     throughput = SPEED[task] if task == "nerf" else f"throughput ({SPEED[task]})"
     spec = {
         "parameters": PARAMS,
@@ -1153,16 +1126,39 @@ def tables(final: pd.DataFrame, task: str) -> dict[str, str]:
         unit, factor, decimals = memory_unit(values[column])
         values[column] *= factor
         spec[column] = (spec[column][0], f"memory ({unit})", False, decimals)
+    return values, spec
+
+
+def metric_columns(
+    final: pd.DataFrame, metrics: Sequence[str]
+) -> tuple[pd.DataFrame, dict, pd.DataFrame]:
+    """Each model's mean metrics over its signals as a table's values, spec
+    and errors, one paired standard error per mean."""
+    spec = {}
+    for metric in metrics:
+        name, larger_is_better, _, decimals = METRICS[metric]
+        spec[metric] = ("", name, larger_is_better, decimals)
     errors = paired_error(final, metrics)
+    errors.columns = list(metrics)
+    return final.groupby("model")[list(metrics)].mean(), spec, errors
+
+
+def tables(final: pd.DataFrame, task: str) -> dict[str, str]:
+    """The task's table, with its metrics per signal where the signals are few.
+
+    Every model's size, the cost of each phase and its mean metrics over the
+    signals, each mean with one paired standard error. The shapes and the
+    scenes are few, so their table gives each one's scores as well, under a
+    super column per scene for NeRF's three metrics: wider than the text, it
+    takes a page turned sideways.
+    """
+    metrics = TASKS[task][2]
+    values, spec = cost_columns(final, task)
     if task in ("image", "super_resolution"):  # many images, so their mean alone
-        for metric in metrics:
-            name, larger_is_better, _, decimals = METRICS[metric]
-            spec[metric] = ("", name, larger_is_better, decimals)
-        values = values.join(final.groupby("model")[list(metrics)].mean())
-        errors.columns = list(metrics)
-        return table(values, spec, errors)
+        means, mean_spec, errors = metric_columns(final, metrics)
+        return table(values.join(means), spec | mean_spec, errors)
     per, per_spec = per_signal(final, metrics)
-    return table(values.join(per), spec | per_spec, errors)
+    return table(values.join(per), spec | per_spec, paired_error(final, metrics))
 
 
 def time_to_target(curve: pd.DataFrame) -> pd.Series:
@@ -1772,127 +1768,101 @@ def resolve_setup(setup: dict | None, run: dict) -> dict | None:
     return resolve(setup, H=height, W=width)
 
 
-def summarize(runs: list[dict]) -> pd.DataFrame:
-    """Each model's size, median time and mean PSNR over the images, with its error."""
-    final = results(runs)
-    summary = final.groupby("model").agg(
-        {"parameters": "median", "time": "median", "psnr": "mean"}
-    )
-    return summary.assign(error=paired_error(final, ("psnr",))[("mean", "psnr")])
+def study_frame(runs: list[dict], task: str = "image") -> pd.DataFrame:
+    """One row per run of a study: its size, costs and final metrics."""
+    return results(runs).merge(costs(runs, task), on=["signal", "model"])
+
+
+def labelled_table(
+    runs: list[dict], labels: dict[str, tuple[str, ...]], index: tuple[str, ...]
+) -> dict[str, str]:
+    """A study's table with the benchmark's columns, a row per model of
+    ``labels`` in its order, named by its cells under the headers of
+    ``index``; the errors are taken among its rows."""
+    final = study_frame(runs)
+    final = final[final["model"].isin(labels)]
+    values, spec = cost_columns(final, "image")
+    means, mean_spec, errors = metric_columns(final, TASKS["image"][2])
+    return table(values.join(means), spec | mean_spec, errors, order=list(labels),
+                 index=index, labels=labels)  # fmt: skip
 
 
 def basis_table(runs: list[dict]) -> dict[str, str]:
     """Every basis at the benchmark's size."""
-    summary = summarize(runs)
-    summary.index = [name.removeprefix("FUTON-").title() for name in summary.index]
-    spec = {
-        "parameters": PARAMS,
-        "time": ("", "Training time (s)", False, 1),
-        "psnr": ("", "PSNR (dB)", True, 2),
-    }
-    errors = summary[["error"]].rename(columns={"error": "psnr"})
-    return table(summary, spec, errors, order=BASES, index="Basis")
+    final = study_frame(runs)
+    final["model"] = final["model"].str.removeprefix("FUTON-").str.title()
+    values, spec = cost_columns(final, "image")
+    means, mean_spec, errors = metric_columns(final, TASKS["image"][2])
+    return table(values.join(means), spec | mean_spec, errors, order=BASES,
+                 index="Basis")  # fmt: skip
 
 
 def variant_table(
-    summary: pd.DataFrame, variants: dict[str, str], index: str
+    runs: list[dict], variants: dict[str, str], index: str
 ) -> dict[str, str]:
-    """A study's variants against the benchmark's model, for both bases.
+    """A study's variants against the benchmark's model. ``variants`` maps each
+    row to the model it stands for, and ``index`` heads the rows."""
+    present = {run["model"] for run in runs}
+    labels = {model: (label,) for label, model in variants.items() if model in present}
+    return labelled_table(runs, labels, (index,)) if labels else {}
 
-    ``variants`` maps each row to the model it stands for, with the basis to
-    fill in, and ``index`` heads the rows. A row either basis lacks is left
-    out.
-    """
-    spec = {"parameters": PARAMS}
-    for basis in PAIR:
-        group = display_name(f"FUTON-{basis}")
-        spec[f"time_{basis}"] = (group, "Training time (s)", False, 1)
-        spec[f"psnr_{basis}"] = (group, "PSNR (dB)", True, 2)
 
-    values, errors = {}, {}
-    for label, template in variants.items():
-        names = {basis: template.format(basis=basis) for basis in PAIR}
-        if any(name not in summary.index for name in names.values()):
-            continue
-        rows = {basis: summary.loc[name] for basis, name in names.items()}
-        values[label] = {"parameters": rows[PAIR[0]]["parameters"]} | {
-            f"{field}_{basis}": rows[basis][field]
-            for basis in PAIR
-            for field in ("time", "psnr")
-        }
-        errors[label] = {f"psnr_{basis}": rows[basis]["error"] for basis in PAIR}
-    if not values:
-        return {}
-    return table(
-        pd.DataFrame(values).T,
-        spec,
-        pd.DataFrame(errors).T,
-        order=list(variants),
-        index=index,
+def sweep(runs: list[dict]) -> pd.DataFrame:
+    """One row per run of a sweep: its size, costs and final metrics, and the
+    relative bandwidth kappa = K / N and the rank its setup records."""
+    final = study_frame(runs)
+    kwargs = {run["model"]: run["setup"]["kwargs"] for run in runs}
+    basis = {model: settings["basis"][1] for model, settings in kwargs.items()}
+    final["kappa"] = final["model"].map(
+        lambda model: basis[model]["num_components"][0] / basis[model]["grid_size"][0]
     )
+    final["rank"] = final["model"].map(lambda model: kwargs[model]["combiner"][1]["rank"])
+    return final
 
 
-def grid_figures(runs: list[dict], out_dir: Path) -> None:
-    """PSNR against the rank fraction at each component fraction, and the reverse.
-
-    The components per axis are ``alpha`` times the pixels and the rank
-    ``beta`` times the smaller component count, so the figures read in units
-    of the image rather than in absolute sizes. The 1/8 level of either is
-    left out: its models are too small to matter and only compress the axis.
-    """
-    data = results(runs).assign(iteration=0)  # one evaluation, the last
+def sweep_figure(final: pd.DataFrame, x: str, label: str) -> plt.Figure:
+    """PSNR against a swept quantity, its levels doubling along the axis, with a
+    band of one within-signal standard error and a ring on the benchmark's
+    model."""
+    data = final.assign(iteration=0)  # one evaluation, the last
     data["psnr"] = within_signal(data, "psnr")  # the study's every model
-    data = data.join(data["model"].str.extract(GRID))
-    data[["alpha", "beta"]] = data[["alpha", "beta"]].astype(float)
-    data = data[data["alpha"].isin(SHOWN) & data["beta"].isin(SHOWN)]
+    figure, plot = plt.subplots(figsize=SIZE)
+    sns.lineplot(data=data, x=x, y="psnr", color=PALETTE[0], marker="o",
+                 errorbar=("se", BAND), err_kws={"alpha": 0.2, "linewidth": 0},
+                 markersize=3.5, markeredgecolor="white", markeredgewidth=0.4,
+                 ax=plot)  # fmt: skip
+    benchmark = data[data["model"] == "FUTON-cosine"]
+    plot.scatter(benchmark[x].iloc[:1], [benchmark["psnr"].mean()], s=40,
+                 facecolor="none", edgecolor="0.15", lw=0.8, zorder=3,
+                 clip_on=False)  # fmt: skip
+    levels = sorted(data[x].unique())
+    # Past five levels the labels crowd the panel: every other one is labelled,
+    # the benchmark's among them, and the rest keep their ticks.
+    labelled = levels.index(benchmark[x].iloc[0]) % 2 if len(levels) > 5 else None
+    names = [
+        FRACTIONS.get(level, f"{level:g}") if labelled in (None, i % 2) else ""
+        for i, level in enumerate(levels)
+    ]
+    plot.set(xscale="log", xlabel=label, ylabel="PSNR (dB)")
+    plot.set_xticks(levels, names)
+    plot.xaxis.set_minor_locator(NullLocator())
+    plot.yaxis.set_major_locator(Halves(whole=True))
+    return figure
+
+
+def sweep_table(final: pd.DataFrame, runs: list[dict], name: str) -> dict[str, str]:
+    """A sweep's table, a row per level: the bandwidth and the rank filling the
+    budget there, or the rank."""
+    levels = final.groupby("model")[["kappa", "rank"]].first().sort_values(
+        SWEPT[name][0]
+    )
     labels = {
-        "alpha": r"Components per pixel $\alpha$",
-        "beta": r"Rank over components $\beta$",
-    }
-    for basis, rows in data.groupby("basis"):
-        for axis, hue in (("beta", "alpha"), ("alpha", "beta")):
-            # The legend's two rows, its name and its levels, above the plot.
-            figure, plot = plt.subplots(figsize=(SIZE[0], SIZE[1] + 2 * LEGEND_ROW))
-            sns.lineplot(
-                data=rows,
-                x=axis,
-                y="psnr",
-                hue=hue,
-                style=hue,
-                markers=True,
-                dashes=False,
-                errorbar=("se", BAND),
-                err_kws={"alpha": 0.2, "linewidth": 0},
-                palette=list(RAMP[-rows[hue].nunique() :]),
-                markersize=3.5,
-                markeredgecolor="white",
-                markeredgewidth=0.4,
-                ax=plot,
-            )
-            plot.set(xscale="log", xlabel=labels[axis], ylabel="PSNR (dB)")
-            # The levels double, so tick them exactly, without log minor ticks.
-            levels = sorted(rows[axis].unique())
-            plot.set_xticks(
-                levels, [FRACTIONS.get(level, f"{level:g}") for level in levels]
-            )
-            plot.xaxis.set_minor_locator(NullLocator())
-            plot.yaxis.set_major_locator(Halves(whole=True))
-            # Above the plot, the levels in a row after their name.
-            handles, texts = plot.get_legend_handles_labels()
-            plot.get_legend().remove()
-            figure.legend(
-                handles,
-                [FRACTIONS.get(float(text), text) for text in texts],
-                title=labels[hue].split()[-1],
-                loc="outside upper center",
-                ncol=len(handles),
-                frameon=False,
-                columnspacing=0.9,
-                handlelength=1.2,
-                handletextpad=0.3,
-                alignment="center",
-            )
-            save(figure, out_dir / f"{FIGURES[axis]}_{basis}")
+        model: (FRACTIONS[row["kappa"]], f"{row['rank']:g}") if name == "bandwidth"
+        else (f"{row['rank']:g}",)
+        for model, row in levels.iterrows()
+    }  # fmt: skip
+    index = ("κ", "R") if name == "bandwidth" else ("R",)
+    return labelled_table(runs, labels, index)
 
 
 def study_curves(
@@ -1900,21 +1870,22 @@ def study_curves(
     styles: dict[str, tuple[str, str, tuple]],
     path: Path,
     floor: float | None = None,
+    columns: int = 2,
 ) -> None:
     """PSNR against training time for a study's models, with its own legend.
 
     ``styles`` gives each model its label, colour and dashes, in the order the
-    legend takes them, over the plot. The band is one within-signal standard
-    error, as in the task figures. ``floor`` lowers the bottom of the PSNR
-    axis to show more of a slow model's rise.
+    legend takes them, over the plot in ``columns`` columns. The band is one
+    within-signal standard error, as in the task figures. ``floor`` lowers the
+    bottom of the PSNR axis to show more of a slow model's rise.
     """
     curve = curve.assign(psnr=within_signal(curve, "psnr"))  # the study's every model
     curve = curve[curve["model"].isin(styles)]
     curve = curve.assign(
         time=curve.groupby(["model", "iteration"])["time"].transform("median")
     )
-    # The legend above the plot in two columns, a hue to a column.
-    rows = math.ceil(len(styles) / 2)
+    # The legend above the plot, filled a column at a time.
+    rows = math.ceil(len(styles) / columns)
     figure, plot = plt.subplots(figsize=(SIZE[0], SIZE[1] + rows * LEGEND_ROW))
     sns.lineplot(
         data=curve,
@@ -1951,7 +1922,7 @@ def study_curves(
     figure.legend(
         handles=handles,
         loc="outside upper center",
-        ncol=2,
+        ncol=columns,
         frameon=False,
         columnspacing=0.8,
         handlelength=1.5,
@@ -1986,12 +1957,15 @@ def ablation(out_dir: Path) -> None:
     print(f"ablation: {counts} models")
     if studies["basis"]:
         write(basis_table(studies["basis"]), out_dir / "basis")
-    if studies["components_rank"]:
-        grid_figures(studies["components_rank"], out_dir)
+    for name, (x, label) in SWEPT.items():
+        if studies[name]:
+            final = sweep(studies[name])
+            save(sweep_figure(final, x, label), out_dir / name)
+            write(sweep_table(final, studies[name], name), out_dir / name)
     tabled = {"tensor_net": (COMBINERS, "Combiner"), "decoder": (DECODERS, "Decoder")}
     for name, (variants, index) in tabled.items():
         if studies[name]:
-            table_of = variant_table(summarize(studies[name]), variants, index)
+            table_of = variant_table(studies[name], variants, index)
             write(table_of, out_dir / OUTPUTS.get(name, name))
     for name, styles in CURVES.items():
         if studies[name]:
@@ -2000,160 +1974,8 @@ def ablation(out_dir: Path) -> None:
                 styles,
                 out_dir / OUTPUTS.get(name, name),
                 FLOORS.get(name),
+                LEGEND_COLUMNS.get(name, 2),
             )
-    components_width(out_dir)
-
-
-def width_runs(task: str) -> list[dict]:
-    """A task's runs of the components-width study whose setup matches its config."""
-    name = f"{WIDTH_STUDY}_{task}"
-    log_dir = ROOT / "logs" / "ablation-futon" / name
-    if not log_dir.exists():
-        return []
-    config = ROOT / "configs" / "ablation-futon" / f"{name}.yaml"
-    setups = yaml.safe_load(config.read_text())["models"]
-
-    def expected(run: dict) -> dict | None:
-        setup = setups.get(run["model"])
-        if setup is None or task not in ("image", "super_resolution"):
-            return setup  # volumes and radiance fields record it as written
-        if task == "image":
-            return resolve_setup(setup, run)
-        return prepare(setup, signal_path(task, run["data"]))
-
-    return [run for run in read(log_dir, task) if expected(run) == run["setup"]]
-
-
-def width_frame(task: str) -> pd.DataFrame:
-    """One row per run of the components-width study: quality, costs and its
-    basis, level and width."""
-    runs = width_runs(task)
-    if not runs:
-        return pd.DataFrame()
-    frame = results(runs).merge(costs(runs, task), on=["signal", "model"])
-    frame = frame.join(frame["model"].str.extract(WIDTH_NAME))
-    frame[["level", "width"]] = frame[["level", "width"]].astype(int)
-    return frame
-
-
-def bicubic_level(signals: Sequence[str]) -> float:
-    """Bicubic interpolation's mean PSNR on super-resolution images."""
-    model = {"interpolation": "bicubic"}
-    scores = [
-        interpolate(model, signal_path("super_resolution", signal), 4, "cpu")
-        for signal in signals
-    ]
-    return float(np.mean([score["metrics"]["psnr"] for score in scores]))
-
-
-def width_figure(frames: dict[str, pd.DataFrame]) -> plt.Figure:
-    """Every configuration's mean quality against its median training time, a
-    panel per task."""
-    tasks = [task for task in TASKS if not frames[task].empty]
-    figure, axes = plt.subplots(
-        1, len(tasks), figsize=(WIDTH, SIZE[1] + LEGEND_ROW), layout="constrained"
-    )
-    for plot, task in zip(np.atleast_1d(axes), tasks):
-        frame, metric = frames[task], QUALITY[task]
-        means = (
-            frame.groupby(["basis", "level", "width"])
-            .agg(time=("time", "median"), value=(metric, "mean"))
-            .reset_index()
-        )
-        if task == "super_resolution":
-            level = bicubic_level(sorted(frame["signal"].unique()))
-            plot.axhline(level, color="0.4", ls=":", lw=0.8, zorder=0)
-            plot.annotate("bicubic", (0.98, level), xycoords=("axes fraction", "data"),
-                          xytext=(0, 1.5), textcoords="offset points", ha="right",
-                          va="bottom", fontsize=LABEL_FLOOR, color="0.4")  # fmt: skip
-            means = means[means["value"] > level - 2]  # the levels that work
-        for (basis, level), rows in means.groupby(["basis", "level"]):
-            rows = rows.sort_values("width")
-            color, sinc = LEVELS[level][1], basis == "sinc"
-            plot.plot(rows["time"], rows["value"], color=color, lw=0.7,
-                      ls="-" if sinc else (0, (3, 1.5)), zorder=1)  # fmt: skip
-            plot.scatter(rows["time"], rows["value"],
-                         s=[MARKERS[width] for width in rows["width"]],
-                         facecolor=color if sinc else "white", edgecolor=color,
-                         lw=0.7, zorder=2, clip_on=False)  # fmt: skip
-        benchmark = means[
-            (means["level"] == BENCHMARK_POINT[task][0])
-            & (means["width"] == BENCHMARK_POINT[task][1])
-        ]
-        plot.scatter(benchmark["time"], benchmark["value"], s=70, facecolor="none",
-                     edgecolor="0.15", lw=0.8, zorder=3, clip_on=False)  # fmt: skip
-        # Whole decibels or half points, rounded outward past every marker.
-        quality_ticks(plot, metric, means["value"].min(), means["value"].max())
-        if task != "nerf":  # NeRF's times lie within a few percent
-            plot.set_xscale("log")
-            log_ticks(plot.xaxis)
-        plot.set(xlabel="Training time (s)", ylabel=METRICS[metric][0],
-                 title=TITLES[task])  # fmt: skip
-    handles = [
-        Line2D([], [], color=color, marker="o", ls="", markersize=3.5, label=f"K = {name}")
-        for level, (name, color) in LEVELS.items()
-        if any(level in frames[task]["level"].values for task in tasks)
-    ] + [
-        Line2D([], [], color="0.3", marker="o", markersize=3.5, label="sinc"),
-        Line2D([], [], color="0.3", marker="o", markersize=3.5,
-               markerfacecolor="white", ls=(0, (3, 1.5)), label="cosine"),
-        Line2D([], [], color="0.15", marker="o", markersize=7, markerfacecolor="none",
-               ls="", label="benchmark's FUTON"),
-    ]  # fmt: skip
-    figure.legend(handles=handles, loc="outside lower center", ncol=len(handles),
-                  frameon=False, columnspacing=1.0, handletextpad=0.4)  # fmt: skip
-    return figure
-
-
-def width_table(frame: pd.DataFrame, task: str) -> dict[str, str]:
-    """A task's configurations of the components-width study, both bases."""
-    metric = QUALITY[task]
-    name, decimals = METRICS[metric][0], METRICS[metric][3]
-    frame = frame.assign(row=[f"{LEVELS[level][0]}, {width} wide"
-                              for level, width in zip(frame["level"], frame["width"])])  # fmt: skip
-    # The basis changes the values in FUTON's tables, not their sizes, so one
-    # memory column serves both bases.
-    memory = frame.groupby("row")["train_memory"].median()
-    unit, factor, digits = memory_unit(memory)
-    spec = {
-        "parameters": PARAMS,
-        "memory": ("", f"Training memory ({unit})", False, digits),
-    }
-    values = {row: {"memory": peak * factor} for row, peak in memory.items()}
-    errors = {}
-    for basis in PAIR:
-        group = display_name(f"FUTON-{basis}")
-        spec[f"time_{basis}"] = (group, "Training time (s)", False, 1)
-        spec[f"{metric}_{basis}"] = (group, name, True, decimals)
-        part = frame[frame["basis"] == basis].assign(model=lambda f: f["row"])
-        summary = part.groupby("model").agg(
-            parameters=("parameters", "median"),
-            time=("time", "median"),
-            value=(metric, "mean"),
-        )
-        summary["error"] = paired_error(part, (metric,))[("mean", metric)]
-        for row, entry in summary.iterrows():
-            values.setdefault(row, {})["parameters"] = entry["parameters"]
-            values[row][f"time_{basis}"] = entry["time"]
-            values[row][f"{metric}_{basis}"] = entry["value"]
-            errors.setdefault(row, {})[f"{metric}_{basis}"] = entry["error"]
-    order = [
-        f"{LEVELS[level][0]}, {width} wide" for level in LEVELS for width in WIDTHS
-    ]
-    return table(pd.DataFrame(values).T, spec, pd.DataFrame(errors).T, order=order,
-                 index="Components, decoder")  # fmt: skip
-
-
-def components_width(out_dir: Path) -> None:
-    """The components-width study's figure and its table per task."""
-    frames = {task: width_frame(task) for task in TASKS}
-    found = {task: len(frame) for task, frame in frames.items() if not frame.empty}
-    print(f"ablation: components_width runs {found}")
-    if not found:
-        return
-    save(width_figure(frames), out_dir / WIDTH_STUDY)
-    for task in found:
-        write(width_table(frames[task], task), out_dir / f"{WIDTH_STUDY}_{task}")
 
 
 def resolution(alpha: float) -> str:
@@ -2231,7 +2053,7 @@ def bound_gap(frames: dict[str, pd.DataFrame]) -> plt.Figure:
         plot.set_ylim(low - 0.1 * (high - low), high + 0.1 * (high - low))
         plot.yaxis.set_major_locator(Halves(count=6))
         plot.yaxis.set_major_formatter(StrMethodFormatter("{x:g}"))
-        plot.set_xlabel("CP rank $R$")
+        plot.set_xlabel("Rank $R$")
         plot.set_title(BOUND_DATASETS[task], fontsize=8, pad=2)
     axes[0].set_ylabel("PSNR above Adam (dB)")
     # filled by column: the ceiling, the region and Adam, then the certified FUTON
@@ -2273,7 +2095,7 @@ def bound_decomposition(frames: dict[str, pd.DataFrame]) -> plt.Figure:
         plot.set_xticks(x, [f"{rank}" for rank in share["upper"].index])
         plot.set_ylim(0, 100)
         plot.yaxis.set_major_locator(Halves())
-        plot.set_xlabel("CP rank $R$")
+        plot.set_xlabel("Rank $R$")
         plot.set_title(BOUND_DATASETS[task], fontsize=8, pad=2)
     axes[0].set_ylabel("Adam's error (%)")
     handles = [Patch(color=color, label=label) for label, color in parts.items()]
@@ -2309,11 +2131,11 @@ def bound_cost(frames: dict[str, pd.DataFrame]) -> plt.Figure:
             position += 1
         centres[task] = (first + position - 1) / 2
         position += 0.5
-    plot.set_yscale("log")
-    log_ticks(plot.yaxis)
+    plot.yaxis.set_major_locator(Halves(whole=True))
+    plot.yaxis.set_major_formatter(StrMethodFormatter("{x:g}"))
     plot.set_xticks(positions, labels)
     plot.tick_params(axis="x", length=0)
-    plot.set(xlabel="$K / N$", ylabel="Time (s)")
+    plot.set(xlabel=r"Relative bandwidth $\kappa$", ylabel="Training time (s)")
     for task, centre in centres.items():
         plot.text(centre, 1.0, BOUND_DATASETS[task], ha="center", va="bottom",
                   transform=plot.get_xaxis_transform(), fontsize=7)  # fmt: skip

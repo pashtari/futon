@@ -56,36 +56,44 @@ scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 image --models SIREN \
 
 ## FUTON ablations
 
-Four studies on the image task, each a config in `configs/ablation-futon/`
+Five studies on the image task, each a config in `configs/ablation-futon/`
 whose runs go to the folder of the same name in `logs/ablation-futon/`. All
 keep the benchmark's settings (24 Kodak images, 1000 steps on the whole
 image), so only the model changes. The default model is the benchmark's
-FUTON: K = (H/2, W/2) components, CP rank 280 and a one-layer MLP decoder 64
-wide (197,379 parameters); every variant has the same decoder unless the
-decoder is what varies. The basis study runs all six bases; the others run
-the benchmark's two, sinc and cosine, cosine at its own rate, 1e-1.
+FUTON (cosine): K = (H/2, W/2) components, CP rank 280 and a one-layer MLP
+decoder 64 wide (197,379 parameters), at the cosine basis's rate, 1e-1.
+Every variant has the same decoder unless the decoder is what varies, and the
+same rate but for three that fail at it and take 3e-2: the Tucker combiner,
+which diverges at 1e-1 on 8 of the 24 images, and rank 1120 and kappa = 1/8,
+where the benchmark's rule, applied to every model of the two sweeps on
+kodim01 and kodim17, picks 3e-2 (1e-1 loses 4.6 and 1.4 dB there; the checks
+are in `logs/ablation-futon/<study>-lr/<lr>/`). The basis study runs all six
+bases, the others the cosine basis alone.
 
 | Study | Models | What varies |
 | --- | --- | --- |
 | `basis` | `FUTON-<basis>`, 6 | cosine, lanczos, sinc, triangle, chebyshev and legendre, at the default size |
-| `components_rank` | `FUTON-<basis>-a<alpha>-b<beta>`, 50 | K = (alpha H, alpha W) and R = beta min(K), both over {1/8, 1/4, 1/2, 1, 2} |
-| `tensor_net` | `FUTON-<basis>`, `-TR` and `-Tucker`, 6 | tensor-ring and Tucker combiners against the default CP one |
-| `decoder` | `FUTON-<basis>`, `-w128`, `-w256` and `-linear`, 8 | the MLP's width (64, 128 and 256) and the paper's linear decoder |
+| `bandwidth` | `FUTON-cosine` and `-kappa<k>`, 5 | the relative bandwidth kappa = K / N over {1/8, 1/4, 1/2, 1, 2} at the budget: CP ranks 885, 515, 280, 145 and 75 |
+| `rank` | `FUTON-cosine` and `-R<r>`, 5 | the CP rank over {70, 140, 280, 560, 1120} at kappa = 1/2, 49,539 to 788,739 parameters |
+| `tensor_net` | `FUTON-cosine`, `-TR` and `-Tucker`, 3 | tensor-ring and Tucker combiners against the default CP one |
+| `decoder` | `FUTON-cosine`, `-w128`, `-w256` and `-linear`, 4 | the MLP's width (64, 128 and 256) and the paper's linear decoder |
 
 The variants take the largest rank that keeps FUTON smaller than every
 baseline (F-INR, 198,806 parameters): tensor-ring rank 16 (180,483), Tucker
 ranks `R_c = 0.163 K_c` (196,135), and CP ranks, multiples of 5, 255, 220 and
-305 behind the 128- and 256-wide MLPs and the linear decoder. The CP models of `tensor_net` and `decoder` repeat those
-of `basis`, so that each study stands alone. One image per array task:
+305 behind the 128- and 256-wide MLPs and the linear decoder. The default
+models of `bandwidth` and `rank` are the benchmark's runs of FUTON (cosine),
+`-kappa1_4` and `-kappa1` the components-width study's `FUTON-cosine-N4-w64`
+and `-N1-w64`, and the kodim01 and kodim17 runs of rank 1120 and kappa = 1/8
+their rate checks' (`logs/ablation-futon/<study>-lr/3.0e-2/`), all copied
+rather than repeated; each copy's `results.json` names its `source`, and a
+job skips the runs that exist. One image per array task:
 
 ```bash
-for study in basis tensor_net decoder; do
+for study in basis tensor_net decoder bandwidth rank; do
   scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 --array=1-24 image \
     --config configs/ablation-futon/$study.yaml --data data/Kodak/kodim%2a.png --compile
 done
-# The components grid holds models up to 5.5M parameters.
-scripts/hpc/train.sh --clusters=accelgor --time=2:00:00 --array=1-24 image \
-  --config configs/ablation-futon/components_rank.yaml --data data/Kodak/kodim%2a.png --compile
 ```
 
 ## Components against width, on every task

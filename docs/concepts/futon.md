@@ -106,7 +106,7 @@ The paper proves that FUTON with the cosine basis is a universal approximator. I
 ## Decoders
 
 - **`linear`** is `nn.Linear(R, D)`: $\hat{s}(\boldsymbol{x}) = \boldsymbol{V} \boldsymbol{g}(\boldsymbol{x}) + \boldsymbol{b}$. With it, FUTON is *exactly* a rank-$R$ CP model of the signal in the chosen basis, Eq. (9) of the paper, and its capacity is the capacity of that tensor format.
-- **`mlp`** is `nf.MLP(R, D, hidden_layers=h)`, a ReLU network whose hidden width defaults to $R$. The experiments use one hidden layer. The nonlinearity lets the model represent more than a rank-$R$ tensor at the same size: on images it is worth about 5 dB over a linear decoder ([decoder ablation](../experiments/ablations.md#decoder)).
+- **`mlp`** is `nf.MLP(R, D, hidden_layers=h)`, a ReLU network whose hidden width defaults to $R$. The experiments use one hidden layer. The nonlinearity lets the model represent more than a rank-$R$ tensor at the same size: on images it is worth about 8 dB over a linear decoder of the same size ([decoder ablation](../experiments/ablations.md#decoder)).
 
 `output_activation` is applied last; the benchmark models use `torch.tanh` to match targets in $[-1, 1]$. Inside a `RadianceField`, the density network must have no output activation, since the field applies its own.
 
@@ -118,7 +118,7 @@ $$
 R \sum_{c=1}^{C} K_c \;+\; (RM + M) \;+\; (MD + D).
 $$
 
-Each task chooses FUTON's components per axis and decoder width as every baseline's settings are chosen, from its [components-width study](../experiments/ablations.md#components-against-width-on-every-task) and on the data the baselines were tuned on: the best quality at a training time and memory that stay low. The rank is the largest multiple of 5 that keeps FUTON smaller than every baseline of the task. The benchmarks run the sinc and the cosine basis at these sizes:
+Each task chooses FUTON's components per axis and decoder width as every baseline's settings are chosen, on the data the baselines were tuned on: the best quality at a training time and memory that stay low. On images the [bandwidth](../experiments/ablations.md#bandwidth) and [decoder](../experiments/ablations.md#decoder) ablations show the choice. The rank is the largest multiple of 5 that keeps FUTON smaller than every baseline of the task. The benchmarks run the sinc and the cosine basis at these sizes:
 
 | Task | `num_components` | `rank` | Decoder | Parameters |
 | --- | --- | --- | --- | --- |

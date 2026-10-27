@@ -76,7 +76,6 @@ The render needs a display, which headless machines lack; that is why the call a
 ```bash
 python scripts/train_occupancy.py                                       # all shapes, all models
 python scripts/train_occupancy.py --data data/occupancy/lucy.ply --models FUTON-cosine
-python scripts/train_occupancy.py --config configs/ablation-futon/basis.yaml   # -> logs/ablation-futon/basis/
 ```
 
-The four FUTON ablation configs in `configs/ablation-futon/` run on this task; the [ablations page](../experiments/ablations.md) reports them.
+FUTON's ablations run on images; the [ablations page](../experiments/ablations.md) reports them.

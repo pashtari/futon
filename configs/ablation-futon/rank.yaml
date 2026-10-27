@@ -1,0 +1,63 @@
+# FUTON ablation on the image task: the CP rank beyond the budget. The
+# benchmark's FUTON (cosine), K = (H / 2, W / 2) components per axis and a
+# one-layer MLP decoder 64 wide, at ranks 70, 140, 280 (the benchmark's), 560
+# and 1120: 49,539 to 788,739 parameters, the size growing with the rank. Each
+# rank trains at the rate the benchmark's rule picks on kodim01 and kodim17:
+# the cosine basis's, 1e-1, up to rank 560 and 3e-2 at 1120.
+#     python scripts/train_image.py --config configs/ablation-futon/rank.yaml
+# The data and training settings repeat configs/image.yaml.
+
+data:
+  subsample: 1.0
+
+train:
+  num_steps: 1000
+  log_interval: 50
+  eval_interval: 50
+  seed: 0
+
+models:
+  FUTON-cosine-R70:
+    class: FUTON
+    kwargs:
+      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
+      combiner: [cp, {rank: 70}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 1.0e-1}
+
+  FUTON-cosine-R140:
+    class: FUTON
+    kwargs:
+      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
+      combiner: [cp, {rank: 140}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 1.0e-1}
+
+  FUTON-cosine:
+    class: FUTON
+    kwargs:
+      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
+      combiner: [cp, {rank: 280}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 1.0e-1}
+
+  FUTON-cosine-R560:
+    class: FUTON
+    kwargs:
+      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
+      combiner: [cp, {rank: 560}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 1.0e-1}
+
+  FUTON-cosine-R1120:
+    class: FUTON
+    kwargs:
+      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
+      combiner: [cp, {rank: 1120}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}  # 1e-1 loses 4.6 dB on kodim01 and kodim17

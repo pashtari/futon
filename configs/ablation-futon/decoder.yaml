@@ -1,5 +1,5 @@
-# FUTON ablation on the image task: the decoder, for the sinc and the cosine
-# basis. The benchmark's one-layer MLP decoder 64 wide at CP rank 280 (197,379
+# FUTON ablation on the image task: the decoder, for the cosine basis. The
+# benchmark's one-layer MLP decoder 64 wide at CP rank 280 (197,379
 # parameters) against MLPs 128 and 256 wide (-w128, -w256) and the paper's
 # linear decoder (-linear), each at the largest rank, a multiple of 5, that
 # keeps FUTON smaller than every baseline (F-INR, 198,806): 255, 220 and 305.
@@ -25,15 +25,6 @@ models:
       output_activation: tanh
     train: {lr: 1.0e-1}
 
-  FUTON-sinc:
-    class: FUTON
-    kwargs:
-      basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 280}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
-      output_activation: tanh
-    train: {lr: 3.0e-2}
-
   FUTON-cosine-w128:
     class: FUTON
     kwargs:
@@ -42,15 +33,6 @@ models:
       decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
       output_activation: tanh
     train: {lr: 1.0e-1}
-
-  FUTON-sinc-w128:
-    class: FUTON
-    kwargs:
-      basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 255}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
-      output_activation: tanh
-    train: {lr: 3.0e-2}
 
   FUTON-cosine-w256:
     class: FUTON
@@ -61,15 +43,6 @@ models:
       output_activation: tanh
     train: {lr: 1.0e-1}
 
-  FUTON-sinc-w256:
-    class: FUTON
-    kwargs:
-      basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 220}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 256}]
-      output_activation: tanh
-    train: {lr: 3.0e-2}
-
   FUTON-cosine-linear:
     class: FUTON
     kwargs:
@@ -78,12 +51,3 @@ models:
       decoder: linear
       output_activation: tanh
     train: {lr: 1.0e-1}
-
-  FUTON-sinc-linear:
-    class: FUTON
-    kwargs:
-      basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 305}]
-      decoder: linear
-      output_activation: tanh
-    train: {lr: 3.0e-2}

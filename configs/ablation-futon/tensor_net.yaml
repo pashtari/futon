@@ -1,5 +1,5 @@
 # FUTON ablation on the image task: a tensor-ring (-TR) and a Tucker (-Tucker)
-# combiner against the default CP one, for the sinc and the cosine basis at
+# combiner against the default CP one, for the cosine basis at
 # K = (H / 2, W / 2), each feeding the benchmark's one-layer MLP decoder 64
 # wide: the benchmark's CP rank 280 (197,379 parameters), and for the others
 # the largest ranks that keep FUTON smaller than every baseline (F-INR,
@@ -28,15 +28,6 @@ models:
       output_activation: tanh
     train: {lr: 1.0e-1}
 
-  FUTON-sinc:
-    class: FUTON
-    kwargs:
-      basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [cp, {rank: 280}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
-      output_activation: tanh
-    train: {lr: 3.0e-2}
-
   FUTON-cosine-TR:
     class: FUTON
     kwargs:
@@ -46,15 +37,6 @@ models:
       output_activation: tanh
     train: {lr: 1.0e-1}
 
-  FUTON-sinc-TR:
-    class: FUTON
-    kwargs:
-      basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [tr, {rank: 16}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
-      output_activation: tanh
-    train: {lr: 3.0e-2}
-
   FUTON-cosine-Tucker:
     class: FUTON
     kwargs:
@@ -63,12 +45,3 @@ models:
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
       output_activation: tanh
     train: {lr: 3.0e-2}  # 1e-1, the cosine basis's rate, diverges on 8 of the 24 images
-
-  FUTON-sinc-Tucker:
-    class: FUTON
-    kwargs:
-      basis: [sinc, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
-      combiner: [tucker, {rank: ["H // 2 * 163 // 1000", "W // 2 * 163 // 1000"]}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
-      output_activation: tanh
-    train: {lr: 3.0e-2}

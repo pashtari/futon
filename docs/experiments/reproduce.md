@@ -61,27 +61,22 @@ A run's time includes compiling its model and its 20 evaluations, with LPIPS on 
 
 ## 3. Ablations
 
-The FUTON ablations are configs in `configs/ablation-futon/`, run through the same scripts. All keep the benchmark's settings, so only the model changes:
+The FUTON ablations are configs in `configs/ablation-futon/`, run through the image script. All keep the benchmark's settings (the 24 Kodak images, 1000 steps on the whole image), so only the model changes, and all but the basis study run the cosine basis alone:
 
-| Config | Task | Models | Varies |
-| --- | --- | --- | --- |
-| `basis.yaml` | image | 6 | The six bases at the benchmark's size. |
-| `components_rank.yaml` | image | 50 | The components per axis as a fraction $\alpha$ of the pixels, $K = (\alpha H, \alpha W)$, and the rank as a fraction $\beta$ of the smaller count, $R = \beta \min(K_1, K_2)$, both over {1/8, 1/4, 1/2, 1, 2}, sinc and cosine. |
-| `tensor_net.yaml` | image | 6 | Tensor-ring and Tucker against CP, for the sinc and the cosine basis. |
-| `decoder.yaml` | image | 8 | MLP decoders 64, 128 and 256 wide and the linear decoder, at equal size, for the sinc and the cosine basis. |
-| `components_width_image.yaml` | image | 30 | The components per axis, $K = N/L$ for $L$ in {4, 2, 1}, against the width of the one-layer decoder, 16 to 256, each at the largest rank, a multiple of 5, within the budget, sinc and cosine. |
-| `components_width_occupancy.yaml` | occupancy | 30 | The same on the five volumes. |
-| `components_width_nerf.yaml` | NeRF | 30 | The same on the eight scenes. |
-| `components_width_super_resolution.yaml` | super-resolution | 40 | The same with $L = 8$ added, on the three DIV2K training images the settings were tuned on. |
+| Config | Models | Varies |
+| --- | --- | --- |
+| `basis.yaml` | 6 | The six bases at the benchmark's size. |
+| `bandwidth.yaml` | 5 | The relative bandwidth $\kappa = K / N$ over {1/8, 1/4, 1/2, 1, 2}, each at the largest rank, a multiple of 5, within the budget. |
+| `rank.yaml` | 5 | The CP rank over {70, 140, 280, 560, 1120} at $\kappa = 1/2$, 49,539 to 788,739 parameters. |
+| `tensor_net.yaml` | 3 | Tensor-ring and Tucker combiners against CP. |
+| `decoder.yaml` | 4 | MLP decoders 64, 128 and 256 wide and the linear decoder, at equal size. |
 
-The image studies run on all 24 Kodak images at the benchmark's settings (1000 steps on the whole image); in `components_rank.yaml` a model's name carries its fractions as decimals, so `FUTON-sinc-a0.5-b1` has $K = (H/2, W/2)$ and $R = H/2$. The components-width studies repeat their task's data and training settings, and a model's name carries $L$ and the width: the benchmark's model is `FUTON-sinc-N2-w64` on images, volumes and radiance fields, and `FUTON-sinc-N4-w128` in super-resolution. The benchmark's FUTON runs on radiance fields are this study's runs of that configuration, copied rather than repeated; each copy's `results.json` names its `source`. Their ranks are set like the benchmark's: written out on images and radiance fields, and `rank: budget` with the budget beside it on volumes and super-resolution, whose grids change with the signal.
+Runs that other experiments already hold are copied rather than repeated, each copy's `results.json` naming its `source`: the default model of the bandwidth and rank studies is the benchmark's FUTON (cosine), the bandwidth study's $\kappa = 1/4$ and $\kappa = 1$ are the components-width search's `FUTON-cosine-N4-w64` and `FUTON-cosine-N1-w64`, and the kodim01 and kodim17 runs of the two models whose rate the benchmark's rule moved to 3e-2, $\kappa = 1/8$ and rank 1120, are their rate checks'. That search, `components_width_<task>.yaml` for each task, chose FUTON's components per axis and decoder width on the task's tuning data, $K = N/L$ for $L$ in {4, 2, 1} (and 8 in super-resolution) against decoders 16 to 256 wide, for both bases; the benchmark's FUTON runs on radiance fields are its runs of the chosen `FUTON-sinc-N2-w64` and `FUTON-cosine-N2-w64`, copied likewise. The report leaves the search out.
 
 ```bash
-python scripts/train_image.py --config configs/ablation-futon/components_rank.yaml
-python scripts/train_occupancy.py --config configs/ablation-futon/components_width_occupancy.yaml
-python scripts/train_nerf.py --config configs/ablation-futon/components_width_nerf.yaml  # 8 scenes x 30 models
-python scripts/train_super_resolution.py --config configs/ablation-futon/components_width_super_resolution.yaml \
-  --data data/DIV2K/DIV2K_train_HR/0395.png data/DIV2K/DIV2K_train_HR/0431.png data/DIV2K/DIV2K_train_HR/0777.png
+for study in basis bandwidth rank tensor_net decoder; do
+  python scripts/train_image.py --config configs/ablation-futon/$study.yaml
+done
 ```
 
 ## 4. Report
@@ -98,7 +93,7 @@ results/
 ├── <task>/table.{tex,md}            size, the cost of both phases and final metrics, every shape's and scene's too, best in bold, second underlined
 ├── <task>/qualitative_<signal>.pdf  the signal with two regions boxed and magnified for every featured model (bicubic for TensoRF in super-resolution), above each model's |error| for images and super-resolution
 ├── <task>/panels/<signal>/          the renders those magnifications are cut from, rebuilt from the checkpoints
-├── ablation/                        a table and a convergence plot each for the bases, the combiners and the decoders, PSNR against each fraction, and quality against training time for components and width, with a table per task
+├── ablation/                        a table and a plot per study: PSNR against training time for the bases, the combiners and the decoders, and against the bandwidth and the rank
 └── bound/                           the error bound against trained FUTONs, from the records of scripts/futon_bound.py: figures and tables of the bound page
 ```
 

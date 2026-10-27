@@ -1,0 +1,65 @@
+# FUTON ablation on the image task: the bandwidth at a fixed budget. The
+# cosine basis takes K = kappa N components per axis, the relative bandwidth
+# kappa = K / N over {1/8, 1/4, 1/2, 1, 2}, with the benchmark's one-layer MLP
+# decoder 64 wide at the largest CP rank, a multiple of 5, that keeps FUTON
+# smaller than every baseline (F-INR, 198,806): 885, 515, 280, 145 and 75. The
+# kappa = 1/2 model is the benchmark's FUTON (cosine). Each model trains at the
+# rate the benchmark's rule picks on kodim01 and kodim17: the cosine basis's,
+# 1e-1, but 3e-2 at kappa = 1/8.
+#     python scripts/train_image.py --config configs/ablation-futon/bandwidth.yaml
+# The data and training settings repeat configs/image.yaml.
+
+data:
+  subsample: 1.0
+
+train:
+  num_steps: 1000
+  log_interval: 50
+  eval_interval: 50
+  seed: 0
+
+models:
+  FUTON-cosine-kappa1_8:
+    class: FUTON
+    kwargs:
+      basis: [cosine, {num_components: [H // 8, W // 8], grid_size: [H, W]}]
+      combiner: [cp, {rank: 885}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 3.0e-2}  # 1e-1 loses 1.4 dB on kodim01 and kodim17
+
+  FUTON-cosine-kappa1_4:
+    class: FUTON
+    kwargs:
+      basis: [cosine, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
+      combiner: [cp, {rank: 515}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 1.0e-1}
+
+  FUTON-cosine:
+    class: FUTON
+    kwargs:
+      basis: [cosine, {num_components: [H // 2, W // 2], grid_size: [H, W]}]
+      combiner: [cp, {rank: 280}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 1.0e-1}
+
+  FUTON-cosine-kappa1:
+    class: FUTON
+    kwargs:
+      basis: [cosine, {num_components: [H, W], grid_size: [H, W]}]
+      combiner: [cp, {rank: 145}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 1.0e-1}
+
+  FUTON-cosine-kappa2:
+    class: FUTON
+    kwargs:
+      basis: [cosine, {num_components: [2 * H, 2 * W], grid_size: [H, W]}]
+      combiner: [cp, {rank: 75}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      output_activation: tanh
+    train: {lr: 1.0e-1}
