@@ -94,10 +94,12 @@ One study per task, `configs/ablation-futon/components_width_<task>.yaml`,
 whose runs go to `logs/ablation-futon/components_width_<task>/`: the
 components per axis, K = N/L for L in {4, 2, 1} (and 8 in super-resolution),
 against the width of the one-layer MLP decoder, 16 to 256, at the rank that
-fills the task's budget, for the sinc and the cosine basis. Each study's
-`-N2-w64` model (`-N4-w64` in super-resolution) is the benchmark's FUTON.
-Super-resolution runs on the three DIV2K training images its settings were
-tuned on, so that nothing is chosen on the test images.
+fills the task's budget, for the sinc and the cosine basis. Each task's
+benchmark takes one of them as its FUTON: `-N2-w64` on images, volumes and
+radiance fields (its benchmark runs there are this study's, copied) and
+`-N4-w128` in super-resolution. Super-resolution runs on the three DIV2K
+training images its settings were tuned on, so that nothing is chosen on the
+test images.
 
 ```bash
 scripts/hpc/train.sh --clusters=accelgor --time=1:00:00 --array=1-24 image \

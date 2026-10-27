@@ -25,7 +25,7 @@ test_set = nf.nerf.BlenderDataset(root, split="test", downsample=4)
 ```python
 field = nf.nerf.RadianceField(
     density_net=(nf.FUTON, {
-        "basis": ("sinc", {"num_components": 100}),
+        "basis": ("sinc", {"num_components": 100, "grid_size": 2048}),
         "combiner": ("cp", {"rank": 180}),
         "decoder": ("mlp", {"hidden_layers": 1, "hidden_features": 64}),
     }),
@@ -37,7 +37,7 @@ field = nf.nerf.RadianceField(
 renderer = nf.nerf.create_renderer(aabb=train_set.aabb, near=train_set.near, far=train_set.far)
 ```
 
-The density network receives `in_features=3` and `out_features=1 + geometry_features`: one density logit and 15 features, on positions mapped from the scene box to $[-1, 1]^3$. The colour network maps those features and the encoded view direction (`"sh"`: 16 real spherical harmonics, as in Instant-NGP; `"identity"`: raw directions, as in FINER) to RGB. The field applies `trunc_exp` to the density and a sigmoid to the colour, so neither network has an output activation. Every model in the benchmark shares this colour network and renderer; only the density network changes, so the comparison is between spatial representations.
+The density network receives `in_features=3` and `out_features=1 + geometry_features`: one density logit and 15 features, on positions mapped from the scene box to $[-1, 1]^3$. The colour network maps those features and the encoded view direction (`"sh"`: 16 real spherical harmonics, as in Instant-NGP; `"identity"`: raw directions, as in FINER) to RGB. The field applies `trunc_exp` to the density and a sigmoid to the colour, so neither network has an output activation. Every model in the benchmark shares this colour network and renderer; only the density network changes, so the comparison is between spatial representations. Samples along rays lie on no grid, so FUTON's basis would be evaluated at every one of them; `grid_size=2048` reads it instead from a table of 2048 points per axis, each coordinate rounded to the nearest, 0.001 apart and finer than the marching step, which keeps a trained field's PSNR within a few hundredths of a decibel and renders and trains it in a fraction of the memory.
 
 `create_renderer` picks nerfacc when its CUDA extension works and the pure-PyTorch renderer otherwise; both march rays through an occupancy grid (`grid_resolution=128`, updated every 16 steps) with a step of $\sqrt{3} \cdot \text{extent} / 1024$ and at most `max_samples_per_ray=1024` occupied samples.
 
@@ -83,7 +83,7 @@ imageio.mimsave("lego_orbit.gif", frames, duration=0.083, loop=0)
 
 ## The benchmark script
 
-`scripts/train_nerf.py` trains every model of the config on every scene under `data/nerf/blender/`, evaluates on the 200 test views, and saves two rendered test views per run. The NeRF sweep is the long one: about ten minutes per model and scene on an A100, 104 runs in all.
+`scripts/train_nerf.py` trains every model of the config on every scene under `data/nerf/blender/`, evaluates on the 200 test views, and saves two rendered test views per run. The NeRF sweep is the long one: about five minutes per model and scene on an A100, 120 runs in all.
 
 ```bash
 python scripts/train_nerf.py --data data/nerf/blender/lego --models FUTON-sinc

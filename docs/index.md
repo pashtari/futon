@@ -96,8 +96,8 @@ Every model of a task has the same parameter budget, the hyperparameters of its 
 | --- | --- | --- | --- | --- | --- |
 | Images (Kodak) | 24 | 197k | 37.44 dB in 5.4 s | **38.14 dB** in 5.4 s | MFN, 36.72 dB in 57.3 s |
 | Occupancy (Stanford) | 5 | 131k | **99.95 % IoU** in 7.8 s | **99.95 % IoU** in 7.6 s | RFF, 99.91 % in 11.7 s |
-| Radiance fields (Blender) | 8 | 74k | **29.26 dB** in 192 s | 29.18 dB in 192 s | FINER, 28.62 dB in 219 s |
-| Super-resolution (DIV2K, 4×) | 100 | 500k | **28.53 dB** in 6.7 s | 28.20 dB in 6.5 s | Instant-NGP, 28.22 dB in 2.9 s |
+| Radiance fields (Blender) | 8 | 74k | 29.19 dB in 154 s | **29.22 dB** in 152 s | FINER, 28.62 dB in 219 s |
+| Super-resolution (DIV2K, 4×) | 100 | 500k | **28.59 dB** in 9.3 s | 28.21 dB in 9.2 s | Instant-NGP, 28.22 dB in 2.9 s |
 
 <figure markdown="span">
   ![Kodak: convergence, training-time trade-off and throughput](assets/results_image.svg){ width="960" }
