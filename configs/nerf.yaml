@@ -12,7 +12,12 @@
 # baseline is the smallest of its kind that reaches 74,131, and FUTON has
 # K = 100 components per axis, half the views' 200 pixels, a one-layer MLP
 # decoder 64 wide and the largest CP rank, a multiple of 5, that keeps it
-# smaller than every baseline (RFF, 74,459): 180 (73,027).
+# smaller than every baseline (RFF, 74,459): 180 (73,027). Its components and
+# width come from configs/ablation-futon/components_width_nerf.yaml, the best
+# validation PSNR among the configurations that train and render fastest and
+# in the least memory. Samples do not lie on a grid, so FUTON reads its basis
+# from a table of 2048 points per axis (grid_size), each coordinate rounded to
+# the nearest, 0.001 apart, finer than the marching step.
 
 data:
   downsample: 4  # 200x200 views (torch-ngp --downscale)
@@ -162,7 +167,7 @@ models:
   FUTON-sinc:
     class: FUTON
     kwargs:
-      basis: [sinc, {num_components: 100}]
+      basis: [sinc, {num_components: 100, grid_size: 2048}]
       combiner: [cp, {rank: 180}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
     train: {lr: 1.0e-2}
@@ -170,7 +175,7 @@ models:
   FUTON-cosine:
     class: FUTON
     kwargs:
-      basis: [cosine, {num_components: 100}]
+      basis: [cosine, {num_components: 100, grid_size: 2048}]
       combiner: [cp, {rank: 180}]
       decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
     train: {lr: 1.0e-2}

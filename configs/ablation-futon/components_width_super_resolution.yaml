@@ -2,10 +2,10 @@
 # for L in {8, 4, 2, 1}, against the width of the one-layer MLP decoder, 16 to
 # 256, each at the largest CP rank, a multiple of 5, that keeps FUTON smaller
 # than every baseline (RFF, 500,007), for the sinc and the cosine basis at
-# their benchmark rates. N is the high-resolution grid, whose quarter is the
-# low-resolution image the model sees. Model names carry L and the width:
-# FUTON-sinc-N4-w64 is the benchmark's model. It runs on the three DIV2K
-# training images every setting was tuned on.
+# 1e-2. N is the high-resolution grid, whose quarter is the low-resolution
+# image the model sees. Model names carry L and the width: FUTON-sinc-N4-w128
+# is the benchmark's model. It runs on the three DIV2K training images every
+# setting was tuned on, the benchmark's FUTON among them.
 #     python scripts/train_super_resolution.py \
 #       --config configs/ablation-futon/components_width_super_resolution.yaml \
 #       --data data/DIV2K/DIV2K_train_HR/0395.png data/DIV2K/DIV2K_train_HR/0431.png \

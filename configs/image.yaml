@@ -10,6 +10,9 @@
 # kind that reaches 197,123, and FUTON, with K = (H / 2, W / 2) components and
 # a one-layer MLP decoder 64 wide, takes the largest CP rank, a multiple of 5,
 # that keeps it smaller than every baseline (F-INR, 198,806): 280 (197,379).
+# Its components and width come from
+# configs/ablation-futon/components_width_image.yaml: 0.1 dB from the best PSNR
+# there, in two thirds of its training time.
 
 data:
   subsample: 1.0  # the whole image at every step

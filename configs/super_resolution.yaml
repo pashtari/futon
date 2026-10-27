@@ -13,9 +13,12 @@
 # Every model has about 500k parameters, close to the 519k values of a
 # 339 x 510 low-resolution image: each baseline is the smallest of its kind
 # that reaches 500,000, and FUTON, with one component per low-resolution pixel
-# along each axis and a one-layer MLP decoder 64 wide, takes the largest CP
+# along each axis and a one-layer MLP decoder 128 wide, takes the largest CP
 # rank, a multiple of 5, that keeps it smaller than every baseline (RFF,
-# 500,007): 545 on a 2040 x 1356 image (497,844).
+# 500,007): 510 on a 2040 x 1356 image (498,785). Its components and width
+# come from configs/ablation-futon/components_width_super_resolution.yaml: the
+# best gain over bicubic on the three training images, at a training time and
+# memory among the baselines' best.
 
 data:
   scale: 4
@@ -179,7 +182,7 @@ models:
       # one basis function per low-resolution pixel along each axis
       basis: [sinc, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
       combiner: [cp, {rank: budget}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
       output_activation: tanh
     train: {lr: 1.0e-2}
 
@@ -189,6 +192,6 @@ models:
     kwargs:
       basis: [cosine, {num_components: [H // 4, W // 4], grid_size: [H, W]}]
       combiner: [cp, {rank: budget}]
-      decoder: [mlp, {hidden_layers: 1, hidden_features: 64}]
+      decoder: [mlp, {hidden_layers: 1, hidden_features: 128}]
       output_activation: tanh
     train: {lr: 1.0e-2}

@@ -405,7 +405,9 @@ LEVELS = {
 }
 WIDTHS = (16, 32, 64, 128, 256)
 MARKERS = dict(zip(WIDTHS, (3.0, 6.0, 10.0, 16.0, 24.0)))  # marker areas, pt^2
-BENCHMARK_LEVEL = {"super_resolution": 4}  # N/2 elsewhere
+# The configuration each task's config takes from its study, (L, width).
+BENCHMARK_POINT = {"image": (2, 64), "occupancy": (2, 64), "nerf": (2, 64),
+                   "super_resolution": (4, 128)}  # fmt: skip
 QUALITY = {
     "image": "psnr",
     "occupancy": "iou",
@@ -2075,7 +2077,8 @@ def width_figure(frames: dict[str, pd.DataFrame]) -> plt.Figure:
                          facecolor=color if sinc else "white", edgecolor=color,
                          lw=0.7, zorder=2, clip_on=False)  # fmt: skip
         benchmark = means[
-            (means["level"] == BENCHMARK_LEVEL.get(task, 2)) & (means["width"] == 64)
+            (means["level"] == BENCHMARK_POINT[task][0])
+            & (means["width"] == BENCHMARK_POINT[task][1])
         ]
         plot.scatter(benchmark["time"], benchmark["value"], s=70, facecolor="none",
                      edgecolor="0.15", lw=0.8, zorder=3, clip_on=False)  # fmt: skip

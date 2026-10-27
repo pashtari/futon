@@ -10,7 +10,10 @@
 # kind that reaches 131,329, and FUTON, with K = N / 2 components per axis of
 # the cropped voxel grid and a one-layer MLP decoder 64 wide, takes the largest
 # CP rank, a multiple of 5, that keeps it smaller than every baseline
-# (TensoRF-CP, 131,457): 360 to 475 by shape (130,024 to 131,229).
+# (TensoRF-CP, 131,457): 360 to 475 by shape (130,024 to 131,229). Its
+# components and width come from
+# configs/ablation-futon/components_width_occupancy.yaml: within 0.02 points of
+# the best IoU there, in two thirds of its training time.
 
 data:
   resolution: 256  # occupancy grid resolution
