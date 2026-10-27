@@ -55,14 +55,15 @@ TASKS = {
         "alphas": (0.125, 0.25, 0.5, 1.0),
         "ranks": (32, 64, 128, 256),
         "data": {"max_samples": 262144},  # as configs/occupancy.yaml
-        "lr": 3e-1,
+        "lr": 3e-2,  # FUTON's rate in configs/occupancy.yaml
     },
 }
 # The paper's basis. Records carry it, so that settings of another basis, which
 # earlier studies ran, are never mistaken for its own.
 BASIS = "cosine"
-# The benchmark's 1000 steps at its batches, at each task's "lr" above: the best
-# rate of the grid at K = N/2 and the checked ranks on two signals per task.
+# The benchmark's 1000 steps at its batches, at each task's "lr" above: on
+# images the best rate of the grid at K = N/2 and the checked ranks on two
+# signals, on volumes the benchmark's rate for FUTON.
 STEPS = 1000
 # The optimizer checks at K = N/2 and the middle rank of each task: Adam for
 # LONGER times the steps, and alternating least squares on the whole grid,
@@ -188,6 +189,7 @@ def run(task: str, name: str, device: torch.device) -> None:
             adam_mse, adam_iou = evaluate(model, full, device)
             config = {
                 "basis": BASIS,
+                "lr": settings["lr"],
                 "alpha": alpha,
                 "K": [max(2, int(alpha * n)) for n in sizes],
                 "R": rank,
@@ -228,7 +230,7 @@ def checks(task: str, device: torch.device) -> None:
         batch = {"input": full.input.to(device), "target": full.target.to(device)}
         model = futon(sizes, channels, 0.5, rank)
         bound = nf.futon_bound(batch["target"], features_of(model, sizes, device), rank)
-        row = {"signal": name, "basis": BASIS, "R": rank,
+        row = {"signal": name, "basis": BASIS, "lr": TASKS[task]["lr"], "R": rank,
                "upper": float(bound.upper[0]), "lower": float(bound.lower[0])}  # fmt: skip
         train_data = dataset(task, name, **TASKS[task]["data"])
         train(model, train_data, device, TASKS[task]["lr"], steps=LONGER * STEPS)
