@@ -159,10 +159,11 @@ TASKS = {
 # second table leaves out.
 DEVELOPED_ON = ("0801", "0804", "0882")
 EXAMPLES = {  # the signals each task's qualitative figures show
-    "image": ("kodim01", "kodim09", "kodim17", "kodim19", "kodim21"),
-    "occupancy": ("thai_statue", "armadillo"),
-    "nerf": ("lego", "hotdog", "ship"),
-    "super_resolution": ("0807", "0882"),
+    "image": ("kodim17", "kodim19"),
+    "occupancy": ("lucy", "armadillo"),
+    "nerf": ("lego", "hotdog"),
+    # Test images, none of people, on which both FUTONs lead every other model.
+    "super_resolution": ("0880", "0887"),
 }
 # The test view a scene is drawn from, where its regions are set by hand; any
 # other scene takes the view at the median of FUTON's gain (see example_view).
@@ -170,27 +171,32 @@ VIEWS = {"lego": 175, "hotdog": 135}
 # Centres set by hand, one per magnified region, as fractions of the trimmed
 # reference; any other signal's regions are found (see regions). The scenes'
 # sit on parts of the object where the models disagree, rather than on the
-# plate's rim or the floor, which the search alone would take.
+# plate's rim or the floor, which the search alone would take; the volumes'
+# where both FUTONs stay below every other model's error.
 CENTERS: dict[str, tuple[tuple[float, float], ...]] = {
-    "kodim01": ((0.904, 0.106), (0.592, 0.323)),
     "kodim17": ((0.67, 0.22), (0.16, 0.63)),
     "kodim19": ((0.67, 0.22), (0.25, 0.67)),
-    "kodim21": ((0.15, 0.54), (0.5, 0.6)),
-    "thai_statue": ((0.35, 0.8), (0.77, 0.92)),
-    "armadillo": ((0.5, 0.5), (0.3, 0.8)),
+    "lucy": ((0.71, 0.06), (0.368, 0.304)),  # the torch's tip, the wing's root
+    "armadillo": ((0.301, 0.303), (0.611, 0.797)),  # the upper arm, the shin
     # The front wheel in its track and the cab with its light.
     "lego": ((0.480, 0.772), (0.801, 0.347)),
     # The bun's top and the mustard on the plate's rim, where the other fields
     # leave blotches, holes and broken edges.
     "hotdog": ((0.505, 0.27), (0.46, 0.85)),
-    "0882": ((0.50, 0.335), (0.60, 0.665)),  # the butterfly's head, a hindwing
+    # Super-resolution's where both FUTONs stay furthest below every other
+    # model's error, among the squares of most detail; on the owl's body for
+    # 0880, where both lead every baseline in 99 % of the squares: centred on an
+    # eye, and on a wing's dark feathers, where the baselines fall furthest behind.
+    "0880": ((0.445, 0.234), (0.299, 0.731)),  # the eye on the left, the wing
+    "0887": ((0.438, 0.532), (0.214, 0.558)),  # the windows, a balcony over the fields
 }
 # The tasks whose figures add each model's |error| beneath its magnifications:
-# images and super-resolution, whose best reconstructions differ too little to
-# see in the magnifications alone. A figure's maps share one scale, so that they
-# compare, saturating at the 90th percentile of every error they show, rounded
-# up to a round number; a super-resolution image's errors span a decade.
-ERRORS = ("image", "super_resolution")
+# images, volumes and super-resolution, whose best reconstructions differ too
+# little to see in the magnifications alone. A figure's maps share one scale,
+# so that they compare, saturating at the 90th percentile of every error they
+# show, rounded up to a round number; a super-resolution image's errors span a
+# decade.
+ERRORS = ("image", "occupancy", "super_resolution")
 ERROR_MAP = "magma"  # perceptually uniform, black where a model is exact
 UP = {"lucy": 2}  # the Stanford Lucy is z up; the other four shapes are y up
 

@@ -91,7 +91,7 @@ results/
 ├── <task>/throughput.{pdf,pgf}      the same against its inference throughput
 ├── <task>/{training,inference}_memory.{pdf,pgf}  and against its peak memory in either phase
 ├── <task>/table.{tex,md}            size, the cost of both phases and final metrics, every shape's and scene's too, best in bold, second underlined
-├── <task>/qualitative_<signal>.pdf  the signal with two regions boxed and magnified for every featured model (bicubic for TensoRF in super-resolution), above each model's |error| for images and super-resolution
+├── <task>/qualitative_<signal>.pdf  the signal with two regions boxed and magnified for every featured model (bicubic for TensoRF in super-resolution), above each model's |error| for images, volumes and super-resolution
 ├── <task>/panels/<signal>/          the renders those magnifications are cut from, rebuilt from the checkpoints
 ├── ablation/                        a table and a plot per study: PSNR against training time for the bases, the combiners and the decoders, and against the bandwidth and the rank
 └── bound/                           the error bound against trained FUTONs, from the records of scripts/futon_bound.py: figures and tables of the bound page

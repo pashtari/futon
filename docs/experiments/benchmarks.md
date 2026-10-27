@@ -40,8 +40,8 @@ Accuracy and costs come from the same runs. Every model is compiled with `torch.
 
 <figure markdown="span">
   ![kodim19](../assets/qualitative_kodim19.png)
-  ![kodim01](../assets/qualitative_kodim01.png)
-  <figcaption>kodim19 and kodim01: two regions of fine detail magnified for the ground truth and every featured model, above each model's |error| there on one scale per figure, with each model's PSNR over the whole image.</figcaption>
+  ![kodim17](../assets/qualitative_kodim17.png)
+  <figcaption>kodim19 and kodim17: two regions of fine detail magnified for the ground truth and every featured model, above each model's |error| there on one scale per figure, with each model's PSNR over the whole image.</figcaption>
 </figure>
 
 ## Occupancy
@@ -71,8 +71,8 @@ Five Stanford shapes voxelized at 256 samples per unit length and cropped to the
 </figure>
 
 <figure markdown="span">
-  ![Thai statue](../assets/qualitative_thai_statue.png)
-  <figcaption>The Thai statue, reconstructed from each model's checkpoint by marching cubes and rendered offscreen.</figcaption>
+  ![Lucy](../assets/qualitative_lucy.png)
+  <figcaption>Lucy, reconstructed from each model's checkpoint by marching cubes and rendered offscreen: the torch's tip and the root of a wing magnified for the ground truth and every featured model, above each model's |error| there on one scale, with each model's IoU over the whole volume.</figcaption>
 </figure>
 
 ## Radiance fields
@@ -163,9 +163,9 @@ The 100 DIV2K validation images, observed at a quarter of their size. Each image
 </figure>
 
 <figure markdown="span">
-  ![0882](../assets/qualitative_0882.png)
-  ![0807](../assets/qualitative_0807.png)
-  <figcaption>DIV2K 0882 and 0807: the butterfly's head and a hindwing, and the two regions of the lakeside where the models disagree most, magnified for the original, bicubic interpolation and the featured fields, above each model's |error| on one scale per figure, with each model's PSNR over the whole image. Bicubic stands in for TensoRF here, the weakest featured model on this task, so that the reference every model is measured against is in view.</figcaption>
+  ![0880](../assets/qualitative_0880.png)
+  ![0887](../assets/qualitative_0887.png)
+  <figcaption>DIV2K 0880 and 0887: an owl's eye and the dark feathers of its wing, and a castle's windows and a balcony against the fields beyond, magnified for the original, bicubic interpolation and the featured fields, above each model's |error| on one scale per figure, with each model's PSNR over the whole image. Bicubic stands in for TensoRF here, the weakest featured model on this task, so that the reference every model is measured against is in view.</figcaption>
 </figure>
 
 Super-resolution is the hardest task here for every model: nothing but the low-resolution image is seen, so the margins are fractions of a decibel and most fields lose to bicubic interpolation. FUTON (sinc) beats bicubic on 97 of the 100 images, by 0.49 dB on average and 1.36 dB on 0882, and leads PSNR and SSIM. Instant-NGP, the fastest model to train here at 2.9 s, gains 0.12 dB on average but beats bicubic on only 53 images, and FINER, 0.02 dB, on 42. FUTON (cosine) beats bicubic on 89 images, but on four its output falls 2 to 17 dB below it, which brings its mean down to 28.21 dB, the hash grid's level: it fits the observed pixels there as closely as anywhere, yet carries artifacts at high resolution that the downsampling does not show, on 0843 21.4 dB against bicubic's 38.8. The sinc basis fails so on one image, 0852, by 4.7 dB. The deep image prior and TensoRF do not beat bicubic on average, and F-INR (SIREN), the second fastest to train at 6.3 s, ends below it on every image, by 5.0 dB on average. The deep image prior is still rising slowly when its 1000 steps end, so its paper's margin over bicubic needs a budget the protocol does not give it. Bicubic keeps the best LPIPS, by 0.030 over FUTON (sinc), which suggests the fields buy their PSNR at edges rather than in texture, the one thing a single low-resolution image cannot teach. PE-MLP is the one model the protocol does not serve: the tuning images chose a rate of 3e-4 for it, at which it ends 7.5 dB below bicubic on average and below 20 dB on 44 of the 100 images.
