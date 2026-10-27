@@ -12,13 +12,14 @@ evaluates the certified FUTON, which attains the upper bound and is built
 from the bound's factors without training, in its ALS form, the default, and
 times its SVD form, the same terms before alternating least squares refines
 them; and trains the same FUTON with Adam from a random start, as the
-benchmark trains every model. A check completes the study: on
-every signal at one setting, longer training and alternating least squares
-on the whole grid, to see whether training rather than the bound is the
-limit. Errors are mean squared errors on the whole grid, and PSNR is taken
-for signals in [-1, 1]. The theorem behind the bound is in
-docs/concepts/error-bound.md, and scripts/report_paper.py turns the records
-into figures and tables that report each dataset, its signals averaged.
+benchmark trains every model. A check completes the study: on every signal
+at K = N/2 and the benchmark's rank, Adam for the benchmark's steps and for
+longer, and alternating least squares on the whole grid, to see whether
+training rather than the bound is the limit. Errors are mean squared errors
+on the whole grid, and PSNR is taken for signals in [-1, 1]. The theorem
+behind the bound is in docs/concepts/error-bound.md, and
+scripts/report_paper.py turns the records into figures and tables that
+report each dataset, its signals averaged.
 
 Writes:
     logs/bound/<task>/<signal>.json  one record per (alpha, R), resumable
@@ -36,24 +37,25 @@ if __name__ == "__main__":
 
 import numpy as np
 import torch
+import yaml
 
 import neurofield as nf
-from train_common import ROOT
+from train_common import ROOT, fill_rank, resolve
 
-# K = N (alpha 1) enters the cost alone, to show how the bound's time grows with
-# K; every other result is at K <= N/2.
+# K = N and 2N (alpha 1 and 2) enter the cost alone, to show how the bound's
+# time grows with K; every other result is at K <= N/2.
 TASKS = {
     "image": {
         "signals": [f"kodim{i:02d}" for i in range(1, 25)],
-        "alphas": (0.125, 0.25, 0.5, 1.0),
-        "ranks": (32, 64, 128, 256),
+        "alphas": (0.125, 0.25, 0.5, 1.0, 2.0),
+        "ranks": (32, 64, 128, 256, 512, 1024),
         "data": {},  # the whole image at every step, as configs/image.yaml
-        "lr": 1e-1,
+        "lr": 1e-1,  # FUTON's rate in configs/image.yaml
     },
     "occupancy": {
         "signals": ["armadillo", "dragon", "happy_buddha", "lucy", "thai_statue"],
-        "alphas": (0.125, 0.25, 0.5, 1.0),
-        "ranks": (32, 64, 128, 256),
+        "alphas": (0.125, 0.25, 0.5, 1.0, 2.0),
+        "ranks": (32, 64, 128, 256, 512, 1024),
         "data": {"max_samples": 262144},  # as configs/occupancy.yaml
         "lr": 3e-2,  # FUTON's rate in configs/occupancy.yaml
     },
@@ -61,14 +63,12 @@ TASKS = {
 # The paper's basis. Records carry it, so that settings of another basis, which
 # earlier studies ran, are never mistaken for its own.
 BASIS = "cosine"
-# The benchmark's 1000 steps at its batches, at each task's "lr" above: on
-# images the best rate of the grid at K = N/2 and the checked ranks on two
-# signals, on volumes the benchmark's rate for FUTON.
+# The benchmark's 1000 steps at its batches, at each task's "lr" above, the
+# benchmark's rate for FUTON (cosine).
 STEPS = 1000
-# The optimizer checks at K = N/2 and the middle rank of each task: Adam for
-# LONGER times the steps, and alternating least squares on the whole grid,
+# The optimizer checks at K = N/2 and the benchmark's rank: Adam for the steps
+# and for LONGER times them, and alternating least squares on the whole grid,
 # read after each number of SWEEPS.
-CHECKS = {"image": 64, "occupancy": 128}
 LONGER, SWEEPS = 5, (500, 2000)
 LOGS = ROOT / "logs" / "bound"
 
@@ -84,6 +84,15 @@ def dataset(task: str, name: str, **data):
         return nf.ImageCoordinateDataset(ROOT / f"data/Kodak/{name}.png", **data)
     path = ROOT / f"data/occupancy/{name}.ply"
     return nf.OccupancyCoordinateDataset(path, resolution=256, **data)
+
+
+def benchmark_rank(task: str, sizes: list[int], channels: int) -> int:
+    """The CP rank of the benchmark's FUTON (cosine) on a signal of ``sizes``,
+    as configs/<task>.yaml sets it."""
+    config = yaml.safe_load((ROOT / "configs" / f"{task}.yaml").read_text())
+    names = "DHW"[-len(sizes) :]
+    entry = resolve(config["models"]["FUTON-cosine"], **dict(zip(names, sizes)))
+    return fill_rank(entry, outputs=channels)["kwargs"]["combiner"][1]["rank"]
 
 
 def futon(sizes: list[int], channels: int, alpha: float, rank: int) -> nf.FUTON:
@@ -151,32 +160,33 @@ def of_basis(rows: list[dict]) -> list[dict]:
 
 
 def run(task: str, name: str, device: torch.device) -> None:
-    """Bound, certify and train every setting of one signal not yet recorded."""
+    """Bound, certify and train every setting of one signal not yet recorded.
+    A K is bounded at all its ranks in one call, whose time the cost reports,
+    so a K with a rank yet to bound is bounded again at every rank; a setting
+    whose Adam run is recorded keeps it."""
     settings = TASKS[task]
     path = LOGS / task / f"{name}.json"
     record = json.loads(path.read_text()) if path.exists() else {"configs": []}
-    done = {(c["alpha"], c["R"]) for c in of_basis(record["configs"])}
-    todo = [
-        (alpha, rank)
+    configs = {(c["alpha"], c["R"]): c for c in of_basis(record["configs"])}
+    alphas = [
+        alpha
         for alpha in settings["alphas"]
-        for rank in settings["ranks"]
-        if (alpha, rank) not in done
+        if any("upper" not in configs.get((alpha, r), {}) for r in settings["ranks"])
     ]
-    if not todo:
+    if not alphas:
         return
     full = dataset(task, name)
     train_data = dataset(task, name, **settings["data"])
     sizes, channels = list(full.target.shape[:-1]), full.target.shape[-1]
     record.update(task=task, signal=name, sizes=sizes, channels=channels)
     target = full.target.to(device)
-    for alpha in sorted({alpha for alpha, _ in todo}):
-        ranks = [rank for a, rank in todo if a == alpha]
+    for alpha in alphas:
         features = features_of(futon(sizes, channels, alpha, 1), sizes, device)
         start = time.perf_counter()
-        bound = nf.futon_bound(target, features, ranks)
+        bound = nf.futon_bound(target, features, settings["ranks"])
         seconds = time.perf_counter() - start
         start = time.perf_counter()  # the SVD form, before any refinement
-        closed = nf.futon_bound(target, features, ranks, sweeps=0)
+        closed = nf.futon_bound(target, features, settings["ranks"], sweeps=0)
         closed_seconds = time.perf_counter() - start
         for i, (rank, lower, upper) in enumerate(
             zip(bound.ranks, bound.lower, bound.upper)
@@ -184,57 +194,65 @@ def run(task: str, name: str, device: torch.device) -> None:
             certified = futon(sizes, channels, alpha, rank)
             bound.initialize(certified)
             certified_mse, certified_iou = evaluate(certified, full, device)
-            model = futon(sizes, channels, alpha, rank)
-            adam_seconds = train(model, train_data, device, settings["lr"])
-            adam_mse, adam_iou = evaluate(model, full, device)
-            config = {
-                "basis": BASIS,
-                "lr": settings["lr"],
-                "alpha": alpha,
-                "K": [max(2, int(alpha * n)) for n in sizes],
-                "R": rank,
-                "parameters": nf.count_parameters(model),
-                "truncation": bound.truncation,
-                "lower": float(lower),
-                "upper": float(upper),
-                "bound_seconds": seconds,
-                "certified": certified_mse,
-                "certified_iou": certified_iou,
-                "adam": adam_mse,
-                "adam_iou": adam_iou,
-                "adam_seconds": adam_seconds,
-                "closed": float(closed.upper[i]),  # the SVD form's error
-                "closed_seconds": closed_seconds,
-            }
-            record["configs"].append(config)
+            config = configs.get((alpha, rank))
+            if config is None:  # no Adam run yet
+                model = futon(sizes, channels, alpha, rank)
+                adam_seconds = train(model, train_data, device, settings["lr"])
+                adam_mse, adam_iou = evaluate(model, full, device)
+                config = {
+                    "basis": BASIS,
+                    "lr": settings["lr"],
+                    "alpha": alpha,
+                    "K": [max(2, int(alpha * n)) for n in sizes],
+                    "R": rank,
+                    "parameters": nf.count_parameters(model),
+                    "adam": adam_mse,
+                    "adam_iou": adam_iou,
+                    "adam_seconds": adam_seconds,
+                }
+                configs[(alpha, rank)] = config
+                record["configs"].append(config)
+            config.update(
+                {
+                    "truncation": bound.truncation,
+                    "lower": float(lower),
+                    "upper": float(upper),
+                    "bound_seconds": seconds,
+                    "certified": certified_mse,
+                    "certified_iou": certified_iou,
+                    "closed": float(closed.upper[i]),  # the SVD form's error
+                    "closed_seconds": closed_seconds,
+                }
+            )
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(record, indent=1))
             print(f"{task} {name} alpha {alpha} R {rank}: certified "
                   f"[{psnr(upper):.2f}, {psnr(lower):.2f}] dB, Adam "
-                  f"{psnr(adam_mse):.2f} dB", flush=True)  # fmt: skip
+                  f"{psnr(config['adam']):.2f} dB", flush=True)  # fmt: skip
 
 
 def checks(task: str, device: torch.device) -> None:
     """Whether training, not the bound, is the limit, on every signal at
-    K = N/2 and the task's CHECKS rank: Adam for LONGER times the benchmark's
-    steps, and alternating least squares on the whole grid from a random
-    start (``nf.LeastSquares`` without momentum), against the bound."""
+    K = N/2 and the benchmark's rank: Adam for the benchmark's steps and for
+    LONGER times them, and alternating least squares on the whole grid from a
+    random start (``nf.LeastSquares`` without momentum), against the bound."""
     path = LOGS / f"{task}_checks.json"
     rows = json.loads(path.read_text()) if path.exists() else []
-    rank = CHECKS[task]
     for name in TASKS[task]["signals"]:
         if any(row["signal"] == name for row in of_basis(rows)):
             continue
         full = dataset(task, name)
         sizes, channels = list(full.target.shape[:-1]), full.target.shape[-1]
+        rank = benchmark_rank(task, sizes, channels)
         batch = {"input": full.input.to(device), "target": full.target.to(device)}
         model = futon(sizes, channels, 0.5, rank)
         bound = nf.futon_bound(batch["target"], features_of(model, sizes, device), rank)
         row = {"signal": name, "basis": BASIS, "lr": TASKS[task]["lr"], "R": rank,
                "upper": float(bound.upper[0]), "lower": float(bound.lower[0])}  # fmt: skip
         train_data = dataset(task, name, **TASKS[task]["data"])
-        train(model, train_data, device, TASKS[task]["lr"], steps=LONGER * STEPS)
-        row["adam_longer"] = evaluate(model, full, device)[0]
+        for key, steps in (("adam", STEPS), ("adam_longer", LONGER * STEPS)):
+            train(model, train_data, device, TASKS[task]["lr"], steps=steps)
+            row[key] = evaluate(model, full, device)[0]
         torch.manual_seed(0)
         solver = nf.LeastSquares(model.to(device), momentum=0.0)
         for sweep in range(1, max(SWEEPS) + 1):

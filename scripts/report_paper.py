@@ -122,7 +122,7 @@ from matplotlib.ticker import (
     StrMethodFormatter,
 )
 from PIL import Image
-from futon_bound import CHECKS, LONGER, STEPS, SWEEPS, of_basis, psnr
+from futon_bound import LONGER, STEPS, SWEEPS, of_basis, psnr
 from train_common import ROOT, build, fill_rank, merge, resolve
 from train_super_resolution import INTERPOLATIONS, low_resolution
 
@@ -1979,8 +1979,14 @@ def ablation(out_dir: Path) -> None:
 
 
 def resolution(alpha: float) -> str:
-    """A spectral resolution K = alpha N as text: N/8, N/4, N/2 or N."""
-    return "N" + FRACTIONS[alpha][1:]
+    """A spectral resolution K = alpha N as text: N/8, N/4, N/2, N or 2N."""
+    return FRACTIONS[alpha] + "N" if alpha > 1 else "N" + FRACTIONS[alpha][1:]
+
+
+def rank_range(ranks: pd.Series) -> str:
+    """Ranks as text: one, or the smallest to the largest."""
+    low, high = ranks.min(), ranks.max()
+    return f"{low}" if low == high else f"{low}–{high}"
 
 
 def bound_records(task: str) -> pd.DataFrame:
@@ -2121,12 +2127,16 @@ def bound_cost(frames: dict[str, pd.DataFrame]) -> plt.Figure:
             }
         )
         first = position
-        for alpha, group in per_alpha.groupby(level="alpha"):
+        # Past four levels the two datasets' labels crowd the panel: every other
+        # one is labelled, the benchmark's 1/2 among them.
+        alphas = sorted(per_alpha.index.unique("alpha"))
+        labelled = alphas.index(0.5) % 2 if len(alphas) > 4 else None
+        for level, (alpha, group) in enumerate(per_alpha.groupby(level="alpha")):
             width = 0.8 / len(bars)
             for i, (key, (color, _)) in enumerate(bars.items()):
                 offset = (i - (len(bars) - 1) / 2) * width
                 plot.bar(position + offset, group[key].mean(), width, color=color)
-            labels.append(FRACTIONS[alpha])
+            labels.append(FRACTIONS[alpha] if labelled in (None, level % 2) else "")
             positions.append(position)
             position += 1
         centres[task] = (first + position - 1) / 2
@@ -2255,22 +2265,20 @@ def bound_tables(
         })  # fmt: skip
     methods = ["upper", "lower", "adam", "adam_longer", *(f"als_{s}" for s in SWEEPS)]
     rows = []
-    for task, frame in frames.items():
+    for task in frames:
         path = ROOT / "logs" / "bound" / f"{task}_checks.json"
         if not path.exists():
             continue
         runs = pd.DataFrame(of_basis(json.loads(path.read_text())))
-        setting = frame[(frame["alpha"] == 0.5) & (frame["R"] == CHECKS[task])]
-        runs["adam"] = runs["signal"].map(setting.set_index("signal")["adam"])
         long = runs.melt(id_vars="signal", value_vars=methods, var_name="model")
         long = long.assign(psnr=psnr(long["value"]), iteration=0)
         long["psnr"] = within_signal(long, "psnr")
         stats = long.groupby("model")["psnr"].agg(["mean", "sem"])
-        rows.append([BOUND_DATASETS[task], str(CHECKS[task]),
+        rows.append([BOUND_DATASETS[task], rank_range(runs["R"]),
                      *(bound_cell(*stats.loc[key]) for key in methods)])  # fmt: skip
     if rows:
         built.append({
-            "title": "optimizer checks, K = N/2",
+            "title": "optimizer checks, K = N/2 and the benchmark's rank",
             "note": "Mean PSNR (dB) over the signals, ± one within-signal standard "
                     "error: the certified FUTON in its ALS form and the ceiling, Adam "
                     f"at the benchmark's {STEPS} steps and at {LONGER * STEPS:,}, "
@@ -2307,6 +2315,7 @@ def bound_latex(built: list[dict]) -> str:
     def tex(text: str) -> str:
         text = re.sub(r" ± (\S+)", r"{\\scriptsize$\\pm$\1}", text)
         text = re.sub(r"\bN/(\d)", r"$N/\1$", text)
+        text = re.sub(r"^(\d*)N$", r"$\1N$", text)  # N, 2N
         for symbol, command in (
             ("×", r"$\times$"),
             ("–", "--"),
@@ -2457,7 +2466,7 @@ def bound(out_dir: Path) -> None:
     if not every:
         print("bound: no records under logs/bound, skipped")
         return
-    # K = N enters the cost alone, where it shows how the time grows with K.
+    # K = N and 2N enter the cost alone, where they show how the time grows with K.
     frames = {task: frame[frame["alpha"] < 1] for task, frame in every.items()}
     save(bound_gap(frames), out_dir / "gap")
     save(bound_decomposition(frames), out_dir / "decomposition")

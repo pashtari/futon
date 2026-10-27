@@ -131,19 +131,29 @@ done
 
 `scripts/futon_bound.py` runs the error-bound study of the docs' concepts
 page on the 24 Kodak images and the 5 occupancy volumes: in the cosine basis,
-at every spectral resolution and rank, it bounds the best error of FUTON
-with a linear decoder, builds the FUTON that attains the upper bound, and
-trains the same FUTON with Adam; then, on every signal at K = N/2 and one
-rank, it trains for five times the steps and runs least squares on the
-whole grid. It records into `logs/bound/` and is resumable. One A100 does it
-all in about two hours, bound and Adam in the same job, so that the cost of
-the two is compared under the same conditions.
+at every spectral resolution and at CP ranks 32, 64, 128, 256, 512 and 1024,
+it bounds the best error of FUTON with a linear decoder, builds the FUTON
+that attains the upper bound, and trains the same FUTON with Adam at the
+benchmark's rate for FUTON (cosine), 1e-1 on images and 3e-2 on volumes;
+then, on every signal at K = N/2 and the benchmark's rank, it trains for the
+benchmark's steps and for five times them and runs least squares on the
+whole grid. It records into `logs/bound/` and is resumable: a K with a rank
+still to bound is bounded again at all its ranks, in the one call whose time
+the cost reports, and a setting whose Adam run is recorded keeps it. The
+Adam runs at ranks 32 to 256 and K up to N are the study's of 2026-10-26
+(same script, rates, steps and A100s), and the checks' runs at the
+benchmark's 1000 steps the study's of 2026-10-27, both copied rather than
+repeated; each copy names its `adam_source`. One job per dataset, each on
+one A100, the bound and the Adam runs it trains in the same job: 1 h 21 min
+for the images, 32 min for the volumes.
 
 ```bash
-sbatch --clusters=accelgor --gpus-per-node=1 --cpus-per-task=8 \
-  --time=3:00:00 --chdir=$VSC_DATA/projects/neurofield \
-  --job-name=nf-bound --output=logs/slurm/%x-%j.out --wrap \
-  "source $VSC_DATA/venvs/neurofield-env/bin/activate && python scripts/futon_bound.py"
+for task in image occupancy; do
+  sbatch --clusters=accelgor --gpus-per-node=1 --cpus-per-task=8 \
+    --time=4:00:00 --chdir=$VSC_DATA/projects/neurofield \
+    --job-name=nf-bound-$task --output=logs/slurm/%x-%j.out --wrap \
+    "source $VSC_DATA/venvs/neurofield-env/bin/activate && python scripts/futon_bound.py --tasks $task"
+done
 ```
 
 Pull `logs/bound/` with `pull_logs.sh` and run `python scripts/report_paper.py
