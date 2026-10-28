@@ -107,7 +107,7 @@ def encode_futon(
     alpha: float = 0.005,
     quant_max: int = 127,
     quant_interval: int = -1,
-    log_interval: int = 1,
+    log_interval: int = 100,
     device: str | torch.device | None = None,
     seed: int = 0,
     **kwargs: Any,

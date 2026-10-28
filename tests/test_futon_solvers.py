@@ -458,6 +458,7 @@ class TestTraining:
             optimizer=solver(model, momentum=0.5),
             num_steps=20,
             eval_interval=20,
+            log_interval=1,
             metrics={"psnr": nf.psnr},
             log_dir=tmp_path,
             device="cpu",

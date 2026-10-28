@@ -14,6 +14,7 @@ from typing import Any, Literal, TypeAlias
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from tqdm.auto import tqdm
 
 __all__ = [
     "ModuleSpec",
@@ -152,6 +153,18 @@ class JSONLogger:
                 log_file.write(json.dumps(entry, ensure_ascii=False, indent=4) + "\n")
 
 
+class _ProgressBarHandler(logging.StreamHandler):
+    """A console handler that writes through tqdm, which clears a progress bar
+    on the same stream before each line and draws it again after."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            tqdm.write(self.format(record), file=self.stream)
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
+
 def setup_experiment_loggers(
     log_dir: str | os.PathLike[str] | None,
     logger_name: str,
@@ -162,10 +175,11 @@ def setup_experiment_loggers(
     """Configure console, text and JSON logging for an experiment.
 
     Replaces the named logger's handlers and disables propagation. The console
-    shows ``INFO`` messages, and the text file also keeps ``DEBUG`` ones, such
-    as the trainers' line per step, which a progress bar shows instead. Text
-    files append after an optional initial truncation, allowing training and
-    evaluation loggers to share a file. JSON records always append.
+    shows ``INFO`` messages, such as the trainers' line per record, written
+    around a progress bar rather than through it, and the text file also keeps
+    ``DEBUG`` ones. Text files append after an optional initial truncation,
+    allowing training and evaluation loggers to share a file. JSON records
+    always append.
 
     Args:
         log_dir: Output directory, created if needed; ``None`` logs to console only.
@@ -194,7 +208,7 @@ def setup_experiment_loggers(
         fmt="%(asctime)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
 
-    stream_handler = logging.StreamHandler()
+    stream_handler = _ProgressBarHandler()
     stream_handler.setLevel(logging.INFO)
     stream_handler.setFormatter(formatter)
     logger.addHandler(stream_handler)

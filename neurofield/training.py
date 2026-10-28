@@ -62,7 +62,7 @@ def train(
     quant_interval: int = -1,
     metrics: Mapping[str, Callable[[Tensor, Tensor], float]] | None = None,
     rate_metrics: Mapping[str, Callable[[bytes, Tensor], float]] | None = None,
-    log_interval: int = 1,
+    log_interval: int = 100,
     eval_interval: int | None = None,
     chunk_size: int | None = None,
     save_reconstruction: bool = True,
@@ -107,8 +107,9 @@ def train(
             Non-positive values disable them; requires ``quantize=True``.
         metrics: Distortion metrics passed to :func:`evaluate`.
         rate_metrics: Rate metrics passed to :func:`evaluate`.
-        log_interval: Steps between history records, which update the progress
-            bar and the text log. Final and evaluation steps are always
+        log_interval: Steps between history records, each also a line on the
+            console and in the text log, with the evaluation's metrics when
+            the step evaluates. Final and evaluation steps are always
             recorded; non-positive values record only those.
         eval_interval: Evaluate every this many steps and at the final step.
             ``None`` evaluates only at the end; non-positive values disable it.
@@ -120,7 +121,7 @@ def train(
         log_dir: Directory for ``log.txt``, with a line per record, ``log.json``,
             reconstructions and ``checkpoint.pt``. Text logs are truncated
             initially; JSON records append. ``None`` keeps no files; the
-            console shows a progress bar and a summary either way.
+            console shows a progress bar, the records and a summary either way.
         seed: Seed for the global PyTorch RNG.
 
     Returns:
@@ -262,10 +263,11 @@ def train(
                 save_reconstruction=save_reconstruction,
             )
             record["eval"] = _average_dicts(evaluation["history"])
-            status += " - eval " + _format_metrics(record["eval"])
+            if evaluated := _format_metrics(record["eval"]):  # none without metrics
+                status += " - eval " + evaluated
             model.train()  # evaluation leaves the model in evaluation mode
 
-        logger.debug("Step [%d/%d] - %s", step, num_steps, status)
+        logger.info("Step [%d/%d] - %s", step, num_steps, status)
         json_logger.log(record)
         history.append(record)
         start_time = time.perf_counter()  # evaluating and logging is not training

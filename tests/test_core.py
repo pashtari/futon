@@ -85,6 +85,7 @@ def test_image_training_evaluation_and_checkpoint(tmp_path, quantize):
         quantize=quantize,
         quant_interval=2,
         eval_interval=3,
+        log_interval=1,
         metrics={"psnr": nf.psnr},
         chunk_size=7,
         log_dir=tmp_path,
@@ -144,13 +145,46 @@ def test_dip_training_keeps_data_on_device(device):
         return mse, {"mse": mse.item()}
 
     results = nf.train(
-        model, dataset, loss_fn=loss_fn, num_steps=4, eval_interval=-1, device=device
+        model,
+        dataset,
+        loss_fn=loss_fn,
+        num_steps=4,
+        eval_interval=-1,
+        log_interval=1,
+        device=device,
     )
 
     assert len(results["history"]) == 4
     assert (results["config"]["peak_memory"] > 0) == (device == "cuda")
     assert dataset.input.device.type == dataset.target.device.type == device
     assert dataset.original.device.type == "cpu"
+
+
+def test_training_prints_a_line_per_record(capsys):
+    torch.manual_seed(0)
+    image = torch.arange(3 * 8 * 8, dtype=torch.uint8).reshape(3, 8, 8)
+    dataset = nf.ImageCoordinateDataset(image, item_id="image")
+    model = nf.MLP(2, 3, hidden_features=8)
+
+    nf.train(
+        model,
+        dataset,
+        num_steps=6,
+        log_interval=2,
+        eval_interval=3,
+        metrics={"psnr": nf.psnr},
+        device="cpu",
+    )
+
+    lines = [line for line in capsys.readouterr().err.splitlines() if "Step [" in line]
+    assert [line.split("Step [")[1].split("]")[0] for line in lines] == [
+        "2/6",
+        "3/6",
+        "4/6",
+        "6/6",
+    ]
+    assert all("psnr=" in line for line in lines)
+    assert ["- eval psnr=" in line for line in lines] == [False, True, False, True]
 
 
 def test_training_takes_one_batch_per_step():
@@ -174,7 +208,13 @@ def test_training_takes_one_batch_per_step():
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
 
     results = nf.train(
-        model, dataset, num_steps=7, optimizer=optimizer, eval_interval=-1, device="cpu"
+        model,
+        dataset,
+        num_steps=7,
+        optimizer=optimizer,
+        eval_interval=-1,
+        log_interval=1,
+        device="cpu",
     )
 
     assert dataset.drawn == 7

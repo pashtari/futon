@@ -80,15 +80,16 @@ def train(
         eval_interval: Evaluate every this many steps and at the final step.
             ``None`` evaluates only at the end; non-positive values disable it.
         eval_indices: Evaluation view indices; ``None`` selects all views.
-        log_interval: Steps between history entries, which update the progress
-            bar and the text log. Final and evaluation steps are always
+        log_interval: Steps between history entries, each also a line on the
+            console and in the text log, with the evaluation's metrics when
+            the step evaluates. Final and evaluation steps are always
             recorded; non-positive values record only those.
         device: Compute device; ``None`` selects CUDA if available, else CPU.
         log_dir: Directory for ``log.txt``, with a line per history entry,
             ``log.json``, the field's final ``checkpoint.pt``, and
             ``renderer.pt``, the renderer's state with its occupancy grid.
-            ``None`` keeps no files; the console shows a progress bar and a
-            summary either way.
+            ``None`` keeps no files; the console shows a progress bar, the
+            entries and a summary either way.
         seed: Seed passed to ``torch.manual_seed`` before training, after the
             supplied field and renderer have already been constructed.
 
@@ -242,7 +243,7 @@ def train(
             )["mean"]
             status += " - eval " + _format_metrics(entry["eval"])
 
-        logger.debug("Step [%d/%d] - %s", step, num_steps, status)
+        logger.info("Step [%d/%d] - %s", step, num_steps, status)
         json_logger.log(entry)
         history.append(entry)
         start_time = time.perf_counter()  # evaluating and logging is not training

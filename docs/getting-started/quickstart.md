@@ -38,7 +38,7 @@ On a GPU this takes about half a minute (34 s on an RTX 4060 Ti) and ends near 3
 
 1. **The dataset turns the image into coordinate/value pairs.** `dataset.input` holds the pixel-centre coordinates, shape `(H, W, 2)` in $[-1, 1]$; `dataset.target` the RGB values, shape `(H, W, 3)`, also in $[-1, 1]$. Each access returns the whole image; `subsample=0.1` would instead draw a fresh random 10 % of the pixels per access, flattened to `(N, 2)` and `(N, 3)`.
 2. **The model is a function of coordinates.** `FUTON` is assembled from three specs, each a registry key, a `(key, kwargs)` pair, a class, or a module instance. The sinc basis here has half as many functions per axis as the image has pixels, 384 × 256 on this 768 × 512 image, evaluated once per image row and column; the CP combiner has rank 280; the decoder is an MLP with one hidden layer of width 64. `output_activation=torch.tanh` matches the target range. This is the benchmark's FUTON (sinc), 197,379 parameters; the benchmark also tabulates the basis on the pixel grid (`grid_size`) and compiles the model, which trains it in about 5 s on an A100.
-3. **`nf.train` runs Adam with cosine annealing** from `lr` down to `lr / 100`, one optimizer step per batch; this dataset has one item, the whole image, so every step sees every pixel. A progress bar shows the training metrics. Every `eval_interval` steps, and at the last one, it evaluates on `dataset`, mapping predictions back to `uint8` with `dataset.postprocess` before computing the metrics.
+3. **`nf.train` runs Adam with cosine annealing** from `lr` down to `lr / 100`, one optimizer step per batch; this dataset has one item, the whole image, so every step sees every pixel. Every `log_interval` steps it prints the training metrics as a line above a progress bar. Every `eval_interval` steps, and at the last one, it evaluates on `dataset`, mapping predictions back to `uint8` with `dataset.postprocess` before computing the metrics, and the line adds them.
 
 The result is a plain dictionary:
 
@@ -71,7 +71,7 @@ Pass `log_dir` to keep a record of the run:
 result = nf.train(model, dataset, dataset, num_steps=1000, lr=3e-2, log_dir="logs/quickstart")
 ```
 
-This writes `log.txt` (a line per logged step, which the console shows as a progress bar), `log.json` (the same records as JSON, read back with `nf.read_json_records`), the final `checkpoint.pt`, and the evaluation reconstruction `kodim19_reconstructed.png`.
+This writes `log.txt` (the console's lines, with the run's configuration), `log.json` (the same records as JSON, read back with `nf.read_json_records`), the final `checkpoint.pt`, and the evaluation reconstruction `kodim19_reconstructed.png`.
 
 ## Swap the model
 
