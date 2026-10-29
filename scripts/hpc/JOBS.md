@@ -37,6 +37,16 @@ scripts/hpc/train.sh --clusters=accelgor --time=2:00:00 --array=801-900 super_re
   --data data/DIV2K/DIV2K_valid_HR/%4a.png --compile
 ```
 
+The NeRF runs first rendered their test views in passes of the renderer's
+default 512 rays; `train_nerf.py` now renders each view whole, in one pass of
+its 40,000 rays. The 120 runs were not trained again: four jobs, two scenes
+each, rebuilt every run's field and occupancy grid from `checkpoint.pt` and
+`renderer.pt`, compiled it as the benchmark does and scored the 200 test views
+as `train_nerf.py` does, replacing the run's `metrics`, `test_views` and two
+saved views and recording the render under `test_provenance`. Every view's
+PSNR, SSIM and LPIPS agree with the first render's within 1e-5; only the times
+and memory changed.
+
 ## Learning rates
 
 Every model trains with PyTorch's default Adam at one learning rate from

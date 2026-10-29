@@ -10,7 +10,7 @@ Notes on the rows:
 - **F-INR (SIREN)** gives each coordinate its own SIREN, built and initialized as in its authors' image code, and combines them per channel by a CP decomposition. Their settings do not fit the budget, so we tuned at equal size what they leave open: the split between width and rank (in 2D the most rank a width allows, one more than the width; width 96 and rank 259 on volumes, width 32 and rank 39 on radiance fields), the first layer's frequency (200 on images, above their 100, and 100 elsewhere) and the decomposition, CP rather than the tensor train they pick for shapes and radiance fields. Neither the positional encoding of their image experiments nor the SIREN of their shape code helps at this size. Their paper fits radiance fields with per-axis hash grids; here the axes are SIRENs on every task.
 - **FreSh (SIREN)** is the SIREN row with its first-layer frequency chosen per signal before training, by matching the spectrum of the untrained network's output to the signal's, and the search counts toward its training time. Its paper covers images and radiance fields; on volumes it reads the 3D spectrum of the occupancy grid, and on super-resolution that of the low-resolution image, our two adaptations. On super-resolution, where the SIREN row runs every layer at a tuned frequency of 120, FreSh keeps it in the later layers.
 
-Accuracy and costs come from the same runs. Every model is compiled with `torch.compile` and trained on an A100 after an untimed warm-up pass that compiles it. The training time counts the training steps alone; inference throughput and memory are the medians over a run's evaluations, for a radiance field over its 200 test views, and training memory is the run's peak. Each cost in the tables and figures is the median over a task's signals.
+Accuracy and costs come from the same runs. Every model is compiled with `torch.compile` and trained on an A100 after an untimed warm-up pass that compiles it. The training time counts the training steps alone; inference throughput and memory are the medians over a run's evaluations, for a radiance field over its 200 test views, each rendered whole in one pass, and training memory is the run's peak. Each cost in the tables and figures is the median over a task's signals.
 
 ## Images
 
@@ -79,22 +79,22 @@ Five Stanford shapes voxelized at 256 samples per unit length and cropped to the
 
 Eight NeRF synthetic (Blender) scenes under FINER's protocol: 200 × 200 views, 25 training views, 25,000 steps of 4096 rays (FINER's protocol trains for 37,500), scored on all 200 test views. Every model is the density network of the same radiance field (15 geometry features, spherical-harmonics direction encoding, a 64 × 2 colour MLP), about 75k parameters in all.
 
-| Model | #Params (k) | Training time (s) ↓ | Training memory (GB) ↓ | Inference FPS ↑ | Inference memory (MB) ↓ | PSNR (dB) ↑ | SSIM ↑ | LPIPS ↓ |
+| Model | #Params (k) | Training time (s) ↓ | Training memory (GB) ↓ | Inference FPS ↑ | Inference memory (GB) ↓ | PSNR (dB) ↑ | SSIM ↑ | LPIPS ↓ |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| RFF | 74.5 | 179.3 | 2.91 | **7.0** | 67 | 28.07 ± 0.30 | 0.928 ± 0.004 | 0.082 ± 0.008 |
-| PE-MLP | 75.1 | 201.0 | 3.00 | 6.6 | 68 | 27.94 ± 0.21 | 0.931 ± 0.002 | 0.079 ± 0.006 |
-| MFN | 75.8 | 275.6 | 9.97 | 6.6 | 134 | 28.28 ± 0.17 | 0.932 ± 0.002 | 0.078 ± 0.006 |
-| SIREN | 75.2 | 215.5 | 5.08 | 6.3 | 64 | 28.53 ± 0.17 | 0.935 ± 0.002 | 0.106 ± 0.008 |
-| FreSh (SIREN) | 75.2 | 217.2 | 5.03 | 6.0 | 61 | 28.34 ± 0.23 | 0.928 ± 0.004 | 0.146 ± 0.016 |
-| Gauss | 75.2 | 239.1 | 4.82 | 6.4 | 72 | 27.54 ± 0.22 | 0.922 ± 0.003 | 0.105 ± 0.008 |
-| WIRE | 74.5 | 237.9 | 4.97 | 6.1 | 69 | 28.29 ± 0.20 | 0.928 ± 0.003 | 0.126 ± 0.007 |
-| FINER | 75.2 | 218.8 | 5.02 | 6.1 | 64 | 28.62 ± 0.19 | 0.934 ± 0.002 | 0.120 ± 0.010 |
-| Instant-NGP | 75.0 | **147.0** | 2.80 | 6.8 | 114 | 26.60 ± 0.37 | 0.908 ± 0.009 | 0.119 ± 0.011 |
-| TensoRF | 74.8 | 246.2 | 2.14 | _6.9_ | _50_ | 27.99 ± 0.18 | 0.931 ± 0.003 | 0.076 ± 0.006 |
-| GA-Planes | 75.0 | 271.6 | 2.10 | 6.7 | _50_ | 28.24 ± 0.18 | 0.936 ± 0.003 | 0.071 ± 0.005 |
-| F-INR (SIREN) | 74.7 | 292.8 | 16.18 | 6.0 | 296 | 27.52 ± 0.46 | 0.911 ± 0.012 | 0.127 ± 0.020 |
-| FUTON (sinc) | 73.0 | 153.7 | **1.88** | 6.6 | _50_ | _29.19_ ± 0.22 | **0.943** ± 0.003 | **0.065** ± 0.006 |
-| FUTON (cosine) | 73.0 | _152.0_ | **1.88** | 6.6 | **49** | **29.22** ± 0.22 | **0.943** ± 0.004 | **0.065** ± 0.007 |
+| RFF | 74.5 | 179.3 | 2.91 | 38.7 | 2.12 | 28.07 ± 0.30 | 0.928 ± 0.004 | 0.082 ± 0.008 |
+| PE-MLP | 75.1 | 201.0 | 3.00 | 37.0 | 2.10 | 27.94 ± 0.21 | 0.931 ± 0.002 | 0.079 ± 0.006 |
+| MFN | 75.8 | 275.6 | 9.97 | 35.5 | 3.61 | 28.28 ± 0.17 | 0.932 ± 0.002 | 0.078 ± 0.006 |
+| SIREN | 75.2 | 215.5 | 5.08 | 38.4 | 2.14 | 28.53 ± 0.17 | 0.935 ± 0.002 | 0.106 ± 0.008 |
+| FreSh (SIREN) | 75.2 | 217.2 | 5.03 | 39.4 | 2.13 | 28.34 ± 0.23 | 0.928 ± 0.004 | 0.146 ± 0.016 |
+| Gauss | 75.2 | 239.1 | 4.82 | 36.4 | 2.18 | 27.54 ± 0.22 | 0.922 ± 0.003 | 0.105 ± 0.008 |
+| WIRE | 74.5 | 237.9 | 4.97 | 38.8 | 2.19 | 28.29 ± 0.20 | 0.928 ± 0.003 | 0.126 ± 0.007 |
+| FINER | 75.2 | 218.8 | 5.02 | 39.1 | 2.15 | 28.62 ± 0.19 | 0.934 ± 0.002 | 0.120 ± 0.010 |
+| Instant-NGP | 75.0 | **147.0** | 2.80 | 44.0 | 3.26 | 26.60 ± 0.37 | 0.908 ± 0.009 | 0.119 ± 0.011 |
+| TensoRF | 74.8 | 246.2 | 2.14 | 47.2 | **2.04** | 27.99 ± 0.18 | 0.931 ± 0.003 | 0.076 ± 0.006 |
+| GA-Planes | 75.0 | 271.6 | 2.10 | 45.7 | **2.04** | 28.24 ± 0.18 | 0.936 ± 0.003 | 0.071 ± 0.005 |
+| F-INR (SIREN) | 74.7 | 292.8 | 16.18 | 33.7 | 6.69 | 27.52 ± 0.46 | 0.911 ± 0.012 | 0.127 ± 0.020 |
+| FUTON (sinc) | 73.0 | 153.7 | **1.88** | _48.9_ | **2.04** | _29.19_ ± 0.22 | **0.943** ± 0.003 | **0.065** ± 0.006 |
+| FUTON (cosine) | 73.0 | _152.0_ | **1.88** | **49.6** | **2.04** | **29.22** ± 0.22 | **0.943** ± 0.004 | **0.065** ± 0.007 |
 
 Per scene, FUTON leads six of the eight: ficus, hotdog and lego with the sinc basis, materials and ship with the cosine one, and chair with both, 0.002 dB apart; FINER leads drums and mic.
 
@@ -174,7 +174,7 @@ Super-resolution is the hardest task here for every model: nothing but the low-r
 
 - **Accuracy.** FUTON leads PSNR, SSIM and LPIPS on images, the cosine basis by 1.42 dB over MFN, the strongest baseline, and the sinc basis by 0.72 dB, ahead of every baseline on 22 and 20 of the 24 images. On volumes it has the best mean IoU, 99.95 % against 99.91 % for RFF, the best IoU on three of the five shapes, and it passes 99.8 % on every shape after 4.3 s of training, where GA-Planes, the only other model to get there, takes 11.4 s. On radiance fields it leads FINER by 0.60 dB (cosine) and 0.58 dB (sinc) and six of the eight scenes, and on super-resolution FUTON (sinc) leads Instant-NGP by 0.37 dB and every other model on 86 of the 100 images.
 - **Speed.** Instant-NGP is the fastest model to train on every task: 3.6 s against FUTON's 5.4 s on images, 2.6 s against 7.6 s on volumes, 147 s against 152 s on radiance fields and 2.9 s against 9.2 s on super-resolution. FUTON follows it on images and radiance fields, and on the other two tasks a few models train faster at a lower accuracy: F-INR (SIREN) and TensoRF on volumes and F-INR (SIREN) on super-resolution. FUTON's training memory is the lowest on images and radiance fields, 0.67 and 1.88 GB, and close to the lowest on volumes and super-resolution, 0.53 and 0.83 GB. The hash grid is a PyTorch port of tiny-cuda-nn's, without the fused CUDA kernels, gathering every level in one batched pass; FUTON is plain PyTorch, and every model is compiled.
-- **At inference** Instant-NGP is again the fastest on images (198 against FUTON's 178 megapixels per second) and on super-resolution (188 against 79), and TensoRF on volumes (191 megavoxels per second, Instant-NGP 158, FUTON 123). A radiance field renders a view in 140 to 170 ms whatever its density network, 6.0 to 7.0 frames per second, since the ray marcher feeds it batches too small to fill the GPU. FUTON renders at 6.6, 0.4 below RFF, a gap close to the 0.3 by which its two bases, which do the same work, differ at one size in the components study, and in the least memory, 49 and 50 MB against 50 MB for TensoRF and GA-Planes.
+- **At inference** Instant-NGP is again the fastest on images (198 against FUTON's 178 megapixels per second) and on super-resolution (188 against 79), and TensoRF on volumes (191 megavoxels per second, Instant-NGP 158, FUTON 123). A radiance field renders a whole view in one pass in 20 to 30 ms, 34 to 50 frames per second, and FUTON is the fastest, at 49.6 and 48.9 against 47.2 for TensoRF, 45.7 for GA-Planes and 44.0 for Instant-NGP, in the least memory, 2.04 GB, which TensoRF and GA-Planes match: nearly all of it is the ray marcher's buffers for the view's 40,000 rays.
 - **The two bases** cost the same to train and to evaluate. The cosine basis is the better one on images, by 0.70 dB, the two tie on volumes and on radiance fields, 0.03 dB apart, and the sinc basis is ahead in super-resolution, by 0.38 dB, where the cosine basis fails on four images.
 
 ## Checks against the literature

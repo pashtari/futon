@@ -83,7 +83,7 @@ imageio.mimsave("lego_orbit.gif", frames, duration=0.083, loop=0)
 
 ## The benchmark script
 
-`scripts/train_nerf.py` trains every model of the config on every scene under `data/nerf/blender/`, evaluates on the 200 test views, and saves two rendered test views per run. The NeRF sweep is the long one: about five minutes per model and scene on an A100, 120 runs in all.
+`scripts/train_nerf.py` trains every model of the config on every scene under `data/nerf/blender/`, evaluates on the 200 test views, each rendered whole in one pass, and saves two rendered test views per run. The NeRF sweep is the long one: about five minutes per model and scene on an A100, 120 runs in all.
 
 ```bash
 python scripts/train_nerf.py --data data/nerf/blender/lego --models FUTON-sinc

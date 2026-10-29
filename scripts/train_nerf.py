@@ -1,6 +1,7 @@
 """NeRF benchmark: fit each model in configs/nerf.yaml to Blender scenes.
 
-Models are trained with validation views and scored on all test views.
+Models are trained with validation views and scored on all test views, each
+rendered whole, in one pass.
 
 Usage:
     python scripts/train_nerf.py
@@ -98,7 +99,13 @@ def fit(
         **{**config["train"], **model["train"]},
     )
 
-    test = nf.nerf.evaluate(field, renderer, test_dataset, return_images=True)
+    # Each test view renders in one pass of all its rays, so that its time is
+    # the field's and the renderer's, not the overhead of 79 passes of the
+    # renderer's default 512 rays.
+    rays = test_dataset.height * test_dataset.width
+    test = nf.nerf.evaluate(
+        field, renderer, test_dataset, chunk_size=rays, return_images=True
+    )
     for view in config["render_views"]:
         image = (test["images"][view] * 255).round().byte().numpy()
         Image.fromarray(image).save(out / f"test_{view:03d}.png")
