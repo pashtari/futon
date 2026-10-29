@@ -1,7 +1,7 @@
 """Rendering and held-out-view evaluation for radiance fields."""
 
 import time
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
 
@@ -18,7 +18,9 @@ __all__ = ["render_image", "evaluate", "render_views"]
 
 
 @contextmanager
-def _eval_mode(field: nn.Module, renderer: VolumeRenderer) -> Iterator[None]:
+def _eval_mode(
+    field: nn.Module, renderer: VolumeRenderer
+) -> Generator[None, None, None]:
     """Put both modules in eval mode, restoring training mode if ``field`` had it."""
     was_training = field.training
     field.eval()
