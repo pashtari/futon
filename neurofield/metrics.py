@@ -9,6 +9,7 @@ in ``[0, 1]``. Pass it explicitly for other ranges, e.g.
 """
 
 import math
+from collections.abc import Callable
 from functools import cache
 from typing import Any, Literal, TypeAlias
 
@@ -21,7 +22,17 @@ from torchmetrics.functional.image import (
     structural_similarity_index_measure,
 )
 
-__all__ = ["psnr", "ssim", "ms_ssim", "lpips", "nmse", "iou", "bits_per_pixel"]
+__all__ = [
+    "psnr",
+    "ssim",
+    "ms_ssim",
+    "lpips",
+    "nmse",
+    "iou",
+    "bits_per_pixel",
+    "luma",
+    "super_resolution_metrics",
+]
 
 _LPIPSNet: TypeAlias = Literal["alex", "vgg", "squeeze"]
 
@@ -108,3 +119,41 @@ def iou(pred: Tensor, target: Tensor) -> float:
 def bits_per_pixel(encoded: bytes, image: Tensor) -> float:
     """Encoded size in bits per spatial pixel of a ``(C, *spatial)`` image."""
     return len(encoded) * 8 / math.prod(image.shape[1:])
+
+
+def luma(image: Tensor) -> Tensor:
+    """BT.601 luma of a uint8 RGB ``(3, H, W)`` image, as MATLAB's ``rgb2ycbcr``.
+
+    Returns a float ``(1, H, W)`` image in ``[16, 235]``, the channel on which
+    super-resolution reports PSNR and SSIM, with ``data_range=255``.
+    """
+    weights = torch.tensor([65.481, 128.553, 24.966], device=image.device) / 255
+    return 16 + torch.einsum("chw,c->hw", image.float(), weights).unsqueeze(0)
+
+
+def super_resolution_metrics(
+    border: int = 0, device: str | torch.device | None = None
+) -> dict[str, Callable[[Tensor, Tensor], float]]:
+    """The super-resolution protocol's metrics, by name, as ``metrics`` arguments.
+
+    PSNR and SSIM of the :func:`luma` channel and LPIPS of RGB, each scoring
+    two uint8 ``(3, H, W)`` images without a border of ``border`` pixels, by
+    convention the scale factor, on ``device`` (``None`` keeps the images
+    where they are), as :func:`~neurofield.train` and
+    :func:`~neurofield.evaluate` call them: ``fn(reconstruction, original)``.
+    """
+
+    def shave(image: Tensor) -> Tensor:
+        height, width = image.shape[-2:]
+        return image.to(device)[:, border : height - border, border : width - border]
+
+    def of_luma(metric: Callable[..., float]) -> Callable[[Tensor, Tensor], float]:
+        return lambda pred, target: metric(
+            luma(shave(pred)), luma(shave(target)), data_range=255
+        )
+
+    return {
+        "psnr": of_luma(psnr),
+        "ssim": of_luma(ssim),
+        "lpips": lambda pred, target: lpips(shave(pred), shave(target)),
+    }

@@ -14,6 +14,7 @@ Targets are in the model's output range and the reference signal keeps its nativ
 | --- | --- | --- | --- |
 | `ImageCoordinateDataset` | `(H, W, 2)` | `(H, W, C)` float in $[-1, 1]$ | `(C, H, W)` `uint8` |
 | `MaskedImageCoordinateDataset` | `(H, W, 2 + C_s)` with a guide image | `(H, W, C)` in $[-1, 1]$, plus `side`, `mask`, `boundary` | `(C, H, W)` `uint8` |
+| `SuperResolutionDataset` | `(B, L, L, 2)`, the high-resolution coordinates under `B` blocks of low-resolution pixels | `(B, S, S, C)` low-resolution pixels in $[-1, 1]$, plus the kernel rows `weight_y`, `weight_x` `(B, S, L)` | `(C, h, w)` `uint8`, the low-resolution image |
 | `OccupancyCoordinateDataset` | `(D, H, W, 3)` | `(D, H, W, 1)` in $\{-1, 1\}$ | `(1, D, H, W)` float in $\{0, 1\}$ |
 | `MRICoordinateDataset` | `(H', W', 2)` | complex `(coils, H, W)` masked k-space, plus `mask`, `scale_factor`, `zero_filled` | RSS image `(H', W')` or `None` |
 | `DIPImageDataset` | noise `(C_n, H, W)` | `(C, H, W)` float in $[0, 1]$ | `(C, H, W)` `uint8` |
@@ -23,7 +24,7 @@ Subsampling (`subsample`, `max_samples`) flattens `input` and `target` to `(N, .
 
 ## Metrics
 
-`nf.psnr`, `nf.ssim`, `nf.ms_ssim` and `nf.lpips` take two `(C, H, W)` images and infer `data_range` from the target: 255 for `uint8`, 1 for floating point. `nf.lpips` needs three channels and uses the VGG backbone by default (`net="alex"` selects AlexNet); its weights are downloaded once. `nf.iou` thresholds both inputs at zero, so it works on the `{0, 1}` original and on raw model output alike. `nf.nmse` is fastMRI's normalized MSE, and `nf.bits_per_pixel(encoded, image)` divides a byte string's size by the spatial size of a `(C, *spatial)` image. In `nf.train` and `nf.evaluate`, metrics are called as `fn(reconstruction, original)` after `postprocess`, so they see `uint8` images and `{0, 1}` volumes.
+`nf.psnr`, `nf.ssim`, `nf.ms_ssim` and `nf.lpips` take two `(C, H, W)` images and infer `data_range` from the target: 255 for `uint8`, 1 for floating point. `nf.lpips` needs three channels and uses the VGG backbone by default (`net="alex"` selects AlexNet); its weights are downloaded once. `nf.iou` thresholds both inputs at zero, so it works on the `{0, 1}` original and on raw model output alike. `nf.nmse` is fastMRI's normalized MSE, and `nf.bits_per_pixel(encoded, image)` divides a byte string's size by the spatial size of a `(C, *spatial)` image. `nf.super_resolution_metrics(border)` gives super-resolution's protocol: PSNR and SSIM on `nf.luma`, BT.601's Y as MATLAB's `rgb2ycbcr` computes it, and LPIPS on RGB, all without a border of `border` pixels. In `nf.train` and `nf.evaluate`, metrics are called as `fn(reconstruction, original)` after `postprocess`, so they see `uint8` images and `{0, 1}` volumes.
 
 ## Widths, depths and activations
 

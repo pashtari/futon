@@ -3,13 +3,15 @@
 Every model in configs/super_resolution.yaml sees only the low-resolution (LR)
 image and is scored against the high-resolution (HR) original. The benchmark's
 degradation, antialiased bicubic downsampling (MATLAB's imresize), is linear
-and separable: one matrix per axis describes it exactly, borders included, and
-an LR pixel needs the field only under its kernel. Each step renders the HR
-pixels under random blocks of LR pixels, downsamples them with those matrices
-and matches the LR pixels (L1). DIP renders the whole image from fixed noise,
-and the interpolations upsample the LR image with PIL, whose bicubic filter is
-MATLAB's. As is standard, PSNR and SSIM are computed on luma (BT.601 Y) and
-LPIPS on RGB, all without a 4-pixel border.
+and separable: one matrix per axis describes it exactly, borders included
+(nf.resize_matrix), and an LR pixel needs the field only under its kernel.
+Each step renders the HR pixels under random blocks of LR pixels
+(nf.SuperResolutionDataset), downsamples them with those matrices and matches
+the LR pixels (nf.super_resolution_loss, L1). DIP renders the whole image from
+fixed noise, and the interpolations upsample the LR image with PIL, whose
+bicubic filter is MATLAB's. As is standard, PSNR and SSIM are computed on luma
+(BT.601 Y) and LPIPS on RGB, all without a 4-pixel border
+(nf.super_resolution_metrics).
 
 Usage:
     python scripts/train_super_resolution.py
@@ -17,7 +19,7 @@ Usage:
 """
 
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -55,131 +57,16 @@ def low_resolution(path: Path, scale: int) -> Path:
     return path.parents[1] / folder / f"X{scale}" / f"{path.stem}x{scale}{path.suffix}"
 
 
-def resize_matrix(size_in: int, size_out: int, device: torch.device) -> Tensor:
-    """The ``(size_out, size_in)`` matrix of antialiased bicubic resizing along one axis.
-
-    Resizing the rows of an identity image while keeping its columns writes
-    the matrix of ``F.interpolate`` out, borders included.
-    """
-    identity = torch.eye(size_in, device=device)[None, None]
-    size = (size_out, size_in)
-    return F.interpolate(identity, size=size, mode="bicubic", antialias=True)[0, 0]
-
-
-def downsample(image: Tensor, kernels: Sequence[Tensor]) -> Tensor:
-    """Apply one kernel per axis: ``(..., H, W, C)`` to ``(..., h, w, C)``."""
-    return torch.einsum("...il,...lmc,...jm->...ijc", kernels[0], image, kernels[1])
-
-
-class SuperResolutionDataset(nf.ImageCoordinateDataset):
-    """LR pixels as targets, the HR coordinates under their kernels as inputs.
-
-    Each access draws ``num_blocks`` (B) random square blocks of
-    ``block_size`` (S) LR pixels a side over the whole LR image, as many
-    whatever its size. Neighbouring LR pixels share most of their footprint,
-    so a block needs far fewer field evaluations per pixel than single pixels
-    do: 30 in an 8 x 8 block against 256 alone. With footprints of L HR pixels
-    a side, items hold ``input``, the HR coordinates of each block's
-    footprint, of shape ``(B, L, L, 2)``; ``weight_y`` and ``weight_x``, the
-    kernel rows of each block on its footprint, of shape ``(B, S, L)``; and
-    ``target``, the LR pixels in ``[-1, 1]``, of shape ``(B, S, S, C)``. Every
-    tensor lives on the kernels' device.
-    """
-
-    def __init__(
-        self,
-        image: Path,
-        kernels: Sequence[Tensor],
-        num_blocks: int,
-        block_size: int,
-    ) -> None:
-        device = kernels[0].device
-        self.original = self.load(image, mode="RGB")  # uint8 (C, h, w)
-        self.id = image.stem
-        self.kernels = kernels
-        self.num_blocks, self.block_size = num_blocks, block_size
-        self.grid_size = tuple(kernel.shape[1] for kernel in kernels)  # (H, W)
-        self.input = self.create_input().to(device)  # HR coordinates, (H, W, 2)
-        self.target = self.preprocess(self.original).to(device)  # (h, w, C)
-
-        # The first tap of each kernel row, and the side L of a block's footprint.
-        self.first = [(kernel != 0).int().argmax(1) for kernel in kernels]
-        taps = max(int((kernel != 0).sum(1).max()) for kernel in kernels)
-        scale = self.grid_size[0] // self.target.shape[0]
-        self.footprint = scale * (block_size - 1) + taps
-
-    def __getitem__(self, index: int) -> dict[str, Any]:
-        device = self.target.device
-        h, w = self.target.shape[:2]
-        offsets = torch.arange(self.block_size, device=device)
-        span = torch.arange(self.footprint, device=device)
-
-        pixels, taps, weights = [], [], []
-        for size, full, kernel, first in zip(
-            (h, w), self.grid_size, self.kernels, self.first
-        ):
-            start = torch.randint(
-                size - self.block_size + 1, (self.num_blocks, 1), device=device
-            )
-            pixel = start + offsets  # (B, S)
-            tap = first[start].clamp(max=full - self.footprint) + span  # (B, L)
-            weights.append(kernel[pixel[:, :, None], tap[:, None, :]])  # (B, S, L)
-            pixels.append(pixel)
-            taps.append(tap)
-
-        return {
-            "id": self.id,
-            "input": self.input[taps[0][:, :, None], taps[1][:, None, :]],
-            "weight_y": weights[0],
-            "weight_x": weights[1],
-            "target": self.target[pixels[0][:, :, None], pixels[1][:, None, :]],
-            "_original": self.original,
-        }
-
-
-def l1_loss(output: Tensor, target: Tensor, peak: float) -> tuple[Tensor, dict]:
-    """Mean absolute error, with the PSNR of the fit for the training log."""
-    loss = F.l1_loss(output, target)
-    mse = F.mse_loss(output.detach(), target)
-    return loss, {"l1": loss.detach(), "psnr": 10 * torch.log10(peak**2 / mse)}
-
-
-def field_loss(batch: dict[str, Any], model: nn.Module) -> tuple[Tensor, dict]:
-    """Render each footprint, downsample it along both axes, and match the LR pixels."""
-    weights = batch["weight_y"], batch["weight_x"]
-    return l1_loss(downsample(model(batch["input"]), weights), batch["target"], 2.0)
-
-
 def prior_loss(
     batch: dict[str, Any], model: nn.Module, kernels: Sequence[Tensor]
 ) -> tuple[Tensor, dict]:
-    """Render the HR image from noise, downsample it, and match the LR image."""
-    output = downsample(model(batch["input"]).movedim(1, -1), kernels)
-    return l1_loss(output, batch["target"].movedim(1, -1), 1.0)
-
-
-def luma(image: Tensor) -> Tensor:
-    """BT.601 luma of a uint8 RGB ``(3, H, W)`` image, as MATLAB's rgb2ycbcr."""
-    weights = torch.tensor([65.481, 128.553, 24.966], device=image.device) / 255
-    return 16 + torch.einsum("chw,c->hw", image.float(), weights).unsqueeze(0)
-
-
-def metrics(device: torch.device, border: int) -> dict[str, Callable]:
-    """PSNR and SSIM of luma and LPIPS of RGB, without the border, on ``device``."""
-
-    def shave(image: Tensor) -> Tensor:
-        return image.to(device)[:, border:-border, border:-border]
-
-    def of_luma(metric: Callable[..., float]) -> Callable[[Tensor, Tensor], float]:
-        return lambda pred, target: metric(
-            luma(shave(pred)), luma(shave(target)), data_range=255
-        )
-
-    return {
-        "psnr": of_luma(nf.psnr),
-        "ssim": of_luma(nf.ssim),
-        "lpips": lambda pred, target: nf.lpips(shave(pred), shave(target)),
-    }
+    """Render the HR image from noise, downsample it, and match the LR image:
+    the mean absolute error, with the fit's PSNR for the training log."""
+    output = nf.downsample(model(batch["input"]).movedim(1, -1), kernels)
+    target = batch["target"].movedim(1, -1)
+    loss = F.l1_loss(output, target)
+    mse = F.mse_loss(output.detach(), target)
+    return loss, {"l1": loss.detach(), "psnr": 10 * torch.log10(1.0 / mse)}
 
 
 def interpolate(
@@ -198,7 +85,7 @@ def interpolate(
     evaluation = {"id": path.stem, "elapsed": duration, "duration": duration}
     evaluation |= {
         name: metric(reconstruction, original)
-        for name, metric in metrics(device, scale).items()
+        for name, metric in nf.super_resolution_metrics(scale, device).items()
     }
     history = [{"step": 0, "elapsed": 0.0, "duration": 0.0, "eval": evaluation}]
     return record({"config": {"num_params": 0}, "history": history}, model, evaluation)
@@ -221,8 +108,8 @@ def fit(
     eval_dataset = nf.ImageCoordinateDataset(path)
     height, width = eval_dataset.grid_size
     kernels = [
-        resize_matrix(height, height // scale, device),
-        resize_matrix(width, width // scale, device),
+        nf.resize_matrix(height, height // scale, device),
+        nf.resize_matrix(width, width // scale, device),
     ]
     search = None
     if model_class is nf.DIPSkip:
@@ -247,20 +134,20 @@ def fit(
             train["seed"],
         )
         network = model_class(in_features=2, out_features=3, **kwargs)
-        train_dataset = SuperResolutionDataset(
+        train_dataset = nf.SuperResolutionDataset(
             low_resolution(path, scale),
             kernels,
             config["data"]["num_blocks"],
             config["data"]["block_size"],
         )
-        loss_fn = field_loss
+        loss_fn = nf.super_resolution_loss
     warm_up(network, train_dataset, device, config["compile"])
     res = nf.train(
         network,
         train_dataset,
         eval_dataset,
         loss_fn=loss_fn,
-        metrics=metrics(device, scale),
+        metrics=nf.super_resolution_metrics(scale, device),
         # Megapixel reconstructions would crowd the logs; the report renders
         # its examples from checkpoint.pt instead.
         save_reconstruction=False,

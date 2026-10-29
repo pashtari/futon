@@ -13,7 +13,15 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 
-__all__ = ["rate_distortion_loss", "sdf_loss", "soft_entropy", "laplace_entropy"]
+from .datasets import downsample
+
+__all__ = [
+    "rate_distortion_loss",
+    "sdf_loss",
+    "super_resolution_loss",
+    "soft_entropy",
+    "laplace_entropy",
+]
 
 
 def _iqr(x: Tensor) -> Tensor:
@@ -142,3 +150,22 @@ def sdf_loss(
     loss = F.l1_loss(output, target)
     value = loss.detach()
     return loss, {"loss": value, "l1": value}
+
+
+def super_resolution_loss(
+    batch: dict[str, Any], model: nn.Module
+) -> tuple[Tensor, dict[str, Tensor]]:
+    """Return the L1 loss through the degradation and the metrics ``l1`` and ``psnr``.
+
+    For the items of :class:`~neurofield.SuperResolutionDataset`: renders each
+    block's footprint, downsamples it with the block's kernel rows along both
+    axes, and matches the low-resolution pixels, with the mean absolute error
+    usual in super-resolution. The PSNR is for targets in ``[-1, 1]``.
+    """
+    weights = batch["weight_y"], batch["weight_x"]
+    output = downsample(model(batch["input"]), weights)
+    target = batch["target"]
+
+    loss = F.l1_loss(output, target)
+    mse = F.mse_loss(output.detach(), target)
+    return loss, {"l1": loss.detach(), "psnr": 10 * torch.log10(4.0 / mse)}

@@ -16,7 +16,7 @@
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-2ea44f.svg"></a>
 </p>
 
-NeuroField fits a signal as a function of its coordinates. It provides **FUTON**, the model of the paper; **thirteen baselines** (SIREN, FreSh, FINER, WIRE, Gauss, MFN, RFF, PE-MLP, Instant-NGP, TensoRF, GA-Planes, F-INR, Deep Image Prior) behind the same interface; **coordinate datasets** for images, occupancy volumes, MRI k-space and posed views; **one training loop** with evaluation, quantization and logging; and two applications, **image compression** and **novel view synthesis**. The experiments of the paper are its configs and scripts, run as they are.
+NeuroField fits a signal as a function of its coordinates. It provides **FUTON**, the model of the paper; **thirteen baselines** (SIREN, FreSh, FINER, WIRE, Gauss, MFN, RFF, PE-MLP, Instant-NGP, TensoRF, GA-Planes, F-INR, Deep Image Prior) behind the same interface; **coordinate datasets** for images, occupancy volumes, MRI k-space, posed views and super-resolution; **one training loop** with evaluation, quantization and logging; and two applications, **image compression** and **novel view synthesis**. The experiments of the paper are its configs and scripts, run as they are.
 
 <p align="center">
   <img src="docs/assets/futon_pipeline.svg" width="920" alt="The FUTON pipeline: a fixed basis per axis, a CP combiner across axes, a linear or MLP decoder">
@@ -116,9 +116,9 @@ Coordinates live in [-1, 1] on every axis, targets in the model's output range, 
 | Grid and tensor models | `InstantNGP` / `HashEncoding`, `TensoRF`, `GAPlanes` / `MultiVector` / `FeatureGrid`, `FINR`, `GridINR` |
 | Deep Image Prior | `DIPUNet`, `DIPSkip` |
 
-**Datasets**: `ImageCoordinateDataset`, `MaskedImageCoordinateDataset`, `OccupancyCoordinateDataset`, `MRICoordinateDataset`, `DIPImageDataset`, and `nf.nerf.BlenderDataset`.
+**Datasets**: `ImageCoordinateDataset`, `MaskedImageCoordinateDataset`, `SuperResolutionDataset` (with the bicubic operator `resize_matrix` and `downsample`), `OccupancyCoordinateDataset`, `MRICoordinateDataset`, `DIPImageDataset`, and `nf.nerf.BlenderDataset`.
 
-**Training and evaluation**: `nf.train`, `nf.evaluate`, `nf.chunked_inference`; metrics `psnr`, `ssim`, `ms_ssim`, `lpips`, `nmse`, `iou`, `bits_per_pixel`; losses `rate_distortion_loss`, `sdf_loss`; `uniform_quantize` / `uniform_dequantize` and quantization-aware training.
+**Training and evaluation**: `nf.train`, `nf.evaluate`, `nf.chunked_inference`; metrics `psnr`, `ssim`, `ms_ssim`, `lpips`, `nmse`, `iou`, `bits_per_pixel`, and super-resolution's `super_resolution_metrics` on `luma`; losses `rate_distortion_loss`, `sdf_loss`, `super_resolution_loss`; `uniform_quantize` / `uniform_dequantize` and quantization-aware training.
 
 **Solvers**: `nf.LeastSquares` and `nf.MultiplicativeUpdate` fit a FUTON with a linear decoder by block coordinate descent, through the same `nf.train` call, in place of Adam.
 

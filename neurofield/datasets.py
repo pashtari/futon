@@ -7,12 +7,15 @@ metrics. All datasets have length one and ignore the item index.
 Dataset methods follow ``load(path, ...)``, ``save(x, path, ...)``,
 ``preprocess(x)`` (raw signal to target), and ``postprocess(x)`` (model output
 to reconstruction). DIP uses a fixed noise input instead of coordinates.
+Super-resolution observes the image through a separable linear degradation,
+written out by :func:`resize_matrix` and applied by :func:`downsample`.
 """
 
 import math
 import os
 import random
 import warnings
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal, Self
 
@@ -27,8 +30,11 @@ from torchvision.transforms import functional as FT
 __all__ = [
     "create_coordinates",
     "mask_to_boundary",
+    "resize_matrix",
+    "downsample",
     "ImageCoordinateDataset",
     "MaskedImageCoordinateDataset",
+    "SuperResolutionDataset",
     "OccupancyCoordinateDataset",
     "DIPImageDataset",
     "MRICoordinateDataset",
@@ -354,6 +360,141 @@ class MaskedImageCoordinateDataset(ImageCoordinateDataset):
                 key: value.flatten(0, 1)[indices] for key, value in fields.items()
             }
         return {"id": self.id, "_original": self.original, **fields}
+
+
+def resize_matrix(
+    size_in: int, size_out: int, device: str | torch.device | None = None
+) -> Tensor:
+    """The ``(size_out, size_in)`` matrix of antialiased bicubic resizing on one axis.
+
+    The operator of ``F.interpolate(..., mode="bicubic", antialias=True)``,
+    whose kernel is that of MATLAB's ``imresize`` and PIL's bicubic filter,
+    with which super-resolution benchmarks such as DIV2K make their
+    low-resolution images. Resizing the rows of an identity image while
+    keeping its columns writes the matrix out, borders included. At 4x, a row
+    holds at most 16 nonzero taps, the footprint of one low-resolution pixel.
+    """
+    identity = torch.eye(size_in, device=device)[None, None]
+    size = (size_out, size_in)
+    return F.interpolate(identity, size=size, mode="bicubic", antialias=True)[0, 0]
+
+
+def downsample(image: Tensor, kernels: Sequence[Tensor]) -> Tensor:
+    """Apply one kernel per axis: ``(..., H, W, C)`` to ``(..., h, w, C)``.
+
+    The kernels are the ``(h, H)`` and ``(w, W)`` matrices of
+    :func:`resize_matrix`, or batches of their rows, ``(..., h, H)`` and
+    ``(..., w, W)``, such as each block of :class:`SuperResolutionDataset`
+    carries.
+    """
+    return torch.einsum("...il,...lmc,...jm->...ijc", kernels[0], image, kernels[1])
+
+
+class SuperResolutionDataset(ImageCoordinateDataset):
+    """A low-resolution image as blocks of pixels and the coordinates under them.
+
+    A field is fitted to the low-resolution (LR) image through its degradation
+    from high resolution (HR), one matrix per axis such as
+    :func:`resize_matrix`'s, and an LR pixel needs the field only under its
+    kernel. Each access draws ``num_blocks`` (B) random square blocks of
+    ``block_size`` (S) LR pixels a side over the whole LR image, as many
+    whatever its size. Neighbouring LR pixels share most of their footprint,
+    so a block needs far fewer field evaluations per pixel than single pixels
+    do: at 4x, 30 in an 8 x 8 block against 256 alone. With footprints of L HR
+    pixels a side, items hold ``input``, the HR coordinates of each block's
+    footprint, of shape ``(B, L, L, 2)``; ``weight_y`` and ``weight_x``, the
+    kernel rows of each block on its footprint, of shape ``(B, S, L)``; and
+    ``target``, the LR pixels in ``[-1, 1]``, of shape ``(B, S, S, C)``,
+    besides ``id`` and the uint8 LR image as ``_original``.
+    :func:`~neurofield.super_resolution_loss` renders the footprints,
+    downsamples them with the weights and matches the targets. The blocks are
+    drawn with the global PyTorch RNG.
+
+    Args:
+        image: The LR image: path, PIL image (converted to RGB), or uint8
+            ``(C, h, w)`` tensor.
+        kernels: The ``(h, H)`` and ``(w, W)`` matrices of the degradation;
+            they set the HR grid, and every tensor lives on their device.
+        num_blocks: Blocks drawn per access.
+        block_size: LR pixels on a side of a block.
+        item_id: Item identifier; defaults to the path stem or an empty string.
+    """
+
+    def __init__(
+        self,
+        image: str | os.PathLike[str] | Image.Image | Tensor,
+        kernels: Sequence[Tensor],
+        num_blocks: int,
+        block_size: int = 8,
+        item_id: str | None = None,
+    ) -> None:
+        device = kernels[0].device
+        self.original, self.id = _load_image(image, "RGB", item_id)  # (C, h, w)
+        size = tuple(self.original.shape[1:])
+        if tuple(kernel.shape[0] for kernel in kernels) != size:
+            raise ValueError(
+                f"kernels of {[tuple(k.shape) for k in kernels]} do not map onto "
+                f"the {size[0]} x {size[1]} LR image"
+            )
+        if not 0 < block_size <= min(size):
+            raise ValueError(
+                f"block_size must be in [1, {min(size)}], got {block_size}"
+            )
+        self.kernels = list(kernels)
+        self.num_blocks, self.block_size = num_blocks, block_size
+        self.grid_size = tuple(kernel.shape[1] for kernel in kernels)  # (H, W)
+        self.input = self.create_input().to(device)  # HR coordinates, (H, W, 2)
+        self.target = self.preprocess(self.original).to(device)  # (h, w, C)
+
+        # The first tap of each kernel row, and the side L of a block's
+        # footprint: one row's taps, and scale more per further row.
+        self.first = [(kernel != 0).int().argmax(1) for kernel in kernels]
+        taps = max(int((kernel != 0).sum(1).max()) for kernel in kernels)
+        scale = self.grid_size[0] // self.target.shape[0]
+        self.footprint = scale * (block_size - 1) + taps
+        if self.footprint > min(self.grid_size):
+            raise ValueError(
+                f"a block's footprint, {self.footprint} HR pixels, exceeds the "
+                f"{self.grid_size[0]} x {self.grid_size[1]} HR grid"
+            )
+
+    def to(self, device: str | torch.device) -> Self:
+        """Move training tensors and kernels to ``device`` and return this dataset.
+
+        The reference ``original`` stays on the CPU.
+        """
+        super().to(device)
+        self.kernels = [kernel.to(device) for kernel in self.kernels]
+        self.first = [first.to(device) for first in self.first]
+        return self
+
+    def __getitem__(self, index: int) -> dict[str, Any]:
+        device = self.target.device
+        h, w = self.target.shape[:2]
+        offsets = torch.arange(self.block_size, device=device)
+        span = torch.arange(self.footprint, device=device)
+
+        pixels, taps, weights = [], [], []
+        for size, full, kernel, first in zip(
+            (h, w), self.grid_size, self.kernels, self.first
+        ):
+            start = torch.randint(
+                size - self.block_size + 1, (self.num_blocks, 1), device=device
+            )
+            pixel = start + offsets  # (B, S)
+            tap = first[start].clamp(max=full - self.footprint) + span  # (B, L)
+            weights.append(kernel[pixel[:, :, None], tap[:, None, :]])  # (B, S, L)
+            pixels.append(pixel)
+            taps.append(tap)
+
+        return {
+            "id": self.id,
+            "input": self.input[taps[0][:, :, None], taps[1][:, None, :]],
+            "weight_y": weights[0],
+            "weight_x": weights[1],
+            "target": self.target[pixels[0][:, :, None], pixels[1][:, None, :]],
+            "_original": self.original,
+        }
 
 
 class OccupancyCoordinateDataset(ImageCoordinateDataset):

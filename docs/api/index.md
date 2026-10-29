@@ -12,9 +12,9 @@ The pages of this section are organized by module. Each documents the public cla
 
 - [neurofield.models](models.md): every architecture except FUTON, with its layers and encodings.
 - [FUTON, bases and combiners](futon.md): `FUTON`, the six bases and the features they return, the combiners, the block coordinate descent solvers, and the error bounds.
-- [Datasets](datasets.md): coordinate datasets for images, volumes and MRI, and the Deep Image Prior dataset.
+- [Datasets](datasets.md): coordinate datasets for images, volumes and MRI, the Deep Image Prior dataset, and super-resolution's blocks with the bicubic operator they are seen through.
 - [Training and evaluation](training.md): `train`, `evaluate`, `chunked_inference`.
-- [Metrics and losses](metrics.md): PSNR, SSIM, MS-SSIM, LPIPS, NMSE, IoU, bits per pixel; rate-distortion, SDF and entropy losses.
+- [Metrics and losses](metrics.md): PSNR, SSIM, MS-SSIM, LPIPS, NMSE, IoU, bits per pixel, and super-resolution's luma metrics; rate-distortion, SDF, super-resolution and entropy losses.
 - [Quantization](quantization.md): uniform quantization of a model's parameters.
 - [Compression](compression.md): the codecs, their evaluation, and arithmetic coding.
 - [Radiance fields](nerf.md): the `nf.nerf` package.
