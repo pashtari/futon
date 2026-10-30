@@ -664,13 +664,14 @@ def test_compiled_taps_gather_windows(grid):
     """Compiled, the taps' product is the fused window gather, not eager's
     embedding_bag, for the taps of points and of a grid's tables alike, although
     the taps reach it across the graph break of the search for shared rows."""
+    from functorch.compile import make_boxed_func
     from torch._dynamo.backends.common import aot_autograd
 
     ops = []
 
     def record(graph, _):
         ops.extend(str(node.target) for node in graph.graph.nodes)
-        return graph
+        return make_boxed_func(graph.forward)
 
     torch.manual_seed(0)
     sizes = (9, 10, 11)

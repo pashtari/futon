@@ -222,13 +222,10 @@ subfigure:
   sideways;
 - for each of the task's example signals, that signal with two regions boxed,
   each in its own colour, and those regions magnified for the ground truth and
-  every featured model, framed in the colour of their box. The regions are
-  found, not set: the two squares of fine detail where FUTON gains most
-  squared error over the strongest baseline, which puts the magnifications
-  where the models actually differ. `ZONES` restricts the search to a
-  rectangle per box where a signal's telling regions are not the ones the
-  search would reach, and a NeRF scene is rendered from the view where FUTON
-  gains most of those that show it whole, which every run records.
+  every featured model, framed in the colour of their box. The example
+  signals' regions and radiance-field views are set by hand in `CENTERS` and
+  `VIEWS`; any other signal gets them by rule, as
+  docs/experiments/reproduce.md describes.
 
 The magnified panels are rebuilt from the checkpoints, which needs the signals
 in `data/` and a GPU, so they are kept in `<task>/panels/<signal>/` and reused.
@@ -244,11 +241,10 @@ style names the member, the stronger of a pair solid: SIREN and FINER share
 the periodic-activation hue, as do the two FUTON bases. A shared `legend.pdf`
 sits beside the task folders.
 
-The FUTON ablations go to `results/ablation/`: `basis`, `combiner` and
-`decoder` each as a table and a convergence plot, the tensor ring against CP
-and the linear decoder against the MLP for both bases, and the components
-study as PSNR against the rank fraction at each component fraction and the
-reverse, one figure per basis, for the fractions 1/4 to 2.
+The FUTON ablations go to `results/ablation/`: the `basis`, `bandwidth`,
+`rank`, `combiner` and `decoder` studies, each as a table with the
+benchmark's columns and a figure, PSNR against training time or against the
+bandwidth or rank it sweeps.
 
 `--orbit 60` also saves an orbit GIF of each NeRF model beside its panel, for
 a talk. It costs about a minute a scene and the paper takes none of them, so

@@ -194,8 +194,8 @@ def decode_futon(encoded: bytes, *, device: str | torch.device | None = None) ->
     """Reconstruct an image from :func:`encode_futon` bytes.
 
     Rebuilds the stored FUTON, dequantizes its parameters, and evaluates the
-    full coordinate grid in one pass. Maps output from ``[-1, 1]`` to
-    ``[0, 255]``, rounds, and casts to ``uint8`` without clamping.
+    full coordinate grid in one pass. Clamps the output to ``[-1, 1]``, maps
+    it to ``[0, 255]``, rounds, and casts to ``uint8``.
 
     Args:
         encoded: Bitstream returned by :func:`encode_futon`.

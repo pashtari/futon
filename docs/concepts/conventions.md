@@ -16,7 +16,7 @@ Targets are in the model's output range and the reference signal keeps its nativ
 | `MaskedImageCoordinateDataset` | `(H, W, 2 + C_s)` with a guide image | `(H, W, C)` in $[-1, 1]$, plus `side`, `mask`, `boundary` | `(C, H, W)` `uint8` |
 | `SuperResolutionDataset` | `(B, L, L, 2)`, the high-resolution coordinates under `B` blocks of low-resolution pixels | `(B, S, S, C)` low-resolution pixels in $[-1, 1]$, plus the kernel rows `weight_y`, `weight_x` `(B, S, L)` | `(C, h, w)` `uint8`, the low-resolution image |
 | `OccupancyCoordinateDataset` | `(D, H, W, 3)` | `(D, H, W, 1)` in $\{-1, 1\}$ | `(1, D, H, W)` float in $\{0, 1\}$ |
-| `MRICoordinateDataset` | `(H', W', 2)` | complex `(coils, H, W)` masked k-space, plus `mask`, `scale_factor`, `zero_filled` | RSS image `(H', W')` or `None` |
+| `MRICoordinateDataset` | `(H', W', 2)` | complex `(coils, H, W)` masked k-space, plus `mask`, `scale_factor`, `zero_filled` | RSS image `(H', W')`, absent when none is loaded |
 | `DIPImageDataset` | noise `(C_n, H, W)` | `(C, H, W)` float in $[0, 1]$ | `(C, H, W)` `uint8` |
 | `nerf.BlenderDataset` | rays `(H, W, 3)` origins and directions | `(H, W, 4)` RGBA in $[0, 1]$ | |
 

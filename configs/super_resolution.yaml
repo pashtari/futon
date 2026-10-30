@@ -16,9 +16,11 @@
 # along each axis and a one-layer MLP decoder 128 wide, takes the largest CP
 # rank, a multiple of 5, that keeps it smaller than every baseline (RFF,
 # 500,007): 510 on a 2040 x 1356 image (498,785). Its components and width
-# come from configs/ablation-futon/components_width_super_resolution.yaml: the
-# best gain over bicubic on the three training images, at a training time and
-# memory among the baselines' best.
+# come from configs/ablation-futon/components_width_super_resolution.yaml, with
+# the sinc basis, on the three training images: the low-resolution size is the
+# only one that beats bicubic there, and a decoder 128 wide gains 0.51 dB over
+# it, short of the 0.70 dB of one 256 wide, which takes 1.6 times the training
+# time and 1.5 times the memory. The cosine basis takes the same model.
 
 data:
   scale: 4
@@ -45,6 +47,9 @@ models:
     interpolation: bicubic
 
   DIP:  # Ulyanov et al. (CVPR 2018), 4x super-resolution
+    # deviation: scored like every model, in evaluation mode, its BatchNorm on
+    # running statistics; the authors' code renders with batch statistics,
+    # which scored 0.04 to 0.09 dB higher on a 128 x 128 test crop
     class: DIPSkip
     kwargs:
       in_channels: 32

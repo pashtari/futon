@@ -7,8 +7,8 @@ The problems that come up first, and what to do about them.
 **The fit is poor or the loss does not move.**
 Coordinates must lie in $[-1, 1]$ on every axis. The coordinate datasets generate them that way, and FUTON's bases, the hash and feature grids, and `GridINR`'s patches are all defined on that domain. Do not pre-normalize to $[0, 1]$. Targets from the datasets are in $[-1, 1]$ too (occupancy in $\{-1, 1\}$), which is why the benchmark models end in `output_activation=torch.tanh` and why the default loss reports PSNR for that range.
 
-**`ValueError: num_components must be >= ...`**
-`SincBasis` needs at least two centres per axis, and a local basis needs at least `2 * radius`. With `num_components=[H // 2, W // 2]` this is never an issue for real images; it is for tiny test inputs.
+**`ValueError: radius must be >= 1 and num_components >= 2 * radius`**
+A local basis (`triangle`, `lanczos`) needs at least `2 * radius` components per axis: 2 for the triangle, 6 for Lanczos-3. With `num_components=[H // 2, W // 2]` this is never an issue for real images; it is for tiny test inputs.
 
 **`grid_size` on a dataset and `subsample` together.**
 `ImageCoordinateDataset(image, grid_size=...)` evaluates a model on another grid than the image's (for example a finer one) and cannot subsample; it is for evaluation.
@@ -43,10 +43,10 @@ It renders offscreen with Open3D, which needs EGL and a GPU driver but no displa
 Runs are keyed by model name inside the log directory. After changing a model's entry in a config, pass `--overwrite` to rerun it in place, or give the variant its own name or `--log-dir`.
 
 **A model diverges.**
-Learning rates in the configs come from the grid {3e-1, 1e-1, 3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4}, and the comments beside them record what the neighbours cost. Sine networks (SIREN, FINER) are the most sensitive; FUTON tolerates 1e-2 to 3e-2 across tasks.
+Learning rates in the configs come from the grid {3e-1, 1e-1, 3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4}, each the best of the grid on two or three signals of the task, as each config's header says. Sine networks (SIREN, FINER) are the most sensitive; FUTON trains at 1e-2 to 1e-1 across tasks.
 
 **Training times differ from the tables.**
-Times recorded during a sweep carry whatever else ran beside it; the tables take their training and inference times, and peak memories, from separate runs of each compiled model, each run twice with the faster kept, as the [reproduction page](experiments/reproduce.md) explains.
+Times vary with the machine and its load; the tables take every cost from the benchmark runs themselves, each the median over a task's signals, as the [reproduction page](experiments/reproduce.md) explains.
 
 ## Models
 

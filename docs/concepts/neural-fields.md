@@ -33,7 +33,7 @@ A dataset yields dictionaries with four keys:
 | `target` | The values to fit, in the model's output range. |
 | `_original` | The reference signal in its native form (for example `uint8` `(C, H, W)`), used by the metrics. Keys with a leading underscore stay on the CPU. |
 
-`ImageCoordinateDataset`, `OccupancyCoordinateDataset`, `MaskedImageCoordinateDataset`, `SuperResolutionDataset`, `MRICoordinateDataset` and `DIPImageDataset` follow this scheme; the [conventions page](conventions.md) tabulates their shapes. Each holds one signal, so `len(dataset) == 1`, and random **subsampling** happens on access: with `subsample=0.1`, every `dataset[0]` returns a fresh random tenth of the coordinates and their values, flattened. This is how the benchmarks train: every training step draws a new subset.
+`ImageCoordinateDataset`, `OccupancyCoordinateDataset`, `MaskedImageCoordinateDataset`, `SuperResolutionDataset`, `MRICoordinateDataset` and `DIPImageDataset` follow this scheme; the [conventions page](conventions.md) tabulates their shapes. Each holds one signal, so `len(dataset) == 1`, and random **subsampling** happens on access: with `subsample=0.1`, every `dataset[0]` returns a fresh random tenth of the coordinates and their values, flattened. The occupancy benchmark trains this way, on $2^{18}$ fresh voxels per step; the image benchmark takes the whole image at every step.
 
 Datasets also provide `preprocess` (native values to targets), `postprocess` (model output back to native values), and `save` (write a reconstruction to disk), which the evaluation loop uses, and a `to(device)` that moves the training tensors so that subsampling runs on the GPU.
 

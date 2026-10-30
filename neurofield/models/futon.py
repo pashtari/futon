@@ -38,6 +38,7 @@ import opt_einsum as oe
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from torch.autograd import forward_ad
 
 from ..utils import ModuleSpec, build_module
 from .mlp import MLP
@@ -79,6 +80,17 @@ def _offsets(x: Tensor, size: int) -> Tensor:
     return _grid_position(x, size).unsqueeze(-1) - centers
 
 
+def _differentiated(x: Tensor) -> bool:
+    """Whether coordinates carry derivatives, which tables of rows would drop:
+    reverse-mode ones, or eagerly forward-mode ones (``torch.func.jvp`` and
+    ``jacfwd``), which a compiled graph cannot unpack outside a dual level."""
+    if x.requires_grad:
+        return True
+    if torch.compiler.is_compiling():
+        return False
+    return forward_ad.unpack_dual(x).tangent is not None
+
+
 @torch.compiler.disable()  # sizes that depend on the data; compiled, a graph per axis
 def _shared(x: Tensor) -> list[tuple[Tensor, Tensor]] | None:
     """Each axis's distinct coordinates and the row of every point among them.
@@ -88,7 +100,7 @@ def _shared(x: Tensor) -> list[tuple[Tensor, Tensor]] | None:
     not carry, and when an axis has more distinct coordinates than half the
     points, the rule of :class:`~neurofield.models.finr.FINR`.
     """
-    if x.ndim != 2 or x.requires_grad:
+    if x.ndim != 2 or _differentiated(x):
         return None
     shared = []
     for coordinate in x.unbind(-1):
@@ -189,7 +201,7 @@ class _Basis(nn.Module):
             raise ValueError(
                 f"Expected last dimension {self.in_features}, got {x.shape[-1]}"
             )
-        if self.grid_size is not None and not x.requires_grad:
+        if self.grid_size is not None and not _differentiated(x):
             # Each point's row of its axis's table is a rounding: no sort, no
             # synchronization and no evaluation of the basis.
             return tuple(
@@ -763,10 +775,12 @@ class FUTONEncoding(nn.Module):
         lies on, as a coordinate dataset's points do, evaluates its table there
         once, when it is built, and rounds each point to its row, which spares
         searching every batch for its distinct coordinates, a sort and a
-        synchronization per axis. A point off the grid would read its nearest
-        grid point, so a radiance field, whose samples are scattered, declares
-        none. Scattered points and coordinates that need gradients are
-        evaluated point by point.
+        synchronization per axis. A point off the grid reads its nearest grid
+        point's row, so for scattered points a declared grid trades exactness
+        for speed: the radiance-field benchmark rounds its samples to 2048
+        points per axis, finer than its ray-marching step. Without one,
+        scattered points are evaluated point by point, and coordinates that
+        need gradients always are.
 
         The tables are buffers outside the model's ``state_dict``. Moving or
         casting the model, as ``to`` and ``double`` do, evaluates them again on
@@ -822,8 +836,8 @@ class FUTON(nn.Module):
         ``[0, 1]``. The basis omits the paper's :math:`\sqrt{2}` factor and
         L2-normalizes features by default; ``normalize=False`` recovers Eq. (1)
         up to per-frequency constants absorbed by the factors. Experiments use
-        ``torch.tanh`` at the output. The other bases, the Hadamard and
-        tensor-ring combiners, and the MLP decoder are extensions.
+        ``torch.tanh`` at the output. The other bases, the Hadamard,
+        tensor-ring and Tucker combiners, and the MLP decoder are extensions.
 
     Example::
 

@@ -2153,7 +2153,7 @@ def bound_cost(frames: dict[str, pd.DataFrame]) -> plt.Figure:
     plot.yaxis.set_major_formatter(StrMethodFormatter("{x:g}"))
     plot.set_xticks(positions, labels)
     plot.tick_params(axis="x", length=0)
-    plot.set(xlabel=r"Relative bandwidth $\kappa$", ylabel="Training time (s)")
+    plot.set(xlabel=r"Relative bandwidth $\kappa$", ylabel="Time (s)")
     for task, centre in centres.items():
         plot.text(centre, 1.0, BOUND_DATASETS[task], ha="center", va="bottom",
                   transform=plot.get_xaxis_transform(), fontsize=7)  # fmt: skip
@@ -2455,12 +2455,16 @@ def tuning_table(scores: pd.DataFrame, task: str) -> dict[str, str]:
 
 def tuning(out_dir: Path) -> None:
     """The learning-rate tables of every task that has tuning runs."""
+    written = False
     for task in TASKS:
         scores = tuning_scores(task)
         if scores.empty:
             continue
         write(tuning_table(scores, task), out_dir / task)
         print(f"tuning: {task} written to {out_dir / task}")
+        written = True
+    if not written:
+        print("tuning: no runs under logs/tune-lr, skipped")
 
 
 def bound(out_dir: Path) -> None:

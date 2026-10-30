@@ -54,5 +54,5 @@ These are image-to-image networks, `(B, C, H, W)` in and out, paired with `DIPIm
 
 - **Widths and depths.** `hidden_features` is the hidden width and `hidden_layers` the number of hidden layers, so a network with `hidden_layers=h` has `h + 1` weight layers (MFN: `h` Gabor filters, `h - 1` hidden linear layers and one output layer). `WIRE` and `RealWIRE` divide the nominal width by $\sqrt{2}$ to keep the parameter count comparable to real networks.
 - **Output activations.** Every model takes `output_activation`, a callable applied last. The benchmarks use `torch.tanh` for targets in $[-1, 1]$ and none inside a `RadianceField`.
-- **Equal capacity.** `nf.count_parameters(model, trainable_only=False)` is how the configs were matched. The image models hold about 195k parameters, the occupancy models about 132k, and the NeRF density networks about 68k (75k with the shared colour network).
-- **Learning rates.** Each model has its own, drawn from {3e-1, 1e-1, 3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4} and recorded in the configs with the cost of the neighbouring values.
+- **Equal capacity.** `nf.count_parameters(model, trainable_only=False)` is how the configs were matched. The image models hold 197k to 209k parameters, the occupancy models about 132k, and the NeRF density networks about 68k (75k with the shared colour network).
+- **Learning rates.** Each model has its own, drawn from {3e-1, 1e-1, 3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4} each the best of the grid on two or three signals of the task, as each config's header says.

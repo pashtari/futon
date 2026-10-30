@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
 from torch.optim import Optimizer
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, default_collate
 from tqdm.auto import tqdm
 
 from .evaluation import evaluate
@@ -42,6 +42,18 @@ def _mse_loss(
     """Default reconstruction loss, with PSNR for targets in ``[-1, 1]``."""
     mse = F.mse_loss(model(batch["input"]), batch["target"])
     return mse, _mse_metrics(mse.detach())
+
+
+def _training_batch(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Collate items for a training step without their underscored entries,
+    such as the reference signal, which only evaluation reads and which would
+    otherwise be copied at every step."""
+    return default_collate(
+        [
+            {key: value for key, value in item.items() if not key.startswith("_")}
+            for item in items
+        ]
+    )
 
 
 def train(
@@ -82,7 +94,9 @@ def train(
 
     Args:
         model: Neural field to train in place.
-        train_dataset: Dataset returning ``input`` and ``target`` entries.
+        train_dataset: Dataset returning ``input`` and ``target`` entries;
+            entries named with a leading underscore, such as the reference
+            ``_original``, are left out of training batches.
         eval_dataset: Evaluation dataset; ``None`` or empty uses ``train_dataset``.
         loss_fn: Called as ``loss_fn(batch, model) -> (loss, metrics)``.
             ``None`` uses MSE and logs PSNR assuming targets in ``[-1, 1]``.
@@ -145,7 +159,11 @@ def train(
             dataset.to(device)
     on_cuda = getattr(getattr(train_dataset, "input", None), "is_cuda", False)
     loader = DataLoader(
-        train_dataset, batch_size=batch_size, pin_memory=not on_cuda, num_workers=0
+        train_dataset,
+        batch_size=batch_size,
+        pin_memory=not on_cuda,
+        num_workers=0,
+        collate_fn=_training_batch,
     )
 
     if ckpt_path and os.path.exists(ckpt_path):

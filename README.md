@@ -169,10 +169,10 @@ python scripts/download_meshes.py        # 5 Stanford meshes, about 3 GB
 python scripts/download_blender.py       # 8 Blender scenes, about 2.4 GB
 python scripts/download_div2k.py         # 100 DIV2K images and their 4x downsamplings, about 450 MB
 
-python scripts/train_image.py            # 24 images x 14 models -> logs/image/<image>/<model>/
-python scripts/train_occupancy.py        # 5 shapes x 15 models  -> logs/occupancy/<shape>/<model>/
-python scripts/train_nerf.py             # 8 scenes x 15 models  -> logs/nerf/<scene>/<model>/
-python scripts/train_super_resolution.py # 100 images x 18 models -> logs/super_resolution/<image>/<model>/
+python scripts/train_image.py --compile            # 24 images x 14 models -> logs/image/<image>/<model>/
+python scripts/train_occupancy.py --compile        # 5 shapes x 15 models  -> logs/occupancy/<shape>/<model>/
+python scripts/train_nerf.py --compile             # 8 scenes x 15 models  -> logs/nerf/<scene>/<model>/
+python scripts/train_super_resolution.py --compile # 100 images x 18 models -> logs/super_resolution/<image>/<model>/
 
 python scripts/report_paper.py           # tables and figures    -> results/
 ```

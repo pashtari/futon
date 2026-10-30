@@ -9,6 +9,7 @@ python scripts/download_kodak.py      # data/Kodak/, 24 images, about 30 MB
 python scripts/download_meshes.py     # data/occupancy/, 5 meshes, about 3 GB
 python scripts/download_blender.py    # data/nerf/blender/, 8 scenes, about 2.4 GB
 python scripts/download_div2k.py      # data/DIV2K/, 100 validation images and their 4x downsamplings, about 450 MB
+python scripts/download_div2k.py --training  # and the three training images the settings were tuned on, 3.8 GB of archives
 ```
 
 The Kodak images come from Rich Franzen's mirror, the meshes from the Stanford 3D Scanning Repository (rotated into canonical pose where a release is not), the Blender scenes from a pinned Hugging Face mirror of the official Google Drive release, and the DIV2K images from the official site. All four scripts resume and keep existing files.
@@ -18,10 +19,10 @@ The Kodak images come from Rich Franzen's mirror, the meshes from the Stanford 3
 `scripts/train_<task>.py` fits every model of `configs/<task>.yaml` to every signal of the task:
 
 ```bash
-python scripts/train_image.py        # 24 images x 14 models -> logs/image/<image>/<model>/
-python scripts/train_occupancy.py    # 5 shapes x 15 models  -> logs/occupancy/<shape>/<model>/
-python scripts/train_nerf.py         # 8 scenes x 15 models  -> logs/nerf/<scene>/<model>/
-python scripts/train_super_resolution.py  # 100 images x 18 models -> logs/super_resolution/<image>/<model>/
+python scripts/train_image.py --compile            # 24 images x 14 models -> logs/image/<image>/<model>/
+python scripts/train_occupancy.py --compile        # 5 shapes x 15 models  -> logs/occupancy/<shape>/<model>/
+python scripts/train_nerf.py --compile             # 8 scenes x 15 models  -> logs/nerf/<scene>/<model>/
+python scripts/train_super_resolution.py --compile # 100 images x 18 models -> logs/super_resolution/<image>/<model>/
 ```
 
 The four scripts share one command line:
@@ -34,6 +35,7 @@ The four scripts share one command line:
 | `--set KEY.PATH=VALUE ...` | Override one value, read as YAML, e.g. `train.num_steps=500` or `models.SIREN.train.lr=3e-4`. |
 | `--log-dir DIR` | Where the runs go. |
 | `--overwrite` | Rerun runs that already finished. |
+| `--compile` | Compile each model with `torch.compile` before its warm-up pass, as every run of the paper was. |
 | `--device DEV` | `cuda` when available, else `cpu`. |
 
 A config holds the shared `data` and `train` settings and, per model, its NeuroField class, constructor `kwargs` and training overrides (the learning rate). Image configs may use expressions in the image height `H` and width `W`, such as `[H // 2, W // 2]`; the super-resolution config sizes its models from the high-resolution image, and FUTON's entry names a parameter `budget` whose largest CP rank the script fills in. Each config's header says how its learning rates were chosen, and `# deviation` marks a setting that departs from the authors' published ones.
@@ -46,7 +48,7 @@ python scripts/train_image.py --set models.SIREN.train.lr=0.001 --log-dir logs/s
 python scripts/train_image.py --config configs/ablation-futon/basis.yaml       # -> logs/ablation-futon/basis/
 ```
 
-Each run directory holds `log.txt`, `log.json`, `checkpoint.pt`, the final reconstruction (images) or two rendered test views (NeRF; super-resolution saves none, the report renders them), and `results.json` with the training configuration, the model's `setup` from the YAML, `num_params`, `train_time`, the final `metrics` (NeRF: the mean over the 200 test views, with every view under `test_views`) and the `history`. Occupancy runs write no mesh, since rendering needs a display; the report rebuilds them from the checkpoints.
+Each run directory holds `log.txt`, `log.json`, `checkpoint.pt`, the final reconstruction (images) or two rendered test views (NeRF; super-resolution saves none, the report renders them), and `results.json` with the training configuration, the model's `setup` from the YAML, `num_params`, `train_time`, the final `metrics` (NeRF: the mean over the 200 test views, with every view under `test_views`), the `history`, and the `provenance`: the commit, PyTorch version and GPU of the run. The commits are those of the development history, which the release squashes; every run's configuration is the released config's. Occupancy runs write no mesh, since rendering needs EGL and a GPU driver; the report rebuilds them from the checkpoints.
 
 Measured on A100s (1000 steps; NeRF 25,000), each signal's models in one job:
 
@@ -75,7 +77,7 @@ Runs that other experiments already hold are copied rather than repeated, each c
 
 ```bash
 for study in basis bandwidth rank tensor_net decoder; do
-  python scripts/train_image.py --config configs/ablation-futon/$study.yaml
+  python scripts/train_image.py --config configs/ablation-futon/$study.yaml --compile
 done
 ```
 

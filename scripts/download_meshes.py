@@ -99,13 +99,16 @@ def download_mesh(name: str, info: dict, output_dir: Path, force: bool) -> None:
 
     print(f"  [{name}] {info['url']}")
     suffix = ".tar.gz" if "member" in info else ".ply.gz"
+    # Written under another name until complete; trimesh reads the format from the suffix.
+    part = dest.with_name(f"{name}.part.ply")
     with tempfile.NamedTemporaryFile(suffix=suffix) as archive:
         urllib.request.urlretrieve(info["url"], archive.name, reporthook=report)
         print()
-        extract(Path(archive.name), info.get("member"), dest)
+        extract(Path(archive.name), info.get("member"), part)
 
     if "rotation" in info:
-        rotate(dest, info["rotation"])
+        rotate(part, info["rotation"])
+    part.replace(dest)  # only a complete mesh, rotated where needed, takes the name
     print(f"  {dest.name} ({dest.stat().st_size / 1e6:.1f} MB)")
 
 

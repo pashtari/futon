@@ -188,8 +188,9 @@ def _als(
             (_residual(tensor, update), update),
             (_residual(tensor, trial), trial),
         ]
-        best_error, best = min(candidates, key=lambda candidate: candidate[0])
-        if best_error > error:  # rounding at convergence
+        # A NaN error, of factors that overflowed, sorts last and stops the sweeps.
+        best_error, best = min(candidates, key=lambda c: (math.isnan(c[0]), c[0]))
+        if not best_error <= error:  # rounding at convergence, or a NaN
             break
         settled = error - best_error < tol * (floor + best_error)
         error, factors = best_error, best

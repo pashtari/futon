@@ -86,7 +86,8 @@ class BCD(Optimizer):
     residual rather than of the signal. A sweep thus costs a few products of
     matrices over the grid whatever share of it the batch holds, and a whole
     grid is where the solvers need no momentum and the fewest sweeps. There,
-    without momentum, no update raises the batch's error.
+    without momentum, no update of :class:`MultiplicativeUpdate`, or of
+    :class:`LeastSquares` without its ridge, raises the batch's error.
 
     :meth:`step` updates the factors in order and then the decoder, each from
     the others' latest values, through a subclass's :meth:`solve`, and holds
@@ -147,15 +148,18 @@ class BCD(Optimizer):
     def reset_parameters(self) -> None:
         """Draw the parameters as the solver wants them.
 
-        A subclass draws the entries; each axis's response is then scaled to
-        about one in the middle of the domain and the decoder sums the ``R``
+        A subclass draws the entries; each factor is then divided by the sum of
+        its basis's magnitudes in the middle of the domain, so that each axis's
+        response there is at most about one, and the decoder sums the ``R``
         components to about one half, so that the first sweep starts from an
-        output of the signal's order.
+        output of the signal's order. Magnitudes, since a signed basis's values
+        there can cancel: the cosines' sum to zero when ``K_c`` is 0 or 3
+        modulo 4.
         """
         basis: Any = self.model.encoding.basis  # any basis with axis_features
         for c, factor in enumerate(self._factors):
             middle = basis.axis_features(factor.new_zeros(1), c)
-            factor.copy_(self._draw(factor) / middle.sum())
+            factor.copy_(self._draw(factor) / middle.abs().sum())
         self._weight.copy_(self._draw(self._weight) / (2 * self._weight.shape[1]))
 
     def _draw(self, param: Tensor) -> Tensor:
@@ -220,6 +224,8 @@ class BCD(Optimizer):
         if not self.state:
             self._start(x)
             self._check(x, y)
+        elif not hasattr(self, "_lr"):  # the state came from load_state_dict
+            self._lr = x.new_zeros(())
         self._lr.fill_(self.param_groups[0]["lr"])
         return self._sweep(x, y)
 

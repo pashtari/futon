@@ -446,10 +446,12 @@ class SuperResolutionDataset(ImageCoordinateDataset):
         self.input = self.create_input().to(device)  # HR coordinates, (H, W, 2)
         self.target = self.preprocess(self.original).to(device)  # (h, w, C)
 
-        # The first tap of each kernel row, and the side L of a block's
-        # footprint: one row's taps, and scale more per further row.
+        # The first tap of each kernel row, one past its last, and the side L
+        # of a block's footprint: the widest row's span, zeros inside it
+        # included, as at 3x and 5x, and scale more per further row.
         self.first = [(kernel != 0).int().argmax(1) for kernel in kernels]
-        taps = max(int((kernel != 0).sum(1).max()) for kernel in kernels)
+        ends = [k.shape[1] - (k != 0).flip(1).int().argmax(1) for k in kernels]
+        taps = max(int((end - first).max()) for end, first in zip(ends, self.first))
         scale = self.grid_size[0] // self.target.shape[0]
         self.footprint = scale * (block_size - 1) + taps
         if self.footprint > min(self.grid_size):
@@ -812,7 +814,7 @@ class MRICoordinateDataset(Dataset):
         ``mask``: Bool ``(1, 1, W)`` sampling mask.
         ``scale_factor``: Scalar normalization factor from :meth:`preprocess`.
         ``zero_filled``: ``(crop_H, crop_W)`` RSS reconstruction in original units.
-        ``_original``: Reference RSS image of that shape, or ``None``.
+        ``_original``: Reference RSS image of that shape, when one is loaded.
 
     References:
         Zbontar et al., "fastMRI: An Open Dataset and Benchmarks for Accelerated
@@ -882,15 +884,17 @@ class MRICoordinateDataset(Dataset):
         return 1
 
     def __getitem__(self, index: int) -> dict[str, Any]:
-        return {
+        item = {
             "id": self.id,
             "input": self.input,
             "target": self.target,
             "mask": self.mask,
             "scale_factor": self.scale_factor,
             "zero_filled": self.zero_filled,
-            "_original": self.original,
         }
+        if self.original is not None:  # a None would not collate into a batch
+            item["_original"] = self.original
+        return item
 
     @staticmethod
     def load(
@@ -970,12 +974,13 @@ class MRICoordinateDataset(Dataset):
         """Return the RSS magnitude of masked k-space, optionally center-cropped.
 
         ``kspace`` is complex ``(num_coils, H, W)`` and ``mask`` must broadcast to
-        it. The orthonormal inverse FFT uses ``ifftshift`` before and after.
+        it. The orthonormal inverse FFT is centred: ``ifftshift`` before it and
+        ``fftshift`` after, which differ for odd sizes.
         Returns ``(crop_H, crop_W)`` with ``crop_size``, otherwise ``(H, W)``.
         """
         kspace_masked = kspace * mask
 
-        coil_images = torch.fft.ifftshift(
+        coil_images = torch.fft.fftshift(
             torch.fft.ifft2(
                 torch.fft.ifftshift(kspace_masked, dim=(-2, -1)), norm="ortho"
             ),
