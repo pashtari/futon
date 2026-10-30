@@ -773,7 +773,9 @@ class FUTONEncoding(nn.Module):
         its new device and in its new dtype, so they are exact in any precision.
     """
 
-    def __init__(self, in_features: int, basis: ModuleSpec, combiner: ModuleSpec) -> None:
+    def __init__(
+        self, in_features: int, basis: ModuleSpec, combiner: ModuleSpec
+    ) -> None:
         super().__init__()
         self.in_features = in_features
         self.basis = build_module(basis, BASES, in_features)

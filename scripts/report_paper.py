@@ -1822,7 +1822,9 @@ def sweep(runs: list[dict]) -> pd.DataFrame:
     final["kappa"] = final["model"].map(
         lambda model: basis[model]["num_components"][0] / basis[model]["grid_size"][0]
     )
-    final["rank"] = final["model"].map(lambda model: kwargs[model]["combiner"][1]["rank"])
+    final["rank"] = final["model"].map(
+        lambda model: kwargs[model]["combiner"][1]["rank"]
+    )
     return final
 
 
@@ -1859,8 +1861,8 @@ def sweep_figure(final: pd.DataFrame, x: str, label: str) -> plt.Figure:
 def sweep_table(final: pd.DataFrame, runs: list[dict], name: str) -> dict[str, str]:
     """A sweep's table, a row per level: the bandwidth and the rank filling the
     budget there, or the rank."""
-    levels = final.groupby("model")[["kappa", "rank"]].first().sort_values(
-        SWEPT[name][0]
+    levels = (
+        final.groupby("model")[["kappa", "rank"]].first().sort_values(SWEPT[name][0])
     )
     labels = {
         model: (FRACTIONS[row["kappa"]], f"{row['rank']:g}") if name == "bandwidth"
