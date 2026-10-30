@@ -9,8 +9,8 @@ hide:
 **Neural fields in PyTorch.** A signal is fitted as a function of its coordinates: NeuroField provides FUTON, the Fourier Tensor Network of the paper, thirteen baselines behind the same interface, coordinate datasets for images, volumes and posed views, and the training loops and scripts that produce the paper's numbers.
 
 <figure markdown="span">
-  ![The FUTON pipeline](assets/futon_pipeline.svg){ width="960" }
-  <figcaption>FUTON evaluates a fixed basis on each coordinate axis, combines the axes with a low-rank tensor network, and decodes the result with a linear map or a small MLP.</figcaption>
+  ![FUTON's forward pass](assets/futon_illustration.svg){ width="960" }
+  <figcaption>FUTON's forward pass for one pixel: a fixed basis expands each coordinate, a low-rank tensor network combines the axes, and a small MLP decodes the pixel's colour.</figcaption>
 </figure>
 
 ```python

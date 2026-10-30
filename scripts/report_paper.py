@@ -176,8 +176,8 @@ VIEWS = {"lego": 175, "hotdog": 135}
 CENTERS: dict[str, tuple[tuple[float, float], ...]] = {
     "kodim19": ((0.67, 0.22), (0.25, 0.67)),
     "kodim01": ((0.906, 0.106), (0.606, 0.327)),  # a window, the stone wall
-    "lucy": ((0.71, 0.06), (0.368, 0.304)),  # the torch's tip, the wing's root
-    "armadillo": ((0.301, 0.303), (0.611, 0.797)),  # the upper arm, the shin
+    "lucy": ((0.669, 0.237), (0.555, 0.859)),  # the shoulder under the torch, the hem
+    "armadillo": ((0.464, 0.204), (0.279, 0.339)),  # the face, the upper arm
     # The front wheel in its track and the cab with its light.
     "lego": ((0.480, 0.772), (0.801, 0.347)),
     # The bun's top and the mustard on the plate's rim, where the other fields

@@ -30,7 +30,8 @@ where $\boldsymbol{\varphi}(x_c) = [\varphi_1(x_c), \dots, \varphi_K(x_c)]$ and 
 This is the three-stage pipeline `decoder(combiner(basis(x)))`:
 
 <figure markdown="span">
-  ![FUTON pipeline](../assets/futon_pipeline.svg){ width="960" }
+  ![FUTON's forward pass](../assets/futon_illustration.svg){ width="960" }
+  <figcaption>The three stages for one pixel of kodim19. Each array is coloured by its entries' sign and size.</figcaption>
 </figure>
 
 | Stage | Computes | Parameters | Keys |

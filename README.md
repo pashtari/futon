@@ -19,7 +19,7 @@
 NeuroField fits a signal as a function of its coordinates. It provides **FUTON**, the model of the paper; **thirteen baselines** (SIREN, FreSh, FINER, WIRE, Gauss, MFN, RFF, PE-MLP, Instant-NGP, TensoRF, GA-Planes, F-INR, Deep Image Prior) behind the same interface; **coordinate datasets** for images, occupancy volumes, MRI k-space, posed views and super-resolution; **one training loop** with evaluation, quantization and logging; and two applications, **image compression** and **novel view synthesis**. The experiments of the paper are its configs and scripts, run as they are.
 
 <p align="center">
-  <img src="docs/assets/futon_pipeline.svg" width="920" alt="The FUTON pipeline: a fixed basis per axis, a CP combiner across axes, a linear or MLP decoder">
+  <img src="docs/assets/futon_illustration.svg" width="920" alt="FUTON's forward pass for one pixel: a fixed basis expands each coordinate, a tensor network combines the axes, and an MLP decodes the pixel's colour">
 </p>
 
 ## Why FUTON
