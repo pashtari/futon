@@ -1986,9 +1986,9 @@ def ablation(out_dir: Path) -> None:
             )
 
 
-def resolution(alpha: float) -> str:
-    """A spectral resolution K = alpha N as text: N/8, N/4, N/2, N or 2N."""
-    return FRACTIONS[alpha] + "N" if alpha > 1 else "N" + FRACTIONS[alpha][1:]
+def resolution(kappa: float) -> str:
+    """A spectral resolution K = kappa N as text: N/8, N/4, N/2, N or 2N."""
+    return FRACTIONS[kappa] + "N" if kappa > 1 else "N" + FRACTIONS[kappa][1:]
 
 
 def rank_range(ranks: pd.Series) -> str:
@@ -2015,14 +2015,14 @@ def bound_means(frame: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
     """Means of the PSNRs ``keys`` per setting, each with one within-signal
     standard error over the signals."""
     long = pd.concat(
-        frame[["signal", "alpha", "R", key]]
+        frame[["signal", "kappa", "R", key]]
         .rename(columns={key: "psnr"})
         .assign(model=key)
         for key in keys
     )
-    long["iteration"] = long["alpha"].astype(str) + long["R"].astype(str)
+    long["iteration"] = long["kappa"].astype(str) + long["R"].astype(str)
     long["psnr"] = within_signal(long, "psnr")
-    return long.groupby(["alpha", "R", "model"])["psnr"].agg(["mean", "sem"])
+    return long.groupby(["kappa", "R", "model"])["psnr"].agg(["mean", "sem"])
 
 
 def bound_gap(frames: dict[str, pd.DataFrame]) -> plt.Figure:
@@ -2047,7 +2047,7 @@ def bound_gap(frames: dict[str, pd.DataFrame]) -> plt.Figure:
         figsize=(len(frames) * SIZE[0], SIZE[1] + 2 * LEGEND_ROW),
     )
     for plot, (task, frame) in zip(axes, frames.items()):
-        g = frame[frame["alpha"] == 0.5]
+        g = frame[frame["kappa"] == 0.5]
         above = {
             key: (g[f"{key}_psnr"] - g["adam_psnr"])
             .groupby(g["R"])
@@ -2097,7 +2097,7 @@ def bound_decomposition(frames: dict[str, pd.DataFrame]) -> plt.Figure:
         figsize=(len(frames) * SIZE[0], SIZE[1] + LEGEND_ROW),
     )
     for plot, (task, frame) in zip(axes, frames.items()):
-        g = frame[frame["alpha"] == 0.5]
+        g = frame[frame["kappa"] == 0.5]
         share = {
             key: (100 * g[key] / g["adam"]).groupby(g["R"]).mean()
             for key in ("truncation", "lower", "upper")
@@ -2128,7 +2128,7 @@ def bound_cost(frames: dict[str, pd.DataFrame]) -> plt.Figure:
     figure, plot = plt.subplots(figsize=(SIZE[0], SIZE[1] + 2 * LEGEND_ROW))
     labels, positions, centres, position = [], [], {}, 0.0
     for task, frame in frames.items():
-        per_alpha = frame.groupby(["signal", "alpha"]).agg(
+        per_kappa = frame.groupby(["signal", "kappa"]).agg(
             **{
                 key: (f"{key}_seconds", "sum" if key == "adam" else "first")
                 for key in bars
@@ -2137,14 +2137,14 @@ def bound_cost(frames: dict[str, pd.DataFrame]) -> plt.Figure:
         first = position
         # Past four levels the two datasets' labels crowd the panel: every other
         # one is labelled, the benchmark's 1/2 among them.
-        alphas = sorted(per_alpha.index.unique("alpha"))
-        labelled = alphas.index(0.5) % 2 if len(alphas) > 4 else None
-        for level, (alpha, group) in enumerate(per_alpha.groupby(level="alpha")):
+        kappas = sorted(per_kappa.index.unique("kappa"))
+        labelled = kappas.index(0.5) % 2 if len(kappas) > 4 else None
+        for level, (kappa, group) in enumerate(per_kappa.groupby(level="kappa")):
             width = 0.8 / len(bars)
             for i, (key, (color, _)) in enumerate(bars.items()):
                 offset = (i - (len(bars) - 1) / 2) * width
                 plot.bar(position + offset, group[key].mean(), width, color=color)
-            labels.append(FRACTIONS[alpha] if labelled in (None, level % 2) else "")
+            labels.append(FRACTIONS[kappa] if labelled in (None, level % 2) else "")
             positions.append(position)
             position += 1
         centres[task] = (first + position - 1) / 2
@@ -2209,12 +2209,12 @@ def bound_tables(
     columns = ["truncation_psnr", "upper_psnr", "lower_psnr", "adam_psnr"]
     for task, frame in frames.items():
         stats = bound_means(frame, columns)
-        seconds = frame.groupby(["alpha", "R"])[["bound_seconds", "adam_seconds"]]
+        seconds = frame.groupby(["kappa", "R"])[["bound_seconds", "adam_seconds"]]
         rows = [
-            [resolution(alpha), str(rank),
-             *(bound_cell(*stats.loc[(alpha, rank, key)]) for key in columns),
+            [resolution(kappa), str(rank),
+             *(bound_cell(*stats.loc[(kappa, rank, key)]) for key in columns),
              f"{row.bound_seconds:.1f}", f"{row.adam_seconds:.1f}"]
-            for (alpha, rank), row in seconds.mean().iterrows()
+            for (kappa, rank), row in seconds.mean().iterrows()
         ]  # fmt: skip
         built.append({
             "title": f"{task} ({frame['signal'].nunique()} signals)",
@@ -2228,7 +2228,7 @@ def bound_tables(
         })  # fmt: skip
     for task, frame in frames.items():
         picks = bound_design(frame, BOUND_TARGETS[task])
-        bound = frame.groupby(["signal", "alpha"])["bound_seconds"].first()
+        bound = frame.groupby(["signal", "kappa"])["bound_seconds"].first()
         bound = bound.groupby("signal").sum().mean()
         adam = frame.groupby("signal")["adam_seconds"].sum().mean()
         built.append({
@@ -2249,11 +2249,11 @@ def bound_tables(
         })  # fmt: skip
     for task, frame in every.items():
         rows = []
-        for alpha, group in frame.groupby("alpha"):
+        for kappa, group in frame.groupby("kappa"):
             per_signal = group.groupby("signal")
             gap = group["upper_psnr"] - group["closed_psnr"]
             rows.append([
-                resolution(alpha),
+                resolution(kappa),
                 f"{per_signal['closed_seconds'].first().mean():.2f}",
                 f"{per_signal['bound_seconds'].first().mean():.1f}",
                 f"{per_signal['adam_seconds'].sum().mean():.0f}",
@@ -2475,7 +2475,7 @@ def bound(out_dir: Path) -> None:
         print("bound: no records under logs/bound, skipped")
         return
     # K = N and 2N enter the cost alone, where they show how the time grows with K.
-    frames = {task: frame[frame["alpha"] < 1] for task, frame in every.items()}
+    frames = {task: frame[frame["kappa"] < 1] for task, frame in every.items()}
     save(bound_gap(frames), out_dir / "gap")
     save(bound_decomposition(frames), out_dir / "decomposition")
     save(bound_cost(every), out_dir / "cost")

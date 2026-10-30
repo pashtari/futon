@@ -5,7 +5,7 @@ Usage:
     python scripts/futon_bound.py --tasks image --signals kodim19 kodim21
     python scripts/report_paper.py --tasks bound   # then the figures and tables
 
-For every signal, spectral resolution K = (alpha N_1, ..., alpha N_C) and CP
+For every signal, spectral resolution K = (kappa N_1, ..., kappa N_C) and CP
 rank R, the script bounds the best grid error of the paper's FUTON, a cosine
 basis, a CP combiner and a linear decoder without bias (``nf.futon_bound``);
 evaluates the certified FUTON, which attains the upper bound and is built
@@ -22,7 +22,7 @@ scripts/report_paper.py turns the records into figures and tables that
 report each dataset, its signals averaged.
 
 Writes:
-    logs/bound/<task>/<signal>.json  one record per (alpha, R), resumable
+    logs/bound/<task>/<signal>.json  one record per (kappa, R), resumable
     logs/bound/<task>_checks.json  the optimizer checks, one row per signal
 """
 
@@ -42,19 +42,20 @@ import yaml
 import neurofield as nf
 from train_common import ROOT, fill_rank, resolve
 
-# K = N and 2N (alpha 1 and 2) enter the cost alone, to show how the bound's
+# Each task's "kappas" are relative bandwidths, K = kappa N on every axis.
+# K = N and 2N (kappa 1 and 2) enter the cost alone, to show how the bound's
 # time grows with K; every other result is at K <= N/2.
 TASKS = {
     "image": {
         "signals": [f"kodim{i:02d}" for i in range(1, 25)],
-        "alphas": (0.125, 0.25, 0.5, 1.0, 2.0),
+        "kappas": (0.125, 0.25, 0.5, 1.0, 2.0),
         "ranks": (32, 64, 128, 256, 512, 1024),
         "data": {},  # the whole image at every step, as configs/image.yaml
         "lr": 1e-1,  # FUTON's rate in configs/image.yaml
     },
     "occupancy": {
         "signals": ["armadillo", "dragon", "happy_buddha", "lucy", "thai_statue"],
-        "alphas": (0.125, 0.25, 0.5, 1.0, 2.0),
+        "kappas": (0.125, 0.25, 0.5, 1.0, 2.0),
         "ranks": (32, 64, 128, 256, 512, 1024),
         "data": {"max_samples": 262144},  # as configs/occupancy.yaml
         "lr": 3e-2,  # FUTON's rate in configs/occupancy.yaml
@@ -95,10 +96,10 @@ def benchmark_rank(task: str, sizes: list[int], channels: int) -> int:
     return fill_rank(entry, outputs=channels)["kwargs"]["combiner"][1]["rank"]
 
 
-def futon(sizes: list[int], channels: int, alpha: float, rank: int) -> nf.FUTON:
+def futon(sizes: list[int], channels: int, kappa: float, rank: int) -> nf.FUTON:
     """The paper's FUTON: the cosine basis, a CP combiner and a linear decoder,
     no bias."""
-    components = [max(2, int(alpha * size)) for size in sizes]
+    components = [max(2, int(kappa * size)) for size in sizes]
     basis = (BASIS, {"num_components": components, "grid_size": sizes})
     return nf.FUTON(len(sizes), channels, basis, ("cp", {"rank": rank}),
                     ("linear", {"bias": False}))  # fmt: skip
@@ -167,21 +168,21 @@ def run(task: str, name: str, device: torch.device) -> None:
     settings = TASKS[task]
     path = LOGS / task / f"{name}.json"
     record = json.loads(path.read_text()) if path.exists() else {"configs": []}
-    configs = {(c["alpha"], c["R"]): c for c in of_basis(record["configs"])}
-    alphas = [
-        alpha
-        for alpha in settings["alphas"]
-        if any("upper" not in configs.get((alpha, r), {}) for r in settings["ranks"])
+    configs = {(c["kappa"], c["R"]): c for c in of_basis(record["configs"])}
+    kappas = [
+        kappa
+        for kappa in settings["kappas"]
+        if any("upper" not in configs.get((kappa, r), {}) for r in settings["ranks"])
     ]
-    if not alphas:
+    if not kappas:
         return
     full = dataset(task, name)
     train_data = dataset(task, name, **settings["data"])
     sizes, channels = list(full.target.shape[:-1]), full.target.shape[-1]
     record.update(task=task, signal=name, sizes=sizes, channels=channels)
     target = full.target.to(device)
-    for alpha in alphas:
-        features = features_of(futon(sizes, channels, alpha, 1), sizes, device)
+    for kappa in kappas:
+        features = features_of(futon(sizes, channels, kappa, 1), sizes, device)
         start = time.perf_counter()
         bound = nf.futon_bound(target, features, settings["ranks"])
         seconds = time.perf_counter() - start
@@ -191,26 +192,26 @@ def run(task: str, name: str, device: torch.device) -> None:
         for i, (rank, lower, upper) in enumerate(
             zip(bound.ranks, bound.lower, bound.upper)
         ):
-            certified = futon(sizes, channels, alpha, rank)
+            certified = futon(sizes, channels, kappa, rank)
             bound.initialize(certified)
             certified_mse, certified_iou = evaluate(certified, full, device)
-            config = configs.get((alpha, rank))
+            config = configs.get((kappa, rank))
             if config is None:  # no Adam run yet
-                model = futon(sizes, channels, alpha, rank)
+                model = futon(sizes, channels, kappa, rank)
                 adam_seconds = train(model, train_data, device, settings["lr"])
                 adam_mse, adam_iou = evaluate(model, full, device)
                 config = {
                     "basis": BASIS,
                     "lr": settings["lr"],
-                    "alpha": alpha,
-                    "K": [max(2, int(alpha * n)) for n in sizes],
+                    "kappa": kappa,
+                    "K": [max(2, int(kappa * n)) for n in sizes],
                     "R": rank,
                     "parameters": nf.count_parameters(model),
                     "adam": adam_mse,
                     "adam_iou": adam_iou,
                     "adam_seconds": adam_seconds,
                 }
-                configs[(alpha, rank)] = config
+                configs[(kappa, rank)] = config
                 record["configs"].append(config)
             config.update(
                 {
@@ -226,7 +227,7 @@ def run(task: str, name: str, device: torch.device) -> None:
             )
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(record, indent=1))
-            print(f"{task} {name} alpha {alpha} R {rank}: certified "
+            print(f"{task} {name} kappa {kappa} R {rank}: certified "
                   f"[{psnr(upper):.2f}, {psnr(lower):.2f}] dB, Adam "
                   f"{psnr(config['adam']):.2f} dB", flush=True)  # fmt: skip
 
