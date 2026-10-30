@@ -2,7 +2,7 @@
 
 Usage:
     python scripts/futon_bound.py                  # every signal and check
-    python scripts/futon_bound.py --tasks image --signals kodim19 kodim21
+    python scripts/futon_bound.py --tasks image --signals kodim19 kodim01
     python scripts/report_paper.py --tasks bound   # then the figures and tables
 
 For every signal, spectral resolution K = (kappa N_1, ..., kappa N_C) and CP

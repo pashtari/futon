@@ -13,7 +13,7 @@ Available meshes: armadillo, dragon, happy_buddha, lucy, thai_statue.
 
 Usage:
     python scripts/download_meshes.py
-    python scripts/download_meshes.py --meshes armadillo thai_statue
+    python scripts/download_meshes.py --meshes lucy armadillo
 """
 
 import argparse

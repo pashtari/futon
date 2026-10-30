@@ -7,7 +7,7 @@ and most image-representation benchmarks, fetched from Rich Franzen's mirror:
 
 Usage:
     python scripts/download_kodak.py
-    python scripts/download_kodak.py --images 1 17 23
+    python scripts/download_kodak.py --images 1 19
 """
 
 import argparse

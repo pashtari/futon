@@ -159,7 +159,7 @@ TASKS = {
 # second table leaves out.
 DEVELOPED_ON = ("0801", "0804", "0882")
 EXAMPLES = {  # the signals each task's qualitative figures show
-    "image": ("kodim17", "kodim19"),
+    "image": ("kodim19", "kodim01"),
     "occupancy": ("lucy", "armadillo"),
     "nerf": ("lego", "hotdog"),
     # Test images, none of people, on which both FUTONs lead every other model.
@@ -174,8 +174,8 @@ VIEWS = {"lego": 175, "hotdog": 135}
 # plate's rim or the floor, which the search alone would take; the volumes'
 # where both FUTONs stay below every other model's error.
 CENTERS: dict[str, tuple[tuple[float, float], ...]] = {
-    "kodim17": ((0.67, 0.22), (0.16, 0.63)),
     "kodim19": ((0.67, 0.22), (0.25, 0.67)),
+    "kodim01": ((0.906, 0.106), (0.606, 0.327)),  # a window, the stone wall
     "lucy": ((0.71, 0.06), (0.368, 0.304)),  # the torch's tip, the wing's root
     "armadillo": ((0.301, 0.303), (0.611, 0.797)),  # the upper arm, the shin
     # The front wheel in its track and the cab with its light.

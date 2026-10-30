@@ -4,8 +4,8 @@ Five notebooks in `notebooks/` run one signal end to end. Four compare FUTON, wi
 
 | Notebook | Signal | Models | Runtime on an A100 |
 | --- | --- | --- | --- |
-| `image_representation.ipynb` | `data/Kodak/kodim17.png` | 7, about 197k parameters each, 1000 steps on the whole image | about 7 minutes |
-| `occupancy_volume.ipynb` | `data/occupancy/thai_statue.ply` at $256^3$ | 7, about 131k parameters each, 1000 steps of $2^{18}$ voxels | about 4 minutes |
+| `image_representation.ipynb` | `data/Kodak/kodim19.png` | 7, about 197k parameters each, 1000 steps on the whole image | about 6 minutes |
+| `occupancy_volume.ipynb` | `data/occupancy/lucy.ply` at $256^3$ | 7, about 131k parameters each, 1000 steps of $2^{18}$ voxels | about 4 minutes |
 | `nerf.ipynb` | `data/nerf/blender/lego` under FINER's protocol, in a quick pass | 7, about 75k parameters each, 5000 steps | about 11 minutes (set `NUM_STEPS = 25_000` for the benchmark's full schedule, about 35 minutes) |
 | `image_super_resolution.ipynb` | `data/DIV2K/DIV2K_valid_HR/0887.png` from its 4× bicubic downsampling | 6 fields, about 500k parameters each, 1000 steps of 135 blocks, and bicubic interpolation | about 6 minutes |
 | `futon_solvers.ipynb` | `data/Kodak/kodim19.png` | 4 FUTONs, about 197k parameters each: an MLP or a linear decoder, fitted by Adam (1000 steps on the whole image) or by alternating least squares or multiplicative updates (500 sweeps) | about 4 minutes |
@@ -14,8 +14,8 @@ Each notebook is self-contained and has the same sections: *Setup* imports the p
 
 ```bash
 pip install -e ".[3d,nerf]" jupyterlab
-python scripts/download_kodak.py --images 17 19
-python scripts/download_meshes.py --meshes thai_statue
+python scripts/download_kodak.py --images 19
+python scripts/download_meshes.py --meshes lucy
 python scripts/download_blender.py --scenes lego
 python scripts/download_div2k.py
 jupyter lab notebooks/

@@ -40,8 +40,8 @@ Accuracy and costs come from the same runs. Every model is compiled with `torch.
 
 <figure markdown="span">
   ![kodim19](../assets/qualitative_kodim19.png)
-  ![kodim17](../assets/qualitative_kodim17.png)
-  <figcaption>kodim19 and kodim17: two regions of fine detail magnified for the ground truth and every featured model, above each model's |error| there on one scale per figure, with each model's PSNR over the whole image.</figcaption>
+  ![kodim01](../assets/qualitative_kodim01.png)
+  <figcaption>kodim19 and kodim01: two regions of fine detail magnified for the ground truth and every featured model, above each model's |error| there on one scale per figure, with each model's PSNR over the whole image.</figcaption>
 </figure>
 
 ## Occupancy

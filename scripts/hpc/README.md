@@ -113,7 +113,7 @@ the arguments becomes the task id, `%4a` the id zero-padded to four digits and
 It also prints the scheduler's estimated start time, e.g.
 
 ```
-Submitting nf-image-kodim01-FUTON-sinc at commit 1a2b3c4
+Submitting nf-image-kodim19-FUTON-sinc at commit 1a2b3c4
 Submitted batch job 15754794 on cluster accelgor
 Estimated start: 2026-09-17T21:33:00
 ```
@@ -172,7 +172,7 @@ A quick test (a few minutes):
 
 ```bash
 scripts/hpc/train.sh --clusters=accelgor --time=0:15:00 image \
-  --data data/Kodak/kodim01.png --models SIREN
+  --data data/Kodak/kodim19.png --models SIREN
 ```
 
 `JOBS.md` lists every job of this work: the three benchmark sweeps and the
@@ -241,7 +241,7 @@ On the cluster:
 
 ```bash
 squeue --clusters=accelgor -u $USER -o "%.10i %.30j %.2t %.9M %.9l"  # jobs
-tail -f logs/slurm/nf-image-kodim01-FUTON-sinc-<jobid>.out           # output
+tail -f logs/slurm/nf-image-kodim19-FUTON-sinc-<jobid>.out           # output
 scancel --clusters=accelgor <jobid>                                  # cancel
 squeue --clusters=accelgor -u $USER --start          # estimated start times
 ```

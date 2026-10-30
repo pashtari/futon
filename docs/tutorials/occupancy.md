@@ -10,7 +10,7 @@ A shape is represented as an occupancy field $[-1, 1]^3 \to \{-1, 1\}$, fitted t
 import torch
 import neurofield as nf
 
-path = "data/occupancy/thai_statue.ply"
+path = "data/occupancy/lucy.ply"
 train_set = nf.OccupancyCoordinateDataset(path, resolution=256, max_samples=2**18)
 eval_set = nf.OccupancyCoordinateDataset(path, resolution=256)
 
@@ -22,7 +22,7 @@ At 256 samples per unit length a volume, cropped to the shape's bounds, holds 2 
 
 ## Model
 
-The benchmark FUTON uses half the voxels along each axis of the cropped grid, a one-layer MLP decoder 64 wide, and the largest CP rank, a multiple of 5, that keeps it smaller than every baseline, the smallest of which has 131,457 parameters. Rank $R$ costs $R$ times the components plus the width, and the decoder adds $2 \cdot 64 + 1$, so the Thai statue's $138 \times 231 \times 119$ grid gets 425, for 130,604 parameters:
+The benchmark FUTON uses half the voxels along each axis of the cropped grid, a one-layer MLP decoder 64 wide, and the largest CP rank, a multiple of 5, that keeps it smaller than every baseline, the smallest of which has 131,457 parameters. Rank $R$ costs $R$ times the components plus the width, and the decoder adds $2 \cdot 64 + 1$, so Lucy's $135 \times 78 \times 231$ grid gets 460, for 131,229 parameters:
 
 ```python
 components = [size // 2 for size in eval_set.grid_size]
@@ -52,7 +52,7 @@ result = nf.train(
     log_interval=50,
     eval_interval=50,
     save_reconstruction=False,
-    log_dir="logs/tutorial/thai_statue/FUTON-sinc",
+    log_dir="logs/tutorial/lucy/FUTON-sinc",
 )
 print(result["history"][-1]["eval"]["iou"])
 ```
@@ -61,12 +61,12 @@ print(result["history"][-1]["eval"]["iou"])
 
 ## Exporting a mesh
 
-With the `3d` extra, `eval_set.save(volume, path)` smooths the occupancy, runs marching cubes, writes a `.dae` mesh and renders it offscreen to a `.png` with Open3D:
+With the `3d` extra, `eval_set.save(volume, path)` smooths the occupancy, runs marching cubes, writes a `.dae` mesh and renders it offscreen to a `.png` with Open3D, drawing the grid's axis `up` upwards: Lucy stands along the last, the other four shapes along the second, the default:
 
 ```python
 volume = nf.chunked_inference(model, eval_set.input, chunk_size=262144)
-occupancy = eval_set.postprocess(volume.cpu())       # (1, D, H, W) in {0, 1}
-eval_set.save(occupancy, "thai_statue_futon")         # thai_statue_futon.dae and .png
+occupancy = eval_set.postprocess(volume.cpu())  # (1, D, H, W) in {0, 1}
+eval_set.save(occupancy, "lucy_futon", up=2)    # lucy_futon.dae and .png
 ```
 
 The render runs offscreen with Open3D and needs EGL and a GPU driver, which not every machine has; that is why the call above and the benchmark script pass `save_reconstruction=False` and rebuild meshes from `checkpoint.pt` afterwards (`nf.evaluate(model, eval_set, ckpt_path=..., log_dir=...)` on a workstation).

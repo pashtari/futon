@@ -2,7 +2,7 @@
 
 Usage:
     python scripts/train_image.py
-    python scripts/train_image.py --data data/Kodak/kodim01.png --models SIREN FINER --device cuda:1
+    python scripts/train_image.py --data data/Kodak/kodim19.png --models SIREN FINER --device cuda:1
 """
 
 from pathlib import Path
