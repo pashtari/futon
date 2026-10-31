@@ -16,9 +16,9 @@ MLPs whose prior sits in the first layer or in the activation.
 | FINER | `FINER` | Variable-periodic sines $\sin(\omega (\lvert z \rvert + 1) z)$ | Liu et al., CVPR 2024 |
 | MFN | `MFN` | Multiplicative Gabor filter network: each stage multiplies a Gabor filter of the coordinates into the hidden state | Fathony et al., ICLR 2021 |
 
-FreSh (Kania et al., ICLR 2025) is not an architecture but a choice of SIREN's first-layer frequency: `nf.fresh_select` picks it per signal, before training, as the candidate whose untrained output has the spectrum nearest the signal's, and `nf.SIREN(first_omega=...)` takes it, its later layers keeping `omega`.
+FreSh (Kania et al., ICLR 2025) is not an architecture but a choice of SIREN's first-layer frequency: `inro.fresh_select` picks it per signal, before training, as the candidate whose untrained output has the spectrum nearest the signal's, and `inro.SIREN(first_omega=...)` takes it, its later layers keeping `omega`.
 
-`MLP` underlies most of them: a plain ReLU network by default, or a network of custom layers (`layer_class=nf.SineLayer`, `nf.GaussLayer`, `nf.FinerLayer`, `nf.RealGaborLayer`) with their own activations. `WIRE` is the complex-valued network of the paper; the experiments use `RealWIRE`, the real Gabor variant from the same paper and code, which trains about 1.5× faster at equal parameter count and has real weights, so it also quantizes.
+`MLP` underlies most of them: a plain ReLU network by default, or a network of custom layers (`layer_class=inro.SineLayer`, `inro.GaussLayer`, `inro.FinerLayer`, `inro.RealGaborLayer`) with their own activations. `WIRE` is the complex-valued network of the paper; the experiments use `RealWIRE`, the real Gabor variant from the same paper and code, which trains about 1.5× faster at equal parameter count and has real weights, so it also quantizes.
 
 ## Grid and tensor models
 
@@ -54,5 +54,5 @@ These are image-to-image networks, `(B, C, H, W)` in and out, paired with `DIPIm
 
 - **Widths and depths.** `hidden_features` is the hidden width and `hidden_layers` the number of hidden layers, so a network with `hidden_layers=h` has `h + 1` weight layers (MFN: `h` Gabor filters, `h - 1` hidden linear layers and one output layer). `WIRE` and `RealWIRE` divide the nominal width by $\sqrt{2}$ to keep the parameter count comparable to real networks.
 - **Output activations.** Every model takes `output_activation`, a callable applied last. The benchmarks use `torch.tanh` for targets in $[-1, 1]$ and none inside a `RadianceField`.
-- **Equal capacity.** `nf.count_parameters(model, trainable_only=False)` is how the configs were matched. The image models hold 197k to 209k parameters, the occupancy models about 132k, and the NeRF density networks about 68k (75k with the shared colour network).
+- **Equal capacity.** `inro.count_parameters(model, trainable_only=False)` is how the configs were matched. The image models hold 197k to 209k parameters, the occupancy models about 132k, and the NeRF density networks about 68k (75k with the shared colour network).
 - **Learning rates.** Each model has its own, drawn from {3e-1, 1e-1, 3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4} each the best of the grid on two or three signals of the task, as each config's header says.

@@ -15,7 +15,7 @@ import torch
 from PIL import Image
 from train_common import ROOT, build, fresh, record, run, warm_up_field
 
-import neurofield as nf
+import inro
 
 DATA = sorted(
     p.parent for p in (ROOT / "data/nerf/blender").glob("*/transforms_train.json")
@@ -23,7 +23,7 @@ DATA = sorted(
 
 
 def fresh_targets(
-    dataset: nf.nerf.BlenderDataset, device: torch.device, count: int = 10
+    dataset: inro.nerf.BlenderDataset, device: torch.device, count: int = 10
 ) -> list[torch.Tensor]:
     """FreSh's targets for a radiance field: training views drawn at random,
     without repeats, composited onto black as the authors' code does."""
@@ -36,7 +36,9 @@ def fresh_targets(
 
 @torch.no_grad()
 def fresh_view(
-    field: nf.nerf.RadianceField, dataset: nf.nerf.BlenderDataset, device: torch.device
+    field: inro.nerf.RadianceField,
+    dataset: inro.nerf.BlenderDataset,
+    device: torch.device,
 ) -> torch.Tensor:
     """FreSh's render of an untrained field (Kania et al., ICLR 2025): a random
     training view whose rays are each sampled once, at the cameras' mean
@@ -56,11 +58,11 @@ def fit(
 ) -> dict[str, Any]:
     splits = config["data"]
     downsample = splits["downsample"]
-    train_dataset = nf.nerf.BlenderDataset(
+    train_dataset = inro.nerf.BlenderDataset(
         path, "train", downsample=downsample, skip=splits["train_skip"]
     )
-    val_dataset = nf.nerf.BlenderDataset(path, "val", downsample=downsample)
-    test_dataset = nf.nerf.BlenderDataset(path, "test", downsample=downsample)
+    val_dataset = inro.nerf.BlenderDataset(path, "val", downsample=downsample)
+    test_dataset = inro.nerf.BlenderDataset(path, "test", downsample=downsample)
 
     model_class, kwargs = build(model)
     search = fresh(
@@ -68,7 +70,7 @@ def fit(
         kwargs,
         fresh_targets(train_dataset, device),
         lambda kw: fresh_view(
-            nf.nerf.RadianceField(
+            inro.nerf.RadianceField(
                 density_net=(model_class, kw),
                 aabb=train_dataset.aabb,
                 **config["field"],
@@ -78,17 +80,17 @@ def fit(
         ),
         config["train"]["seed"],
     )
-    field = nf.nerf.RadianceField(
+    field = inro.nerf.RadianceField(
         density_net=(model_class, kwargs), aabb=train_dataset.aabb, **config["field"]
     )
-    renderer = nf.nerf.create_renderer(
-        backend="nerfacc" if nf.nerf.is_nerfacc_available() else "pytorch",
+    renderer = inro.nerf.create_renderer(
+        backend="nerfacc" if inro.nerf.is_nerfacc_available() else "pytorch",
         aabb=train_dataset.aabb,
         near=train_dataset.near,
         far=train_dataset.far,
     )
     warm_up_field(field, train_dataset, device, config["compile"])
-    res = nf.nerf.train(
+    res = inro.nerf.train(
         field,
         renderer,
         train_dataset,
@@ -103,7 +105,7 @@ def fit(
     # the field's and the renderer's, not the overhead of 79 passes of the
     # renderer's default 512 rays.
     rays = test_dataset.height * test_dataset.width
-    test = nf.nerf.evaluate(
+    test = inro.nerf.evaluate(
         field, renderer, test_dataset, chunk_size=rays, return_images=True
     )
     for view in config["render_views"]:

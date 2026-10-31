@@ -2,7 +2,7 @@
   <img src="docs/assets/logo.svg" width="84" alt="">
 </p>
 
-<h1 align="center">NeuroField</h1>
+<h1 align="center">Inro</h1>
 
 <p align="center">
   <b>Neural fields in PyTorch</b>, with FUTON, a Fourier Tensor Network for implicit neural representations.
@@ -10,13 +10,13 @@
 
 <p align="center">
   <a href="https://arxiv.org/abs/2602.13414"><img alt="arXiv" src="https://img.shields.io/badge/arXiv-2602.13414-b31b1b.svg"></a>
-  <a href="https://pashtari.github.io/neurofield/"><img alt="Documentation" src="https://img.shields.io/badge/docs-pashtari.github.io%2Fneurofield-2a78d6.svg"></a>
+  <a href="https://pashtari.github.io/inro/"><img alt="Documentation" src="https://img.shields.io/badge/docs-pashtari.github.io%2Finro-2a78d6.svg"></a>
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776ab.svg">
   <img alt="PyTorch 2.10+" src="https://img.shields.io/badge/PyTorch-2.10%2B-ee4c2c.svg">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-2ea44f.svg"></a>
 </p>
 
-NeuroField fits a signal as a function of its coordinates. It provides **FUTON**, the model of the paper; **thirteen baselines** (SIREN, FreSh, FINER, WIRE, Gauss, MFN, RFF, PE-MLP, Instant-NGP, TensoRF, GA-Planes, F-INR, Deep Image Prior) behind the same interface; **coordinate datasets** for images, occupancy volumes, MRI k-space, posed views and super-resolution; **one training loop** with evaluation, quantization and logging; and two applications, **image compression** and **novel view synthesis**. The experiments of the paper are its configs and scripts, run as they are.
+Inro fits a signal as a function of its coordinates. It provides **FUTON**, the model of the paper; **thirteen baselines** (SIREN, FreSh, FINER, WIRE, Gauss, MFN, RFF, PE-MLP, Instant-NGP, TensoRF, GA-Planes, F-INR, Deep Image Prior) behind the same interface; **coordinate datasets** for images, occupancy volumes, MRI k-space, posed views and super-resolution; **one training loop** with evaluation, quantization and logging; and two applications, **image compression** and **novel view synthesis**. The experiments of the paper are its configs and scripts, run as they are. The name comes from the *inrō*, a Japanese case of stacked compartments.
 
 <p align="center">
   <img src="docs/assets/futon_illustration.svg" width="920" alt="FUTON's forward pass for one pixel: a fixed basis expands each coordinate, a tensor network combines the axes, and an MLP decodes the pixel's colour">
@@ -32,7 +32,7 @@ Most implicit neural representations hide their prior in the nonlinearity: sines
 
 ## Results
 
-Every model of a task has the same parameter budget, the hyperparameters of its authors' code, and a learning rate chosen on the task. Times are median training times per signal on an A100, from the same runs as the scores, every model compiled with `torch.compile`; Instant-NGP is the fastest to train on every task. The [benchmarks page](https://pashtari.github.io/neurofield/experiments/benchmarks/) has every model, metric and error bar.
+Every model of a task has the same parameter budget, the hyperparameters of its authors' code, and a learning rate chosen on the task. Times are median training times per signal on an A100, from the same runs as the scores, every model compiled with `torch.compile`; Instant-NGP is the fastest to train on every task. The [benchmarks page](https://pashtari.github.io/inro/experiments/benchmarks/) has every model, metric and error bar.
 
 | Task | Signals | #Params | FUTON (sinc) | FUTON (cosine) | Strongest baseline |
 | --- | --- | --- | --- | --- | --- |
@@ -59,8 +59,8 @@ Every model of a task has the same parameter budget, the hyperparameters of its 
 Python 3.11+ and PyTorch 2.10+. A GPU is optional.
 
 ```bash
-git clone https://github.com/pashtari/neurofield.git
-cd neurofield
+git clone https://github.com/pashtari/inro.git
+cd inro
 pip install -e .
 ```
 
@@ -76,13 +76,13 @@ Fit FUTON to an image and score it. On a GPU this takes about half a minute and 
 
 ```python
 import torch
-import neurofield as nf
+import inro
 
-image = "data/Kodak/kodim19.png"            # any RGB image
-dataset = nf.ImageCoordinateDataset(image)  # every pixel, at every step
+image = "data/Kodak/kodim19.png"              # any RGB image
+dataset = inro.ImageCoordinateDataset(image)  # every pixel, at every step
 H, W, _ = dataset.target.shape
 
-model = nf.FUTON(
+model = inro.FUTON(
     in_features=2,
     out_features=3,
     basis=("sinc", {"num_components": [H // 2, W // 2]}),  # half the pixels per axis
@@ -91,19 +91,19 @@ model = nf.FUTON(
     output_activation=torch.tanh,
 )
 
-result = nf.train(
+result = inro.train(
     model, dataset, dataset,
     num_steps=1000, lr=3e-2,
-    metrics={"psnr": nf.psnr, "ssim": nf.ssim},
+    metrics={"psnr": inro.psnr, "ssim": inro.ssim},
     eval_interval=250,
 )
-print(result["history"][-1]["eval"])        # {"psnr": 37.3, "ssim": 0.949, ...}
+print(result["history"][-1]["eval"])          # {"psnr": 37.3, "ssim": 0.949, ...}
 
-output = nf.chunked_inference(model, dataset.input, chunk_size=65536)  # (H, W, 3) in [-1, 1]
+output = inro.chunked_inference(model, dataset.input, chunk_size=65536)  # (H, W, 3) in [-1, 1]
 dataset.save(dataset.postprocess(output.cpu()), "kodim19_futon.png")
 ```
 
-Coordinates live in [-1, 1] on every axis, targets in the model's output range, and `nf.train` runs Adam with cosine annealing. Every model in the zoo takes `in_features` and `out_features` first, so `nf.SIREN(2, 3, hidden_features=256, hidden_layers=4, output_activation=torch.tanh)` drops into the same call. The [quick start](https://pashtari.github.io/neurofield/getting-started/quickstart/) explains each step.
+Coordinates live in [-1, 1] on every axis, targets in the model's output range, and `inro.train` runs Adam with cosine annealing. Every model in the zoo takes `in_features` and `out_features` first, so `inro.SIREN(2, 3, hidden_features=256, hidden_layers=4, output_activation=torch.tanh)` drops into the same call. The [quick start](https://pashtari.github.io/inro/getting-started/quickstart/) explains each step.
 
 ## What is in the box
 
@@ -116,47 +116,47 @@ Coordinates live in [-1, 1] on every axis, targets in the model's output range, 
 | Grid and tensor models | `InstantNGP` / `HashEncoding`, `TensoRF`, `GAPlanes` / `MultiVector` / `FeatureGrid`, `FINR`, `GridINR` |
 | Deep Image Prior | `DIPUNet`, `DIPSkip` |
 
-**Datasets**: `ImageCoordinateDataset`, `MaskedImageCoordinateDataset`, `SuperResolutionDataset` (with the bicubic operator `resize_matrix` and `downsample`), `OccupancyCoordinateDataset`, `MRICoordinateDataset`, `DIPImageDataset`, and `nf.nerf.BlenderDataset`.
+**Datasets**: `ImageCoordinateDataset`, `MaskedImageCoordinateDataset`, `SuperResolutionDataset` (with the bicubic operator `resize_matrix` and `downsample`), `OccupancyCoordinateDataset`, `MRICoordinateDataset`, `DIPImageDataset`, and `inro.nerf.BlenderDataset`.
 
-**Training and evaluation**: `nf.train`, `nf.evaluate`, `nf.chunked_inference`; metrics `psnr`, `ssim`, `ms_ssim`, `lpips`, `nmse`, `iou`, `bits_per_pixel`, and super-resolution's `super_resolution_metrics` on `luma`; losses `rate_distortion_loss`, `sdf_loss`, `super_resolution_loss`; `uniform_quantize` / `uniform_dequantize` and quantization-aware training.
+**Training and evaluation**: `inro.train`, `inro.evaluate`, `inro.chunked_inference`; metrics `psnr`, `ssim`, `ms_ssim`, `lpips`, `nmse`, `iou`, `bits_per_pixel`, and super-resolution's `super_resolution_metrics` on `luma`; losses `rate_distortion_loss`, `sdf_loss`, `super_resolution_loss`; `uniform_quantize` / `uniform_dequantize` and quantization-aware training.
 
-**Solvers**: `nf.LeastSquares` and `nf.MultiplicativeUpdate` fit a FUTON with a linear decoder by block coordinate descent, through the same `nf.train` call, in place of Adam.
+**Solvers**: `inro.LeastSquares` and `inro.MultiplicativeUpdate` fit a FUTON with a linear decoder by block coordinate descent, through the same `inro.train` call, in place of Adam.
 
-**Error bounds**: `nf.futon_bound` brackets the best error a FUTON with a linear decoder can reach on a sampled signal at a given spectral resolution and rank, and builds a FUTON that attains the upper bound; the [theorem and its proof](https://pashtari.github.io/neurofield/concepts/error-bound/) are in the docs.
+**Error bounds**: `inro.futon_bound` brackets the best error a FUTON with a linear decoder can reach on a sampled signal at a given spectral resolution and rank, and builds a FUTON that attains the upper bound; the [theorem and its proof](https://pashtari.github.io/inro/concepts/error-bound/) are in the docs.
 
-**Image compression** (`nf.compression`): a FUTON codec, PIL codecs as baselines, and one function that measures any codec.
+**Image compression** (`inro.compression`): a FUTON codec, PIL codecs as baselines, and one function that measures any codec.
 
 ```python
 from torchvision.io import ImageReadMode, read_image
 
 image = read_image("data/Kodak/kodim19.png", mode=ImageReadMode.RGB)
-futon = nf.compression.evaluate_compression(
-    image, nf.compression.encode_futon, nf.compression.decode_futon,
+futon = inro.compression.evaluate_compression(
+    image, inro.compression.encode_futon, inro.compression.decode_futon,
     basis=("cosine", {"num_components": 128}), combiner=("cp", {"rank": 64}), decoder="linear",
 )
-jpeg = nf.compression.evaluate_compression(
-    image, nf.compression.encode_pil, nf.compression.decode_pil, format="JPEG", quality=50
+jpeg = inro.compression.evaluate_compression(
+    image, inro.compression.encode_pil, inro.compression.decode_pil, format="JPEG", quality=50
 )
 # each: {"PSNR (dB)": ..., "bit rate (bpp)": ..., "encoding time (ms)": ..., "decoding time (ms)": ...}
 ```
 
-**Novel view synthesis** (`nf.nerf`): any model as the density network of a radiance field, occupancy-grid volume rendering (nerfacc when its CUDA extension works, pure PyTorch otherwise), and PSNR / SSIM / LPIPS on held-out views.
+**Novel view synthesis** (`inro.nerf`): any model as the density network of a radiance field, occupancy-grid volume rendering (nerfacc when its CUDA extension works, pure PyTorch otherwise), and PSNR / SSIM / LPIPS on held-out views.
 
 ```python
 root = "data/nerf/blender/lego"
-train_set = nf.nerf.BlenderDataset(root, split="train", downsample=4, skip=4)
-test_set = nf.nerf.BlenderDataset(root, split="test", downsample=4)
+train_set = inro.nerf.BlenderDataset(root, split="train", downsample=4, skip=4)
+test_set = inro.nerf.BlenderDataset(root, split="test", downsample=4)
 
-field = nf.nerf.RadianceField(
-    (nf.FUTON, {"basis": ("sinc", {"num_components": 100, "grid_size": 2048}),  # a table per axis
-                "combiner": ("cp", {"rank": 180}),
-                "decoder": ("mlp", {"hidden_layers": 1, "hidden_features": 64})}),
+field = inro.nerf.RadianceField(
+    (inro.FUTON, {"basis": ("sinc", {"num_components": 100, "grid_size": 2048}),  # a table per axis
+                  "combiner": ("cp", {"rank": 180}),
+                  "decoder": ("mlp", {"hidden_layers": 1, "hidden_features": 64})}),
     ("mlp", {"hidden_features": 64, "hidden_layers": 2}),
     aabb=train_set.aabb,
 )
-renderer = nf.nerf.create_renderer(aabb=train_set.aabb, near=train_set.near, far=train_set.far)
-nf.nerf.train(field, renderer, train_set, num_steps=25000, lr=1e-2)
-print(nf.nerf.evaluate(field, renderer, test_set)["mean"])
+renderer = inro.nerf.create_renderer(aabb=train_set.aabb, near=train_set.near, far=train_set.far)
+inro.nerf.train(field, renderer, train_set, num_steps=25000, lr=1e-2)
+print(inro.nerf.evaluate(field, renderer, test_set)["mean"])
 ```
 
 ## Reproducing the paper
@@ -177,17 +177,17 @@ python scripts/train_super_resolution.py --compile # 100 images x 18 models -> l
 python scripts/report_paper.py           # tables and figures    -> results/
 ```
 
-`configs/<task>.yaml` holds every model's class, constructor arguments and learning rate, with a comment wherever a setting departs from the authors' code. `--data`, `--models`, `--config`, `--set KEY=VALUE`, `--log-dir` and `--overwrite` select signals, models and settings; finished runs are skipped, so an interrupted sweep resumes. `configs/ablation-futon/` holds the ablations. See [Reproducing the paper](https://pashtari.github.io/neurofield/experiments/reproduce/).
+`configs/<task>.yaml` holds every model's class, constructor arguments and learning rate, with a comment wherever a setting departs from the authors' code. `--data`, `--models`, `--config`, `--set KEY=VALUE`, `--log-dir` and `--overwrite` select signals, models and settings; finished runs are skipped, so an interrupted sweep resumes. `configs/ablation-futon/` holds the ablations. See [Reproducing the paper](https://pashtari.github.io/inro/experiments/reproduce/).
 
 ## Documentation
 
-The full documentation is at **[pashtari.github.io/neurofield](https://pashtari.github.io/neurofield/)**:
+The full documentation is at **[pashtari.github.io/inro](https://pashtari.github.io/inro/)**:
 
-- [Getting started](https://pashtari.github.io/neurofield/getting-started/): installation, data, and a first neural field.
-- [Concepts](https://pashtari.github.io/neurofield/concepts/): how models, datasets and the training loop fit together; [FUTON](https://pashtari.github.io/neurofield/concepts/futon/) stage by stage; the [model zoo](https://pashtari.github.io/neurofield/concepts/models/); [conventions](https://pashtari.github.io/neurofield/concepts/conventions/).
-- [Tutorials](https://pashtari.github.io/neurofield/tutorials/): images, occupancy volumes, radiance fields, compression, custom components, and the notebooks in `notebooks/`.
-- [Experiments](https://pashtari.github.io/neurofield/experiments/): the benchmarks, the ablations, and reproduction.
-- [API reference](https://pashtari.github.io/neurofield/api/): every public class and function.
+- [Getting started](https://pashtari.github.io/inro/getting-started/): installation, data, and a first neural field.
+- [Concepts](https://pashtari.github.io/inro/concepts/): how models, datasets and the training loop fit together; [FUTON](https://pashtari.github.io/inro/concepts/futon/) stage by stage; the [model zoo](https://pashtari.github.io/inro/concepts/models/); [conventions](https://pashtari.github.io/inro/concepts/conventions/).
+- [Tutorials](https://pashtari.github.io/inro/tutorials/): images, occupancy volumes, radiance fields, compression, custom components, and the notebooks in `notebooks/`.
+- [Experiments](https://pashtari.github.io/inro/experiments/): the benchmarks, the ablations, and reproduction.
+- [API reference](https://pashtari.github.io/inro/api/): every public class and function.
 
 To build it locally: `pip install -e ".[docs]" && mkdocs serve`.
 

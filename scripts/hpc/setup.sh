@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Prepare HPC-UGent for the benchmarks: clone or update the repository at
-# $VSC_DATA/projects/neurofield, build the neurofield-env venv, and download the
+# $VSC_DATA/projects/inro, build the inro-env venv, and download the
 # LPIPS weights and benchmark data. Run once from the local machine (it pushes
 # local commits and connects over SSH) or on a login node. Safe to rerun, e.g.
 # after dependency changes.
@@ -19,16 +19,16 @@ if [[ -z ${VSC_DATA:-} ]]; then
   [[ -z $(git status --porcelain) ]] || echo "Note: untracked files are not synced." >&2
   git push --quiet
   exec ssh "${HPC_HOST:-hpc-ugent}" \
-    "NEUROFIELD_BRANCH=$(git symbolic-ref --short HEAD)" \
-    "NEUROFIELD_COMMIT=$(git rev-parse HEAD)" \
-    "NEUROFIELD_ROOT=$(printf %q "${NEUROFIELD_ROOT:-}")" \
-    "NEUROFIELD_VENV=$(printf %q "${NEUROFIELD_VENV:-}")" \
+    "INRO_BRANCH=$(git symbolic-ref --short HEAD)" \
+    "INRO_COMMIT=$(git rev-parse HEAD)" \
+    "INRO_ROOT=$(printf %q "${INRO_ROOT:-}")" \
+    "INRO_VENV=$(printf %q "${INRO_VENV:-}")" \
     bash -c "$(printf %q "$script")"
 fi
 
-ROOT=${NEUROFIELD_ROOT:-$VSC_DATA/projects/neurofield}
-VENV=${NEUROFIELD_VENV:-$VSC_DATA/venvs/neurofield-env}
-REPO=https://github.com/pashtari/neurofield.git
+ROOT=${INRO_ROOT:-$VSC_DATA/projects/inro}
+VENV=${INRO_VENV:-$VSC_DATA/venvs/inro-env}
+REPO=https://github.com/pashtari/inro.git
 
 # uv's standalone Python and the PyPI wheels are generic x86-64, so one venv
 # serves every cluster. Caches stay off the small home quota, and login nodes
@@ -44,10 +44,10 @@ echo "==> Repository: $ROOT"
 [[ -d $ROOT/.git ]] || git clone "$REPO" "$ROOT"
 cd "$ROOT"
 git fetch --quiet
-[[ -z ${NEUROFIELD_BRANCH:-} ]] || git checkout --quiet "$NEUROFIELD_BRANCH"
+[[ -z ${INRO_BRANCH:-} ]] || git checkout --quiet "$INRO_BRANCH"
 git merge --ff-only --quiet '@{u}'
-if [[ -n ${NEUROFIELD_COMMIT:-} && $(git rev-parse HEAD) != "$NEUROFIELD_COMMIT" ]]; then
-  echo "The cluster is at $(git rev-parse --short HEAD), not ${NEUROFIELD_COMMIT:0:7}." >&2
+if [[ -n ${INRO_COMMIT:-} && $(git rev-parse HEAD) != "$INRO_COMMIT" ]]; then
+  echo "The cluster is at $(git rev-parse --short HEAD), not ${INRO_COMMIT:0:7}." >&2
   exit 1
 fi
 git log --oneline -1
@@ -59,10 +59,10 @@ uv venv --allow-existing --python 3.12 "$VENV"
 uv pip install --python "$VENV/bin/python" -e ".[3d,dev]" torch==2.14.1 torchvision==0.29.1
 
 # Runtime settings, applied whenever the venv is activated (jobs and shells).
-if ! grep -q "# neurofield settings" "$VENV/bin/activate"; then
+if ! grep -q "# inro settings" "$VENV/bin/activate"; then
   cat >> "$VENV/bin/activate" <<'SETTINGS'
 
-# neurofield settings
+# inro settings
 export XDG_CACHE_HOME="$VSC_SCRATCH/cache"
 export TORCH_HOME="$VSC_SCRATCH/cache/torch"
 export TRITON_CACHE_DIR="$VSC_SCRATCH/cache/triton"

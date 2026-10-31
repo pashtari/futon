@@ -160,9 +160,9 @@ for the images, 32 min for the volumes.
 ```bash
 for task in image occupancy; do
   sbatch --clusters=accelgor --gpus-per-node=1 --cpus-per-task=8 \
-    --time=4:00:00 --chdir=$VSC_DATA/projects/neurofield \
-    --job-name=nf-bound-$task --output=logs/slurm/%x-%j.out --wrap \
-    "source $VSC_DATA/venvs/neurofield-env/bin/activate && python scripts/futon_bound.py --tasks $task"
+    --time=4:00:00 --chdir=$VSC_DATA/projects/inro \
+    --job-name=inro-bound-$task --output=logs/slurm/%x-%j.out --wrap \
+    "source $VSC_DATA/venvs/inro-env/bin/activate && python scripts/futon_bound.py --tasks $task"
 done
 ```
 
@@ -254,9 +254,9 @@ The whole report runs on the cluster too, where the data sits beside the runs:
 
 ```bash
 sbatch --clusters=accelgor --time=1:00:00 --gpus-per-node=1 --cpus-per-task=8 \
-  --chdir=$VSC_DATA/projects/neurofield --output=logs/slurm/%x-%j.out \
-  --job-name=nf-report --wrap \
-  "source $VSC_DATA/venvs/neurofield-env/bin/activate && python scripts/report_paper.py"
+  --chdir=$VSC_DATA/projects/inro --output=logs/slurm/%x-%j.out \
+  --job-name=inro-report --wrap \
+  "source $VSC_DATA/venvs/inro-env/bin/activate && python scripts/report_paper.py"
 ```
 
 To read the runs directly instead:

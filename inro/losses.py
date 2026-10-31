@@ -2,7 +2,7 @@
 
 Loss functions follow ``loss_fn(batch, model) -> (loss, metrics)``: they run
 the model on ``batch["input"]`` and return a scalar loss and logging values,
-kept as scalar tensors so that :func:`~neurofield.train` reads them only when
+kept as scalar tensors so that :func:`~inro.train` reads them only when
 it logs.
 """
 
@@ -157,7 +157,7 @@ def super_resolution_loss(
 ) -> tuple[Tensor, dict[str, Tensor]]:
     """Return the L1 loss through the degradation and the metrics ``l1`` and ``psnr``.
 
-    For the items of :class:`~neurofield.SuperResolutionDataset`: renders each
+    For the items of :class:`~inro.SuperResolutionDataset`: renders each
     block's footprint, downsamples it with the block's kernel rows along both
     axes, and matches the low-resolution pixels, with the mean absolute error
     usual in super-resolution. The PSNR is for targets in ``[-1, 1]``.

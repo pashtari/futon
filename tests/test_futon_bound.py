@@ -7,7 +7,7 @@ import pytest
 import torch
 from scipy.fft import dctn
 
-import neurofield as nf
+import inro
 
 DOUBLE = torch.float64
 
@@ -34,7 +34,7 @@ def features(basis, sizes):
 
 def futon(basis, rank, channels):
     """The paper's model: a CP combiner and a linear decoder, both without bias."""
-    return nf.FUTON(
+    return inro.FUTON(
         len(basis.num_components),
         channels,
         basis,
@@ -62,10 +62,10 @@ def test_upper_bound_is_attained_and_bounds_are_ordered(sizes, channels, basis):
     """A FUTON given the bound's factors has exactly the upper bound's error,
     and truncation <= lower <= upper, each nonincreasing in the rank."""
     name, components = basis
-    basis = nf.FUTON(len(sizes), channels, (name, {"num_components": components}),
-                     ("cp", {"rank": 1}), ("linear", {"bias": False})).encoding.basis.double()  # fmt: skip
+    basis = inro.FUTON(len(sizes), channels, (name, {"num_components": components}),
+                       ("cp", {"rank": 1}), ("linear", {"bias": False})).encoding.basis.double()  # fmt: skip
     target = signal(sizes, channels)
-    bound = nf.futon_bound(target, features(basis, sizes), ranks=[1, 2, 4, 8])
+    bound = inro.futon_bound(target, features(basis, sizes), ranks=[1, 2, 4, 8])
     for rank, upper in zip(bound.ranks, bound.upper):
         model = futon(basis, rank, channels)
         bound.initialize(model)
@@ -79,9 +79,9 @@ def test_upper_bound_is_attained_and_bounds_are_ordered(sizes, channels, basis):
 def test_every_futon_is_above_the_lower_bound():
     """Random and trained FUTONs alike stay above the lower bound of their rank."""
     sizes, channels, rank = (10, 8), 3, 3
-    basis = nf.SincBasis(2, num_components=[6, 5])
+    basis = inro.SincBasis(2, num_components=[6, 5])
     target = signal(sizes, channels, seed=1)
-    bound = nf.futon_bound(target, features(basis, sizes), ranks=rank)
+    bound = inro.futon_bound(target, features(basis, sizes), ranks=rank)
     torch.manual_seed(0)
     for _ in range(5):
         model = futon(basis, rank, channels)
@@ -106,7 +106,7 @@ def test_matrix_case_is_exact():
     target = signal(sizes, 1, seed=2)
     generator = torch.Generator().manual_seed(3)
     full = [torch.randn(n, n, dtype=DOUBLE, generator=generator) for n in sizes]
-    bound = nf.futon_bound(target, full, ranks=rank, sweeps=0)
+    bound = inro.futon_bound(target, full, ranks=rank, sweeps=0)
     values = torch.linalg.svdvals(target[..., 0])
     best = float(values[rank:].square().sum()) / math.prod(sizes)
     assert bound.truncation == pytest.approx(0, abs=1e-12)
@@ -124,8 +124,8 @@ def test_bounds_depend_only_on_the_span():
         for n, k in zip(sizes, (6, 5, 4))
     ]
     mixed = [phi @ torch.randn(phi.shape[1], phi.shape[1], dtype=DOUBLE, generator=generator) for phi in phis]  # fmt: skip
-    first = nf.futon_bound(target, phis, ranks=[2, 5], sweeps=5)
-    second = nf.futon_bound(target, mixed, ranks=[2, 5], sweeps=5)
+    first = inro.futon_bound(target, phis, ranks=[2, 5], sweeps=5)
+    second = inro.futon_bound(target, mixed, ranks=[2, 5], sweeps=5)
     assert first.truncation == pytest.approx(second.truncation, rel=1e-9)
     assert torch.allclose(first.lower, second.lower, rtol=1e-8)
     assert torch.allclose(first.upper, second.upper, rtol=1e-6)
@@ -137,7 +137,7 @@ def test_redundant_features_span_the_grid():
     target = signal(sizes, channels, seed=6)
     generator = torch.Generator().manual_seed(7)
     phis = [torch.randn(n, n + 3, dtype=DOUBLE, generator=generator) for n in sizes]
-    bound = nf.futon_bound(target, phis, ranks=[1, 10])
+    bound = inro.futon_bound(target, phis, ranks=[1, 10])
     assert bound.truncation == pytest.approx(0, abs=1e-12)
     assert float(bound.upper[-1]) == pytest.approx(0, abs=1e-12)
     assert [u.shape for u in bound.factors[0][0]] == [(9, 1), (8, 1)]
@@ -157,7 +157,7 @@ def test_cosine_coefficients_are_a_dct_block():
         phis.append(
             scale * torch.cos(math.pi * torch.arange(k, dtype=DOUBLE) * x[:, None])
         )
-    bound = nf.futon_bound(target, phis, ranks=1)
+    bound = inro.futon_bound(target, phis, ranks=1)
     coefficients = dctn(target[..., 0].numpy(), type=2, norm="ortho")
     outside = coefficients.copy()
     outside[: keep[0], : keep[1]] = 0
@@ -167,8 +167,8 @@ def test_cosine_coefficients_are_a_dct_block():
 
 
 def test_initialize_rejects_other_models():
-    basis = nf.SincBasis(2, num_components=[4, 4])
-    bound = nf.futon_bound(signal((6, 6), 1), features(basis, (6, 6)), ranks=2)
-    model = nf.FUTON(2, 1, basis, ("cp", {"rank": 2}), "linear")  # decoder bias
+    basis = inro.SincBasis(2, num_components=[4, 4])
+    bound = inro.futon_bound(signal((6, 6), 1), features(basis, (6, 6)), ranks=2)
+    model = inro.FUTON(2, 1, basis, ("cp", {"rank": 2}), "linear")  # decoder bias
     with pytest.raises(ValueError, match="without bias"):
         bound.initialize(model)

@@ -2,6 +2,6 @@
 
 What the loop does, step by step, is on the [neural fields page](../concepts/neural-fields.md#training).
 
-::: neurofield.training
+::: inro.training
 
-::: neurofield.evaluation
+::: inro.evaluation

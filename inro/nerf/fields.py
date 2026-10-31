@@ -135,7 +135,7 @@ class RadianceField(nn.Module):
     sigmoid, so both networks should have no output activation.
 
     Args:
-        density_net: :data:`~neurofield.utils.ModuleSpec` for a spatial network.
+        density_net: :data:`~inro.utils.ModuleSpec` for a spatial network.
             Classes and ``(class, params)`` pairs receive ``in_features=3`` and
             ``out_features=1 + geometry_features``. Instances are used as is;
             string registry keys are unsupported. Inputs lie in ``[-1, 1]^3``.
@@ -162,7 +162,7 @@ class RadianceField(nn.Module):
     Example::
 
         field = RadianceField(
-            (nf.InstantNGP, {"log2_hashmap_size": 14}),
+            (inro.InstantNGP, {"log2_hashmap_size": 14}),
             ("mlp", {"hidden_features": 64, "hidden_layers": 2}),
         )
         rgb, sigma = field(points, directions)

@@ -6,17 +6,17 @@ import numpy as np
 import pytest
 import torch
 
-import neurofield as nf
+import inro
 
 
 @pytest.mark.parametrize("chunk_size", [None, 0, -1, 1, 7, 100])
 def test_chunked_inference_preserves_shape_and_disables_gradients(chunk_size):
     torch.manual_seed(0)
-    model = nf.MLP(2, 3, hidden_features=8)
+    model = inro.MLP(2, 3, hidden_features=8)
     coordinates = torch.rand(3, 5, 2, requires_grad=True)
     expected = model(coordinates).detach()
 
-    output = nf.chunked_inference(
+    output = inro.chunked_inference(
         model, coordinates, chunk_size=chunk_size, device="cpu"
     )
 
@@ -32,14 +32,14 @@ def test_chunked_inference_preserves_shape_and_disables_gradients(chunk_size):
 )
 def test_quantized_parameters_round_trip_and_remain_trainable(quant_max, dtype):
     torch.manual_seed(0)
-    model = nf.MLP(2, 3, hidden_features=8)
+    model = inro.MLP(2, 3, hidden_features=8)
     restored = copy.deepcopy(model)
     coordinates = torch.rand(5, 2)
 
-    quantized, codes = nf.uniform_quantize(model, quant_max)
+    quantized, codes = inro.uniform_quantize(model, quant_max)
     assert quantized is model
     assert (
-        nf.uniform_dequantize(restored, nf.decode_dict(nf.encode_dict(codes)))
+        inro.uniform_dequantize(restored, inro.decode_dict(inro.encode_dict(codes)))
         is restored
     )
     for entry in codes.values():
@@ -57,9 +57,9 @@ def test_quantized_parameters_round_trip_and_remain_trainable(quant_max, dtype):
 @pytest.mark.parametrize(
     ("dataset", "shape"),
     [
-        (nf.ImageCoordinateDataset, (3, 4, 5)),
-        (nf.ImageCoordinateDataset, (1, 4, 5)),
-        (nf.OccupancyCoordinateDataset, (1, 4, 5, 6)),
+        (inro.ImageCoordinateDataset, (3, 4, 5)),
+        (inro.ImageCoordinateDataset, (1, 4, 5)),
+        (inro.OccupancyCoordinateDataset, (1, 4, 5, 6)),
     ],
 )
 def test_targets_are_laid_out_as_batches(dataset, shape):
@@ -74,10 +74,10 @@ def test_targets_are_laid_out_as_batches(dataset, shape):
 def test_image_training_evaluation_and_checkpoint(tmp_path, quantize):
     torch.manual_seed(0)
     image = torch.arange(3 * 8 * 8, dtype=torch.uint8).reshape(3, 8, 8)
-    dataset = nf.ImageCoordinateDataset(image, item_id="image")
-    model = nf.MLP(2, 3, hidden_features=8)
+    dataset = inro.ImageCoordinateDataset(image, item_id="image")
+    model = inro.MLP(2, 3, hidden_features=8)
 
-    results = nf.train(
+    results = inro.train(
         model,
         dataset,
         num_steps=6,
@@ -86,7 +86,7 @@ def test_image_training_evaluation_and_checkpoint(tmp_path, quantize):
         quant_interval=2,
         eval_interval=3,
         log_interval=1,
-        metrics={"psnr": nf.psnr},
+        metrics={"psnr": inro.psnr},
         chunk_size=7,
         log_dir=tmp_path,
         device="cpu",
@@ -101,13 +101,13 @@ def test_image_training_evaluation_and_checkpoint(tmp_path, quantize):
     assert np.isfinite(history[-1]["eval"]["psnr"])
     assert (tmp_path / "image_reconstructed.png").exists()
 
-    restored = nf.MLP(2, 3, hidden_features=8)
+    restored = inro.MLP(2, 3, hidden_features=8)
     restored.load_state_dict(torch.load(tmp_path / "checkpoint.pt", weights_only=True))
     torch.testing.assert_close(
         restored(dataset.input), model(dataset.input), rtol=0, atol=0
     )
     if quantize:
-        nf.uniform_dequantize(restored, results["model_dict"])
+        inro.uniform_dequantize(restored, results["model_dict"])
         torch.testing.assert_close(
             restored(dataset.input), model(dataset.input), rtol=0, atol=0
         )
@@ -128,8 +128,8 @@ def test_image_training_evaluation_and_checkpoint(tmp_path, quantize):
 def test_dip_training_keeps_data_on_device(device):
     torch.manual_seed(0)
     image = torch.randint(256, (3, 8, 8), dtype=torch.uint8)
-    dataset = nf.DIPImageDataset(image, noise_shape=(4, 16, 16))
-    model = nf.DIPSkip(
+    dataset = inro.DIPImageDataset(image, noise_shape=(4, 16, 16))
+    model = inro.DIPSkip(
         4, 3, down_channels=[4, 4], up_channels=[4, 4], skip_channels=[2, 2]
     )
 
@@ -144,7 +144,7 @@ def test_dip_training_keeps_data_on_device(device):
         mse = torch.nn.functional.mse_loss(output, target)
         return mse, {"mse": mse.item()}
 
-    results = nf.train(
+    results = inro.train(
         model,
         dataset,
         loss_fn=loss_fn,
@@ -163,16 +163,16 @@ def test_dip_training_keeps_data_on_device(device):
 def test_training_prints_a_line_per_record(capsys):
     torch.manual_seed(0)
     image = torch.arange(3 * 8 * 8, dtype=torch.uint8).reshape(3, 8, 8)
-    dataset = nf.ImageCoordinateDataset(image, item_id="image")
-    model = nf.MLP(2, 3, hidden_features=8)
+    dataset = inro.ImageCoordinateDataset(image, item_id="image")
+    model = inro.MLP(2, 3, hidden_features=8)
 
-    nf.train(
+    inro.train(
         model,
         dataset,
         num_steps=6,
         log_interval=2,
         eval_interval=3,
-        metrics={"psnr": nf.psnr},
+        metrics={"psnr": inro.psnr},
         device="cpu",
     )
 
@@ -204,10 +204,10 @@ def test_training_takes_one_batch_per_step():
 
     torch.manual_seed(0)
     dataset = Items()
-    model = nf.MLP(2, 3, hidden_features=8)
+    model = inro.MLP(2, 3, hidden_features=8)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
 
-    results = nf.train(
+    results = inro.train(
         model,
         dataset,
         num_steps=7,
@@ -227,19 +227,19 @@ def test_arithmetic_coding_preserves_bitstream():
     # This stream exercises unequal alphabets and deferred bits.
     pmfs = [[0.7, 0.3], [0.1, 0.2, 0.7], [0.4, 0.6], [0.5, 0.5]]
     symbols = [0, 2, 1, 0]
-    encoded = nf.compression.encode_arithmetic(symbols, pmfs)
+    encoded = inro.compression.encode_arithmetic(symbols, pmfs)
     assert encoded == bytes.fromhex("0000000470")
     np.testing.assert_array_equal(
-        nf.compression.decode_arithmetic(encoded, pmfs), symbols
+        inro.compression.decode_arithmetic(encoded, pmfs), symbols
     )
 
 
 def test_lossless_image_compression_round_trip():
     image = torch.arange(3 * 8 * 8, dtype=torch.uint8).reshape(3, 8, 8)
-    results = nf.compression.evaluate_compression(
+    results = inro.compression.evaluate_compression(
         image,
-        nf.compression.encode_pil,
-        nf.compression.decode_pil,
+        inro.compression.encode_pil,
+        inro.compression.decode_pil,
         format="PNG",
         return_reconstruction=True,
     )

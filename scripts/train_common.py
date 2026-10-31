@@ -36,7 +36,7 @@ from typing import Any
 import torch
 import yaml
 
-import neurofield as nf
+import inro
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -47,11 +47,11 @@ PrepareFn = Callable[[dict, Path], dict[str, Any]]
 
 
 def build(model: dict[str, Any]) -> tuple[type[torch.nn.Module], dict[str, Any]]:
-    """Return a model's ``neurofield`` class and constructor arguments."""
+    """Return a model's ``inro`` class and constructor arguments."""
     kwargs = dict(model["kwargs"])
     if "output_activation" in kwargs:
         kwargs["output_activation"] = getattr(torch, kwargs["output_activation"])
-    return getattr(nf, model["class"]), kwargs
+    return getattr(inro, model["class"]), kwargs
 
 
 def resolve(value: Any, **sizes: int) -> Any:
@@ -173,7 +173,7 @@ def fresh(
 ) -> dict[str, Any] | None:
     """FreSh (Kania et al., ICLR 2025) for a model whose config holds ``fresh``.
 
-    ``model["fresh"]`` holds arguments of :func:`neurofield.fresh_select`, and
+    ``model["fresh"]`` holds arguments of :func:`inro.fresh_select`, and
     ``render(kwargs)`` builds an untrained model from constructor arguments
     and returns its output on the signal's grid. Sets ``kwargs["first_omega"]``
     to the choice and reseeds with ``seed``, so that the model's own
@@ -184,7 +184,7 @@ def fresh(
     if "fresh" not in model:
         return None
     start = time.perf_counter()
-    omega, scores = nf.fresh_select(
+    omega, scores = inro.fresh_select(
         targets,
         lambda omega: render({**kwargs, "first_omega": omega}),
         **model["fresh"],
@@ -219,7 +219,9 @@ def provenance(device: torch.device) -> dict[str, str]:
 
 def on_grid(model: torch.nn.Module, dataset: Any, device: torch.device) -> torch.Tensor:
     """A model's output at every point of a dataset's grid, shaped like its target."""
-    output = nf.chunked_inference(model, dataset.input, chunk_size=2**18, device=device)
+    output = inro.chunked_inference(
+        model, dataset.input, chunk_size=2**18, device=device
+    )
     return output.reshape(dataset.target.shape)
 
 
@@ -229,7 +231,7 @@ def compile_model(model: torch.nn.Module) -> None:
     A radiance field's two networks are compiled instead, with dynamic shapes,
     as the samples a batch of rays keeps change from step to step.
     """
-    if isinstance(model, nf.nerf.RadianceField):
+    if isinstance(model, inro.nerf.RadianceField):
         for network in (model.density_net, model.color_net):
             network.compile(dynamic=True)
     else:
@@ -245,9 +247,9 @@ def warm_up(
     land in the training time of a run that trains alone in its process.
     With ``compile``, the model is first compiled in place (see
     :func:`compile_model`), and this pass compiles it; the batch has the
-    leading dimension that ``nf.train``'s loader adds, so that training
+    leading dimension that ``inro.train``'s loader adds, so that training
     reuses the graph. The pass steps no optimizer and leaves the parameters
-    as they were; ``nf.train`` reseeds before it draws its own batches.
+    as they were; ``inro.train`` reseeds before it draws its own batches.
     """
     model.to(device).train()
     if compile:
@@ -268,8 +270,8 @@ def warm_up_field(
     field.to(device).train()
     if compile:
         compile_model(field)
-    renderer = nf.nerf.create_renderer(
-        backend="nerfacc" if nf.nerf.is_nerfacc_available() else "pytorch",
+    renderer = inro.nerf.create_renderer(
+        backend="nerfacc" if inro.nerf.is_nerfacc_available() else "pytorch",
         aabb=dataset.aabb,
         near=dataset.near,
         far=dataset.far,

@@ -1,3 +1,3 @@
 # Quantization
 
-::: neurofield.quantization
+::: inro.quantization

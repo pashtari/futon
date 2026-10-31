@@ -4,14 +4,14 @@ Every model in configs/super_resolution.yaml sees only the low-resolution (LR)
 image and is scored against the high-resolution (HR) original. The benchmark's
 degradation, antialiased bicubic downsampling (MATLAB's imresize), is linear
 and separable: one matrix per axis describes it exactly, borders included
-(nf.resize_matrix), and an LR pixel needs the field only under its kernel.
+(inro.resize_matrix), and an LR pixel needs the field only under its kernel.
 Each step renders the HR pixels under random blocks of LR pixels
-(nf.SuperResolutionDataset), downsamples them with those matrices and matches
-the LR pixels (nf.super_resolution_loss, L1). DIP renders the whole image from
+(inro.SuperResolutionDataset), downsamples them with those matrices and matches
+the LR pixels (inro.super_resolution_loss, L1). DIP renders the whole image from
 fixed noise, and the interpolations upsample the LR image with PIL, whose
 bicubic filter is MATLAB's. As is standard, PSNR and SSIM are computed on luma
 (BT.601 Y) and LPIPS on RGB, all without a 4-pixel border
-(nf.super_resolution_metrics).
+(inro.super_resolution_metrics).
 
 Usage:
     python scripts/train_super_resolution.py
@@ -41,7 +41,7 @@ from train_common import (
     warm_up,
 )
 
-import neurofield as nf
+import inro
 
 DATA = sorted((ROOT / "data" / "DIV2K" / "DIV2K_valid_HR").glob("*.png"))
 INTERPOLATIONS = {
@@ -62,7 +62,7 @@ def prior_loss(
 ) -> tuple[Tensor, dict]:
     """Render the HR image from noise, downsample it, and match the LR image:
     the mean absolute error, with the fit's PSNR for the training log."""
-    output = nf.downsample(model(batch["input"]).movedim(1, -1), kernels)
+    output = inro.downsample(model(batch["input"]).movedim(1, -1), kernels)
     target = batch["target"].movedim(1, -1)
     loss = F.l1_loss(output, target)
     mse = F.mse_loss(output.detach(), target)
@@ -73,7 +73,7 @@ def interpolate(
     model: dict, path: Path, scale: int, device: torch.device
 ) -> dict[str, Any]:
     """Upsample the LR image with PIL, scored like the trained models."""
-    original = nf.ImageCoordinateDataset.load(path, mode="RGB")
+    original = inro.ImageCoordinateDataset.load(path, mode="RGB")
     with Image.open(low_resolution(path, scale)) as image:
         start = time.perf_counter()
         upsampled = image.convert("RGB").resize(
@@ -85,7 +85,7 @@ def interpolate(
     evaluation = {"id": path.stem, "elapsed": duration, "duration": duration}
     evaluation |= {
         name: metric(reconstruction, original)
-        for name, metric in nf.super_resolution_metrics(scale, device).items()
+        for name, metric in inro.super_resolution_metrics(scale, device).items()
     }
     history = [{"step": 0, "elapsed": 0.0, "duration": 0.0, "eval": evaluation}]
     return record({"config": {"num_params": 0}, "history": history}, model, evaluation)
@@ -105,27 +105,27 @@ def fit(
         return interpolate(model, path, scale, device)
     model_class, kwargs = build(model)
     train = {**config["train"], **model["train"]}
-    eval_dataset = nf.ImageCoordinateDataset(path)
+    eval_dataset = inro.ImageCoordinateDataset(path)
     height, width = eval_dataset.grid_size
     kernels = [
-        nf.resize_matrix(height, height // scale, device),
-        nf.resize_matrix(width, width // scale, device),
+        inro.resize_matrix(height, height // scale, device),
+        inro.resize_matrix(width, width // scale, device),
     ]
     search = None
-    if model_class is nf.DIPSkip:
+    if model_class is inro.DIPSkip:
         network = model_class(**kwargs)
-        eval_dataset = nf.DIPImageDataset(
+        eval_dataset = inro.DIPImageDataset(
             path, noise_channels=kwargs["in_channels"], reg_noise_std=0
         )
         # The same seeded noise, at the HR size, perturbed at each step.
-        train_dataset = nf.DIPImageDataset(
+        train_dataset = inro.DIPImageDataset(
             low_resolution(path, scale), noise_shape=eval_dataset.input.shape
         )
         loss_fn = partial(prior_loss, kernels=kernels)
         train["chunk_size"] = None  # a CNN renders the whole image at once
     else:
         # FreSh sees what the field is fitted to: the low-resolution image.
-        observed = nf.ImageCoordinateDataset(low_resolution(path, scale))
+        observed = inro.ImageCoordinateDataset(low_resolution(path, scale))
         search = fresh(
             model,
             kwargs,
@@ -134,20 +134,20 @@ def fit(
             train["seed"],
         )
         network = model_class(in_features=2, out_features=3, **kwargs)
-        train_dataset = nf.SuperResolutionDataset(
+        train_dataset = inro.SuperResolutionDataset(
             low_resolution(path, scale),
             kernels,
             config["data"]["num_blocks"],
             config["data"]["block_size"],
         )
-        loss_fn = nf.super_resolution_loss
+        loss_fn = inro.super_resolution_loss
     warm_up(network, train_dataset, device, config["compile"])
-    res = nf.train(
+    res = inro.train(
         network,
         train_dataset,
         eval_dataset,
         loss_fn=loss_fn,
-        metrics=nf.super_resolution_metrics(scale, device),
+        metrics=inro.super_resolution_metrics(scale, device),
         # Megapixel reconstructions would crowd the logs; the report renders
         # its examples from checkpoint.pt instead.
         save_reconstruction=False,

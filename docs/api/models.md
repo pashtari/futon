@@ -1,67 +1,67 @@
-# neurofield.models
+# inro.models
 
-The architectures of the [model zoo](../concepts/models.md), all re-exported at the top level (`nf.SIREN`, `nf.InstantNGP`, ...). FUTON has [its own page](futon.md).
+The architectures of the [model zoo](../concepts/models.md), all re-exported at the top level (`inro.SIREN`, `inro.InstantNGP`, ...). FUTON has [its own page](futon.md).
 
 ## MLP
 
-::: neurofield.models.mlp
+::: inro.models.mlp
 
 ## Random Fourier features
 
-::: neurofield.models.rff
+::: inro.models.rff
 
 ## Positional encoding
 
-::: neurofield.models.pemlp
+::: inro.models.pemlp
 
 ## SIREN
 
-::: neurofield.models.siren
+::: inro.models.siren
 
 ## FreSh
 
-::: neurofield.models.fresh
+::: inro.models.fresh
 
 ## Gauss
 
-::: neurofield.models.gauss
+::: inro.models.gauss
 
 ## WIRE
 
-::: neurofield.models.wire
+::: inro.models.wire
 
 ## FINER
 
-::: neurofield.models.finer
+::: inro.models.finer
 
 ## Multiplicative filter networks
 
-::: neurofield.models.mfn
+::: inro.models.mfn
 
 ## Instant-NGP
 
-::: neurofield.models.instant_ngp
+::: inro.models.instant_ngp
 
 ## Feature grids
 
-::: neurofield.models.multivector
+::: inro.models.multivector
 
 ## GA-Planes
 
-::: neurofield.models.gaplanes
+::: inro.models.gaplanes
 
 ## TensoRF
 
-::: neurofield.models.tensorf
+::: inro.models.tensorf
 
 ## F-INR
 
-::: neurofield.models.finr
+::: inro.models.finr
 
 ## Grid INR
 
-::: neurofield.models.grid_inr
+::: inro.models.grid_inr
 
 ## Deep Image Prior
 
-::: neurofield.models.dip
+::: inro.models.dip

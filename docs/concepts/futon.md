@@ -45,7 +45,7 @@ A point costs $O(R \sum_c K_c)$, linear in the spectral resolution and in the nu
 On a grid the projections $\boldsymbol{U}^{(c)\top} \boldsymbol{\varphi}(x_c)$ are shared, since each depends on one coordinate alone. When every axis of a batch repeats its coordinates, as an image's pixels or any batch drawn from them do, `FUTON` evaluates and projects each distinct coordinate once and every point gathers its rows: $N$ points with $S_c$ distinct coordinates per axis cost $O(R \sum_c S_c K_c + NCR)$ instead of $O(NR \sum_c K_c)$, for the same function and gradients. Every basis does this, and a local basis's tables hold only its $2a$ taps per coordinate, $O(2aR \sum_c S_c + NCR)$; scattered points, such as a radiance field's samples, are evaluated point by point unless the basis declares a grid, and coordinates that need gradients always are. A basis given `grid_size`, the sizes of the grid every input lies on, such as a coordinate dataset's `grid_size`, evaluates its features on that grid once, when it is built, and finds each point's row by rounding instead of by searching every batch for its distinct coordinates, which costs a sort and a GPU synchronization per axis and a break in the compiled graph. A point off the declared grid reads its nearest grid point's row, so for scattered inputs a grid trades exactness for speed: the radiance-field benchmark rounds its samples to 2048 points per axis, finer than the ray-marching step, which keeps a trained field's PSNR within a few hundredths of a decibel and renders and trains it in a fraction of the memory.
 
 ```python
-model = nf.FUTON(
+model = inro.FUTON(
     in_features=3,
     out_features=1,
     basis=("sinc", {"num_components": 128}),
@@ -55,7 +55,7 @@ model = nf.FUTON(
 )
 ```
 
-Each stage accepts a registry key, a `(key, kwargs)` pair, a module class, or a module instance, resolved by `nf.build_module`. The basis and the combiner make up `nf.FUTONEncoding`, which builds the basis as `basis(in_features, **kwargs)` and the combiner as `combiner(basis.num_components, **kwargs)`; `FUTON` builds the decoder as `decoder(encoding.out_features, out_features, **kwargs)`. Custom stages only need to expose `num_components` (a basis) or `out_features` (a combiner); see [custom components](../tutorials/custom-components.md).
+Each stage accepts a registry key, a `(key, kwargs)` pair, a module class, or a module instance, resolved by `inro.build_module`. The basis and the combiner make up `inro.FUTONEncoding`, which builds the basis as `basis(in_features, **kwargs)` and the combiner as `combiner(basis.num_components, **kwargs)`; `FUTON` builds the decoder as `decoder(encoding.out_features, out_features, **kwargs)`. Custom stages only need to expose `num_components` (a basis) or `out_features` (a combiner); see [custom components](../tutorials/custom-components.md).
 
 ## Bases
 
@@ -107,7 +107,7 @@ The paper proves that FUTON with the cosine basis is a universal approximator. I
 ## Decoders
 
 - **`linear`** is `nn.Linear(R, D)`: $\hat{s}(\boldsymbol{x}) = \boldsymbol{V} \boldsymbol{g}(\boldsymbol{x}) + \boldsymbol{b}$. With it, FUTON is *exactly* a rank-$R$ CP model of the signal in the chosen basis, Eq. (9) of the paper, and its capacity is the capacity of that tensor format.
-- **`mlp`** is `nf.MLP(R, D, hidden_layers=h)`, a ReLU network whose hidden width defaults to $R$. The experiments use one hidden layer. The nonlinearity lets the model represent more than a rank-$R$ tensor at the same size: on images it is worth about 8 dB over a linear decoder of the same size ([decoder ablation](../experiments/ablations.md#decoder)).
+- **`mlp`** is `inro.MLP(R, D, hidden_layers=h)`, a ReLU network whose hidden width defaults to $R$. The experiments use one hidden layer. The nonlinearity lets the model represent more than a rank-$R$ tensor at the same size: on images it is worth about 8 dB over a linear decoder of the same size ([decoder ablation](../experiments/ablations.md#decoder)).
 
 `output_activation` is applied last; the benchmark models use `torch.tanh` to match targets in $[-1, 1]$. Inside a `RadianceField`, the density network must have no output activation, since the field applies its own.
 

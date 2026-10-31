@@ -20,7 +20,7 @@ The truncation is computed exactly. The best CP misfit is bracketed: from below 
 | Ceiling | no FUTON of resolution $K$ and rank $R$ exceeds it |
 | Certified | the *certified FUTON*, built from the samples without training, reaches it exactly |
 
-The best FUTON of that size lies between the certified PSNR and the ceiling. <!-- summary -->On the benchmark's Kodak images and occupancy volumes, no trained FUTON passes its ceiling beyond float32 rounding, in any of 522 settings, and the certified FUTON is never more than 0.04 dB behind Adam's.<!-- /summary --> `nf.futon_bound` computes all three numbers and the certified FUTON from a sampled signal.
+The best FUTON of that size lies between the certified PSNR and the ceiling. <!-- summary -->On the benchmark's Kodak images and occupancy volumes, no trained FUTON passes its ceiling beyond float32 rounding, in any of 522 settings, and the certified FUTON is never more than 0.04 dB behind Adam's.<!-- /summary --> `inro.futon_bound` computes all three numbers and the certified FUTON from a sampled signal.
 
 ## Setting
 
@@ -182,15 +182,15 @@ Dividing by $D$ turns the outputs into mean squared errors: every FUTON has an e
 
 ```python
 import torch
-import neurofield as nf
+import inro
 
-data = nf.ImageCoordinateDataset("data/Kodak/kodim19.png")
+data = inro.ImageCoordinateDataset("data/Kodak/kodim19.png")
 H, W, _ = data.target.shape
-model = nf.FUTON(2, 3, ("cosine", {"num_components": [H // 2, W // 2]}),
-                 ("cp", {"rank": 64}), ("linear", {"bias": False}))
+model = inro.FUTON(2, 3, ("cosine", {"num_components": [H // 2, W // 2]}),
+                   ("cp", {"rank": 64}), ("linear", {"bias": False}))
 features = [model.encoding.basis.axis_features(torch.linspace(-1, 1, n), c)
             for c, n in enumerate((H, W))]
-bound = nf.futon_bound(data.target, features, ranks=[32, 64, 256])
+bound = inro.futon_bound(data.target, features, ranks=[32, 64, 256])
 bound.truncation, bound.lower, bound.upper   # mean squared errors
 bound.initialize(model)                      # the certified FUTON, error bound.upper[1]
 ```
@@ -199,7 +199,7 @@ bound.initialize(model)                      # the certified FUTON, error bound.
 
 The experiment asks three things of the bound: that it holds, that it is tight enough to stand in for training, and that it costs little enough to be worth computing first. Every number below is a dataset's: a mean, a count or a quantile over its signals.
 
-**Setup.** The 24 Kodak images ($C = 2$, $D = 3$, $768 \times 512$ or $512 \times 768$ pixels in $[-1, 1]$) and the five Stanford occupancy volumes of the benchmark ($C = 3$, $D = 1$, occupancy $\pm 1$ on grids of 78 to 231 voxels per side), in the paper's cosine basis at $K_c = \kappa N_c$ for the relative bandwidths $\kappa \in \{1/8, 1/4, 1/2\}$, with $R \in \{32, 64, 128, 256, 512, 1024\}$ on every signal, around the ranks of the benchmark's FUTON (cosine), 280 on every image and 360 to 475 on the volumes: 522 settings, and for the cost alone also at $K = N$ and $K = 2N$. For each, `nf.futon_bound` gives the truncation, the ceiling and the certified FUTON $\hat{\boldsymbol{\theta}}$ in its ALS form, and times its SVD form; the same FUTON is trained with Adam under the benchmark's protocol: 1000 steps, each on the whole image for images and on $2^{18}$ random voxels for volumes, at the benchmark's learning rate for FUTON (cosine), $10^{-1}$ on images and $3 \cdot 10^{-2}$ on volumes, annealed to a hundredth, one seed. Errors are mean squared errors on the whole grid, and PSNR is $10 \log_{10}(4 / \mathrm{MSE})$ for signals in $[-1, 1]$. Everything ran on NVIDIA A100s, each dataset's bounds in one job, so they are timed alike, with the Adam runs at ranks up to 256 and $K$ up to $N$ from an earlier run of the same study at the same settings; `python scripts/futon_bound.py` reproduces it, and `python scripts/report_paper.py --tasks bound` writes the figures and tables to `results/bound/`.
+**Setup.** The 24 Kodak images ($C = 2$, $D = 3$, $768 \times 512$ or $512 \times 768$ pixels in $[-1, 1]$) and the five Stanford occupancy volumes of the benchmark ($C = 3$, $D = 1$, occupancy $\pm 1$ on grids of 78 to 231 voxels per side), in the paper's cosine basis at $K_c = \kappa N_c$ for the relative bandwidths $\kappa \in \{1/8, 1/4, 1/2\}$, with $R \in \{32, 64, 128, 256, 512, 1024\}$ on every signal, around the ranks of the benchmark's FUTON (cosine), 280 on every image and 360 to 475 on the volumes: 522 settings, and for the cost alone also at $K = N$ and $K = 2N$. For each, `inro.futon_bound` gives the truncation, the ceiling and the certified FUTON $\hat{\boldsymbol{\theta}}$ in its ALS form, and times its SVD form; the same FUTON is trained with Adam under the benchmark's protocol: 1000 steps, each on the whole image for images and on $2^{18}$ random voxels for volumes, at the benchmark's learning rate for FUTON (cosine), $10^{-1}$ on images and $3 \cdot 10^{-2}$ on volumes, annealed to a hundredth, one seed. Errors are mean squared errors on the whole grid, and PSNR is $10 \log_{10}(4 / \mathrm{MSE})$ for signals in $[-1, 1]$. Everything ran on NVIDIA A100s, each dataset's bounds in one job, so they are timed alike, with the Adam runs at ranks up to 256 and $K$ up to $N$ from an earlier run of the same study at the same settings; `python scripts/futon_bound.py` reproduces it, and `python scripts/report_paper.py --tasks bound` writes the figures and tables to `results/bound/`.
 
 **The bounds hold.** No trained FUTON passes its ceiling in any of the 522 settings. In 20 of them, all on Kodak at full rank, $R \ge 512$ at $N/8$ and $R = 1024$ at $N/4$, where the ceiling is the truncation itself and the full-rank FUTON reaches it, Adam's error lies below it by a relative $3 \cdot 10^{-8}$ at most, the float32 rounding of its forward pass. Every certified FUTON, evaluated by its own forward pass in float32, has the error of its upper bound to within a relative $1.5 \cdot 10^{-7}$, and to within $7.2 \cdot 10^{-6}$ at $K = N$ and $2N$, where its float32 sums run over up to 1536 components. The tests check the same identities in float64 to $10^{-9}$, as well as the Eckart–Young case, the invariance within a span and a DCT cross-check.
 
@@ -219,7 +219,7 @@ The experiment asks three things of the bound: that it holds, that it is tight e
   <figcaption>Adam's error at K = N/2, in percent, as the theorem splits it, averaged over the 24 Kodak images (left) and the five occupancy volumes (right), per rank, from 32 to 1024: the truncation, which K forces; the part of the CP misfit up to the ceiling, which R forces; the part from the ceiling to the certified FUTON, which the bound leaves open; and the rest, which training leaves.</figcaption>
 </figure>
 
-**Is training the limit?** On every signal at $K = N/2$ and the benchmark's rank $R$, 280 on Kodak and 360 to 475 on the volumes, Adam for five times the steps and alternating least squares on the whole grid (`nf.LeastSquares` without momentum, from a random start), against the certified FUTON in its ALS form and the ceiling; means over each dataset, ± one within-signal standard error:
+**Is training the limit?** On every signal at $K = N/2$ and the benchmark's rank $R$, 280 on Kodak and 360 to 475 on the volumes, Adam for five times the steps and alternating least squares on the whole grid (`inro.LeastSquares` without momentum, from a random start), against the certified FUTON in its ALS form and the ceiling; means over each dataset, ± one within-signal standard error:
 
 | Dataset | R | Certified (ALS) | Ceiling | Adam, 1000 steps | Adam, 5000 steps | ALS, random start, 500 sweeps | ALS, random start, 2000 sweeps |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |

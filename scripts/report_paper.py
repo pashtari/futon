@@ -126,7 +126,7 @@ from futon_bound import LONGER, STEPS, SWEEPS, of_basis, psnr
 from train_common import ROOT, build, fill_rank, merge, resolve
 from train_super_resolution import INTERPOLATIONS, low_resolution
 
-import neurofield as nf
+import inro
 
 # Header, whether larger is better, the factor the stored value is shown in,
 # and the decimals of a table entry.
@@ -559,7 +559,9 @@ def points(task: str, signal: str) -> int:
     path = signal_path(task, signal)
     if task == "occupancy":
         data = yaml.safe_load((ROOT / "configs" / "occupancy.yaml").read_text())
-        return math.prod(nf.OccupancyCoordinateDataset(path, **data["data"]).grid_size)
+        return math.prod(
+            inro.OccupancyCoordinateDataset(path, **data["data"]).grid_size
+        )
     width, height = Image.open(path).size
     return width * height
 
@@ -1176,11 +1178,11 @@ def time_to_target(curve: pd.DataFrame) -> pd.Series:
 
 def render_image(signal: str, runs: list[dict], directory: Path, device) -> None:
     """The image itself, and each model's reconstruction of it."""
-    dataset = nf.ImageCoordinateDataset(ROOT / SIGNALS["image"].format(signal))
+    dataset = inro.ImageCoordinateDataset(ROOT / SIGNALS["image"].format(signal))
     dataset.save(dataset.original, directory / "truth")
     for run in runs:
         model = load_model(run, 2, 3, device)
-        output = nf.chunked_inference(model, dataset.input, device=device)
+        output = inro.chunked_inference(model, dataset.input, device=device)
         dataset.save(dataset.postprocess(output.cpu()), directory / run["model"])
 
 
@@ -1191,7 +1193,7 @@ def render_occupancy(signal: str, runs: list[dict], directory: Path, device) -> 
     differs from the one it was trained on would rebuild silently wrong.
     """
     resolution = model_config(runs[0])["data"]["resolution"]
-    dataset = nf.OccupancyCoordinateDataset(
+    dataset = inro.OccupancyCoordinateDataset(
         ROOT / SIGNALS["occupancy"].format(signal),
         resolution=resolution,
         item_id=signal,
@@ -1204,11 +1206,11 @@ def render_occupancy(signal: str, runs: list[dict], directory: Path, device) -> 
         sizes = dict(zip("DHW", dataset.grid_size))
         setup = fill_rank(resolve(run["setup"], **sizes), outputs=1)
         model = load_model({**run, "setup": setup}, 3, 1, device)
-        output = nf.chunked_inference(
+        output = inro.chunked_inference(
             model, dataset.input, chunk_size=512**2, device=device
         )
         volume = dataset.postprocess(output.cpu())
-        rebuilt = scale("iou", nf.iou(volume, dataset.original))
+        rebuilt = scale("iou", inro.iou(volume, dataset.original))
         recorded = scale("iou", run["metrics"]["iou"])
         if abs(rebuilt - recorded) > 0.5:
             raise SystemExit(
@@ -1227,13 +1229,13 @@ def field_and_renderer(run: dict, config: dict, dataset, device):
     faint density a model leaves in empty space, which the grid pruned when
     the run was scored, would be sampled everywhere and rendered as fog.
     """
-    field = nf.nerf.RadianceField(
+    field = inro.nerf.RadianceField(
         density_net=rebuild(run), aabb=dataset.aabb, **config["field"]
     )
     state = torch.load(run["directory"] / "checkpoint.pt", map_location="cpu")
     field.load_state_dict(state)
-    renderer = nf.nerf.create_renderer(
-        backend="nerfacc" if nf.nerf.is_nerfacc_available() else "pytorch",
+    renderer = inro.nerf.create_renderer(
+        backend="nerfacc" if inro.nerf.is_nerfacc_available() else "pytorch",
         aabb=dataset.aabb,
         near=dataset.near,
         far=dataset.far,
@@ -1253,7 +1255,7 @@ def render_nerf(signal: str, runs: list[dict], directory: Path, device) -> None:
     """One test view of the scene, the one :func:`panels` chose, and each
     model's render of it."""
     config = model_config(runs[0])
-    dataset = nf.nerf.BlenderDataset(
+    dataset = inro.nerf.BlenderDataset(
         ROOT / SIGNALS["nerf"].format(signal),
         "test",
         downsample=config["data"]["downsample"],
@@ -1263,7 +1265,7 @@ def render_nerf(signal: str, runs: list[dict], directory: Path, device) -> None:
     Image.fromarray(target).save(directory / "truth.png")
     for run in runs:
         field, renderer = field_and_renderer(run, config, dataset, device)
-        rendered = nf.nerf.render_image(
+        rendered = inro.nerf.render_image(
             field,
             renderer,
             batch["rays_o"].to(device),
@@ -1288,13 +1290,13 @@ def render_orbit(
     a scene, so ``--orbit`` asks for them.
     """
     config = model_config(runs[0])
-    dataset = nf.nerf.BlenderDataset(
+    dataset = inro.nerf.BlenderDataset(
         ROOT / SIGNALS["nerf"].format(signal),
         "test",
         downsample=config["data"]["downsample"],
     )
     poses = [
-        nf.nerf.pose_spherical(theta, -30.0, dataset.radius)
+        inro.nerf.pose_spherical(theta, -30.0, dataset.radius)
         for theta in np.linspace(-180, 180, frames, endpoint=False)
     ]
     for run in runs:
@@ -1305,7 +1307,7 @@ def render_orbit(
         field, renderer = field_and_renderer(run, config, dataset, device)
         orbit = [
             Image.fromarray(frame)
-            for frame in nf.nerf.render_views(field, renderer, dataset, poses)
+            for frame in inro.nerf.render_views(field, renderer, dataset, poses)
         ]
         orbit[0].save(
             path,
@@ -1319,7 +1321,7 @@ def render_orbit(
 def load_dip(run: dict[str, Any], path: Path, device) -> tuple[torch.nn.Module, Tensor]:
     """Rebuild a DIP run's network and the fixed noise it renders the image from."""
     model_class, kwargs = build(run["setup"])
-    dataset = nf.DIPImageDataset(
+    dataset = inro.DIPImageDataset(
         path, noise_channels=kwargs["in_channels"], reg_noise_std=0
     )
     model = model_class(**kwargs)
@@ -1333,7 +1335,7 @@ def render_super_resolution(
 ) -> None:
     """The high-resolution image, and each model's recovery of it from the low one."""
     path = ROOT / SIGNALS["super_resolution"].format(signal)
-    dataset = nf.ImageCoordinateDataset(path)
+    dataset = inro.ImageCoordinateDataset(path)
     dataset.save(dataset.original, directory / "truth")
     scale = model_config(runs[0])["data"]["scale"]
     for run in runs:
@@ -1347,11 +1349,11 @@ def render_super_resolution(
             output = torch.from_numpy(np.asarray(upsampled)).permute(2, 0, 1)
         elif setup["class"] == "DIPSkip":
             model, noise = load_dip(run, path, device)
-            rendered = nf.chunked_inference(model, noise, device=device)[0]
-            output = nf.DIPImageDataset.postprocess(rendered.cpu())
+            rendered = inro.chunked_inference(model, noise, device=device)[0]
+            output = inro.DIPImageDataset.postprocess(rendered.cpu())
         else:
             model = load_model(run, 2, 3, device)
-            rendered = nf.chunked_inference(
+            rendered = inro.chunked_inference(
                 model, dataset.input, chunk_size=2**18, device=device
             )
             output = dataset.postprocess(rendered.cpu())
@@ -1389,7 +1391,7 @@ def example_view(signal: str, runs: list[dict]) -> int:
     if signal in VIEWS:
         return VIEWS[signal]
     config = model_config(runs[0])
-    dataset = nf.nerf.BlenderDataset(
+    dataset = inro.nerf.BlenderDataset(
         ROOT / SIGNALS["nerf"].format(signal),
         "test",
         downsample=config["data"]["downsample"],

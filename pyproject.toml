@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "neurofield"
+name = "inro"
 version = "0.1.0"
-description = "NeuroField: neural fields in PyTorch, with FUTON, a Fourier tensor network, and the models, data and training loops to compare it against"
+description = "Inro: neural fields in PyTorch, with FUTON, a Fourier tensor network, and the models, data and training loops to compare it against"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
@@ -62,14 +62,14 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/pashtari/neurofield"
-Documentation = "https://pashtari.github.io/neurofield/"
-Repository = "https://github.com/pashtari/neurofield"
+Homepage = "https://github.com/pashtari/inro"
+Documentation = "https://pashtari.github.io/inro/"
+Repository = "https://github.com/pashtari/inro"
 Paper = "https://arxiv.org/abs/2602.13414"
-Issues = "https://github.com/pashtari/neurofield/issues"
+Issues = "https://github.com/pashtari/inro/issues"
 
 [tool.setuptools.packages.find]
-include = ["neurofield*"]
+include = ["inro*"]
 
 [tool.black]
 line-length = 88

@@ -167,7 +167,7 @@ class BlenderDataset(Dataset[dict[str, Tensor]]):
 
         Args:
             c2w: Camera-to-world pose of shape ``(4, 4)`` or ``(3, 4)`` (e.g.
-                from :func:`~neurofield.nerf.pose_spherical`); it is moved to
+                from :func:`~inro.nerf.pose_spherical`); it is moved to
                 the device of :attr:`directions`.
 
         Returns:

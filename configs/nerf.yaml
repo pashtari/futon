@@ -1,7 +1,7 @@
 # Novel view synthesis: fit each model to one Blender scene under FINER's
 # protocol (torch-ngp --downscale 4 --trainskip 4), for 25,000 steps.
 #
-# Each model gives the neurofield class and constructor arguments of the
+# Each model gives the inro class and constructor arguments of the
 # density network, and training arguments that override the shared ones; all
 # models share the radiance field's colour network and renderer. "deviation"
 # marks a departure from the authors' published settings. Every learning rate

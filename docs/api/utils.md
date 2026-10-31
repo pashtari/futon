@@ -2,8 +2,8 @@
 
 ## Module specs, logging and serialization
 
-::: neurofield.utils
+::: inro.utils
 
 ## Plotting
 
-::: neurofield.visualization
+::: inro.visualization

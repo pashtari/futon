@@ -2,8 +2,8 @@
 
 ## Metrics
 
-::: neurofield.metrics
+::: inro.metrics
 
 ## Losses
 
-::: neurofield.losses
+::: inro.losses

@@ -4,9 +4,9 @@ hide:
   - toc
 ---
 
-# NeuroField
+# Inro
 
-**Neural fields in PyTorch.** A signal is fitted as a function of its coordinates: NeuroField provides FUTON, the Fourier Tensor Network of the paper, thirteen baselines behind the same interface, coordinate datasets for images, volumes and posed views, and the training loops and scripts that produce the paper's numbers.
+**Neural fields in PyTorch.** A signal is fitted as a function of its coordinates: Inro provides FUTON, the Fourier Tensor Network of the paper, thirteen baselines behind the same interface, coordinate datasets for images, volumes and posed views, and the training loops and scripts that produce the paper's numbers. The name comes from the *inrō*, a Japanese case of stacked compartments.
 
 <figure markdown="span">
   ![FUTON's forward pass](assets/futon_illustration.svg){ width="960" }
@@ -15,9 +15,9 @@ hide:
 
 ```python
 import torch
-import neurofield as nf
+import inro
 
-model = nf.FUTON(
+model = inro.FUTON(
     in_features=2,
     out_features=3,
     basis=("sinc", {"num_components": [384, 256]}),  # half of a 768 x 512 image per axis
@@ -111,7 +111,7 @@ Every model of a task has the same parameter budget, the hyperparameters of its 
 
 ## Citation
 
-If you use NeuroField or FUTON in your research, please cite the paper:
+If you use Inro or FUTON in your research, please cite the paper:
 
 ```bibtex
 @article{ashtari2026futon,
@@ -122,4 +122,4 @@ If you use NeuroField or FUTON in your research, please cite the paper:
 }
 ```
 
-The code is released under the [MIT license](https://github.com/pashtari/neurofield/blob/main/LICENSE).
+The code is released under the [MIT license](https://github.com/pashtari/inro/blob/main/LICENSE).

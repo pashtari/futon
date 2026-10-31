@@ -1,7 +1,7 @@
 # Super-resolution: recover each DIV2K validation image from its 4x bicubic
 # downsampling, seeing only the low-resolution image.
 #
-# Each model gives a neurofield class, its constructor arguments, and training
+# Each model gives an inro class, its constructor arguments, and training
 # arguments that override the shared ones; an interpolation has only its
 # method. Arguments may be expressions in the high-resolution height H and
 # width W; the low-resolution image is H // 4 by W // 4. "deviation" marks a

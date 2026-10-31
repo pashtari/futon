@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=neurofield
+#SBATCH --job-name=inro
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --time=1:00:00
@@ -32,28 +32,28 @@ if [[ -z ${VSC_DATA:-} ]]; then
   fi
   [[ -z $(git status --porcelain) ]] || echo "Note: untracked files are not synced." >&2
   git push --quiet
-  root=${NEUROFIELD_ROOT:-'$VSC_DATA/projects/neurofield'}
+  root=${INRO_ROOT:-'$VSC_DATA/projects/inro'}
   exec ssh "${HPC_HOST:-hpc-ugent}" \
-    "NEUROFIELD_BRANCH=$(git symbolic-ref --short HEAD)" \
-    "NEUROFIELD_COMMIT=$(git rev-parse HEAD)" \
-    "NEUROFIELD_VENV=$(printf %q "${NEUROFIELD_VENV:-}")" \
+    "INRO_BRANCH=$(git symbolic-ref --short HEAD)" \
+    "INRO_COMMIT=$(git rev-parse HEAD)" \
+    "INRO_VENV=$(printf %q "${INRO_VENV:-}")" \
     "$root/scripts/hpc/train.sh ${*@Q}"
 fi
 
 if [[ -z ${SLURM_JOB_ID:-} ]]; then
   root=$(cd "$(dirname "$0")/../.." && pwd)
-  if [[ -z ${NEUROFIELD_SYNCED:-} ]]; then
+  if [[ -z ${INRO_SYNCED:-} ]]; then
     # Update the repository (to the local commit when called from the local
     # machine), then rerun the updated script.
     cd "$root"
     git fetch --quiet
-    [[ -z ${NEUROFIELD_BRANCH:-} ]] || git checkout --quiet "$NEUROFIELD_BRANCH"
+    [[ -z ${INRO_BRANCH:-} ]] || git checkout --quiet "$INRO_BRANCH"
     git merge --ff-only --quiet '@{u}'
-    if [[ -n ${NEUROFIELD_COMMIT:-} && $(git rev-parse HEAD) != "$NEUROFIELD_COMMIT" ]]; then
-      echo "The cluster is at $(git rev-parse --short HEAD), not ${NEUROFIELD_COMMIT:0:7}." >&2
+    if [[ -n ${INRO_COMMIT:-} && $(git rev-parse HEAD) != "$INRO_COMMIT" ]]; then
+      echo "The cluster is at $(git rev-parse --short HEAD), not ${INRO_COMMIT:0:7}." >&2
       exit 1
     fi
-    NEUROFIELD_SYNCED=1 exec "$root/scripts/hpc/train.sh" "$@"
+    INRO_SYNCED=1 exec "$root/scripts/hpc/train.sh" "$@"
   fi
 
   sbatch_args=()
@@ -65,9 +65,9 @@ if [[ -z ${SLURM_JOB_ID:-} ]]; then
     echo "usage: $0 [sbatch options] <image|occupancy|nerf|super_resolution> [options]" >&2
     exit 2
   fi
-  # Name the job nf-<task>[-<config>][-<signal>][-<model>], naming only what is
+  # Name the job inro-<task>[-<config>][-<signal>][-<model>], naming only what is
   # unique, so that squeue and logs/slurm/<name>-<jobid>.out say what is running.
-  name=nf-$1
+  name=inro-$1
   for option in config data models; do
     values=()
     collect=""
@@ -126,7 +126,7 @@ fi
 
 # Modules loaded on the login node would shadow the venv's libraries.
 module --force purge >/dev/null 2>&1 || true
-source "${NEUROFIELD_VENV:-$VSC_DATA/venvs/neurofield-env}/bin/activate"
+source "${INRO_VENV:-$VSC_DATA/venvs/inro-env}/bin/activate"
 
 echo "commit: $(git describe --always --dirty), node: $(hostname)"
 nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader

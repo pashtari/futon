@@ -1,27 +1,27 @@
 # Radiance fields
 
-`nf.nerf`, documented module by module; the [radiance field tutorial](../tutorials/nerf.md) shows the workflow.
+`inro.nerf`, documented module by module; the [radiance field tutorial](../tutorials/nerf.md) shows the workflow.
 
 ## Fields
 
-::: neurofield.nerf.fields
+::: inro.nerf.fields
 
 ## Renderers
 
-::: neurofield.nerf.renderers
+::: inro.nerf.renderers
 
 ## Datasets
 
-::: neurofield.nerf.datasets
+::: inro.nerf.datasets
 
 ## Training
 
-::: neurofield.nerf.training
+::: inro.nerf.training
 
 ## Evaluation and rendering
 
-::: neurofield.nerf.evaluation
+::: inro.nerf.evaluation
 
 ## Cameras
 
-::: neurofield.nerf.cameras
+::: inro.nerf.cameras

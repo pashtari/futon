@@ -9,7 +9,7 @@ The library is built from small interfaces. This page shows the contract of each
 ```python
 import torch
 from torch import nn
-import neurofield as nf
+import inro
 
 
 class GaussianBasis(nn.Module):
@@ -29,7 +29,7 @@ class GaussianBasis(nn.Module):
         )
 
 
-model = nf.FUTON(
+model = inro.FUTON(
     2, 3,
     basis=(GaussianBasis, {"num_components": 64}),
     combiner=("cp", {"rank": 32}),
@@ -37,11 +37,11 @@ model = nf.FUTON(
 )
 ```
 
-A class and a `(class, kwargs)` pair work anywhere a registry key does, as does a ready module instance. To add a key instead, register the class in `nf.models.futon.BASES`.
+A class and a `(class, kwargs)` pair work anywhere a registry key does, as does a ready module instance. To add a key instead, register the class in `inro.models.futon.BASES`.
 
 ## A combiner or decoder
 
-A combiner is built as `combiner(basis.num_components, **kwargs)`, takes the tuple of per-axis features, returns `(N, out_features)`, and exposes `out_features`. A decoder is any module built as `decoder(combiner.out_features, out_features, **kwargs)`, so `torch.nn.Linear`, `nf.MLP`, or a class of your own:
+A combiner is built as `combiner(basis.num_components, **kwargs)`, takes the tuple of per-axis features, returns `(N, out_features)`, and exposes `out_features`. A decoder is any module built as `decoder(combiner.out_features, out_features, **kwargs)`, so `torch.nn.Linear`, `inro.MLP`, or a class of your own:
 
 ```python
 class GatedDecoder(nn.Module):
@@ -54,7 +54,7 @@ class GatedDecoder(nn.Module):
         return self.linear(g) * torch.sigmoid(self.gate(g))
 
 
-model = nf.FUTON(
+model = inro.FUTON(
     2, 3,
     basis=("sinc", {"num_components": 128}),
     combiner=("cp", {"rank": 64}),
@@ -64,7 +64,7 @@ model = nf.FUTON(
 
 ## A loss
 
-`nf.train` calls `loss_fn(batch, model)` and expects a scalar loss and a dictionary of metrics for the log, as floats or as scalar tensors. Tensors are read only when a step is logged, so the training steps never wait for the GPU in between. `batch` is the dataset item with its tensors on the training device (keys with a leading underscore stay on the CPU). A loss that fits only the pixels a mask marks as known:
+`inro.train` calls `loss_fn(batch, model)` and expects a scalar loss and a dictionary of metrics for the log, as floats or as scalar tensors. Tensors are read only when a step is logged, so the training steps never wait for the GPU in between. `batch` is the dataset item with its tensors on the training device (keys with a leading underscore stay on the CPU). A loss that fits only the pixels a mask marks as known:
 
 ```python
 import torch.nn.functional as F
@@ -77,12 +77,14 @@ def masked_mse(batch, model):
     return loss, {"loss": loss.detach()}
 
 
-train_set = nf.MaskedImageCoordinateDataset("image.png", mask="mask.png", subsample=0.1)
-eval_set = nf.ImageCoordinateDataset("image.png")
-result = nf.train(model, train_set, eval_set, loss_fn=masked_mse)
+train_set = inro.MaskedImageCoordinateDataset(
+    "image.png", mask="mask.png", subsample=0.1
+)
+eval_set = inro.ImageCoordinateDataset("image.png")
+result = inro.train(model, train_set, eval_set, loss_fn=masked_mse)
 ```
 
-The indexing works before and after subsampling because the dataset flattens `input`, `target` and `mask` with the same indices. `nf.rate_distortion_loss` and `nf.sdf_loss` are two more examples of the signature; `functools.partial(nf.rate_distortion_loss, alpha=0.01)` sets their options.
+The indexing works before and after subsampling because the dataset flattens `input`, `target` and `mask` with the same indices. `inro.rate_distortion_loss` and `inro.sdf_loss` are two more examples of the signature; `functools.partial(inro.rate_distortion_loss, alpha=0.01)` sets their options.
 
 ## A metric
 
@@ -93,18 +95,18 @@ def mae(pred, target):
     return (pred.float() - target.float()).abs().mean().item()
 
 
-result = nf.train(model, train_set, eval_set, metrics={"psnr": nf.psnr, "mae": mae})
+result = inro.train(model, train_set, eval_set, metrics={"psnr": inro.psnr, "mae": mae})
 ```
 
-For `nf.nerf.evaluate`, metrics receive `(3, H, W)` float images in $[0, 1]$.
+For `inro.nerf.evaluate`, metrics receive `(3, H, W)` float images in $[0, 1]$.
 
 ## A dataset
 
-A dataset is a `torch.utils.data.Dataset` whose items carry `id`, `input`, `target` and `_original`, with `preprocess`, `postprocess` and `save` for the evaluation loop and, optionally, `to(device)` for GPU-side subsampling. The simplest route is to subclass `ImageCoordinateDataset` and override what differs; `OccupancyCoordinateDataset` and `MaskedImageCoordinateDataset` do exactly that. For a signal with its own geometry, build the coordinates with `nf.create_coordinates(size)` and follow the [conventions](../concepts/conventions.md).
+A dataset is a `torch.utils.data.Dataset` whose items carry `id`, `input`, `target` and `_original`, with `preprocess`, `postprocess` and `save` for the evaluation loop and, optionally, `to(device)` for GPU-side subsampling. The simplest route is to subclass `ImageCoordinateDataset` and override what differs; `OccupancyCoordinateDataset` and `MaskedImageCoordinateDataset` do exactly that. For a signal with its own geometry, build the coordinates with `inro.create_coordinates(size)` and follow the [conventions](../concepts/conventions.md).
 
 ## A model
 
-Any module that maps `(..., in_features)` coordinates in $[-1, 1]$ to `(..., out_features)` is a neural field for the training loop, and, without an output activation, a density network for `nf.nerf.RadianceField`. `nf.MLP` accepts a custom `layer_class` when the novelty is in the layer:
+Any module that maps `(..., in_features)` coordinates in $[-1, 1]$ to `(..., out_features)` is a neural field for the training loop, and, without an output activation, a density network for `inro.nerf.RadianceField`. `inro.MLP` accepts a custom `layer_class` when the novelty is in the layer:
 
 ```python
 class SoftplusLayer(nn.Module):
@@ -117,7 +119,7 @@ class SoftplusLayer(nn.Module):
         return F.softplus(self.linear(x), beta=self.beta)
 
 
-model = nf.MLP(
+model = inro.MLP(
     2, 3, hidden_features=256, hidden_layers=3,
     layer_class=SoftplusLayer, beta=2.0, output_activation=torch.tanh,
 )
@@ -127,15 +129,15 @@ Extra keyword arguments go to the hidden layers; the output layer stays linear. 
 
 ## Registries
 
-`nf.build_module(spec, registry, *args, **kwargs)` is the resolver behind every spec: an instance is returned as is, a key is looked up in `registry`, a class is called, and a `(key_or_class, params)` pair (a two-element list works too, so specs can come from YAML or JSON) adds keyword arguments. Use it for your own components:
+`inro.build_module(spec, registry, *args, **kwargs)` is the resolver behind every spec: an instance is returned as is, a key is looked up in `registry`, a class is called, and a `(key_or_class, params)` pair (a two-element list works too, so specs can come from YAML or JSON) adds keyword arguments. Use it for your own components:
 
 ```python
-LOSSES = {"mse": nf.rate_distortion_loss, "sdf": nf.sdf_loss}
+LOSSES = {"mse": inro.rate_distortion_loss, "sdf": inro.sdf_loss}
 ```
 
 is a plain dictionary, but for modules,
 
 ```python
-DECODERS = {"linear": nn.Linear, "mlp": nf.MLP, "gated": GatedDecoder}
-decoder = nf.build_module(("gated", {}), DECODERS, 64, 3)
+DECODERS = {"linear": nn.Linear, "mlp": inro.MLP, "gated": GatedDecoder}
+decoder = inro.build_module(("gated", {}), DECODERS, 64, 3)
 ```

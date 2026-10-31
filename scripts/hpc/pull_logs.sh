@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 host=${HPC_HOST:-hpc-ugent}
-root=${NEUROFIELD_ROOT:-$(ssh "$host" 'echo $VSC_DATA')/projects/neurofield}
+root=${INRO_ROOT:-$(ssh "$host" 'echo $VSC_DATA')/projects/inro}
 
 mkdir -p logs
 rsync -azu --info=stats1 "$@" "$host:$root/logs/" logs/

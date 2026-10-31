@@ -2,7 +2,7 @@
 
 Each codec is an encoder that maps an image to bytes and a decoder that maps
 the bytes back to an image tensor of shape :math:`(C, H, W)`, so any pair can be
-benchmarked with :func:`~neurofield.compression.evaluate_compression`.
+benchmarked with :func:`~inro.compression.evaluate_compression`.
 """
 
 import io
@@ -50,7 +50,7 @@ def encode_pil(
     Examples::
 
         >>> import torch
-        >>> from neurofield.compression import decode_pil, encode_pil
+        >>> from inro.compression import decode_pil, encode_pil
         >>> image = torch.randint(0, 256, (3, 32, 32), dtype=torch.uint8)
         >>> encoded = encode_pil(image, format="JPEG", quality=50)
         >>> decode_pil(encoded).shape
@@ -114,7 +114,7 @@ def encode_futon(
 ) -> bytes:
     """Encode an image by fitting and serializing a quantized FUTON.
 
-    Training uses :func:`~neurofield.losses.rate_distortion_loss` with weight
+    Training uses :func:`~inro.losses.rate_distortion_loss` with weight
     ``alpha``. The bitstream contains quantized parameters, their scales, model
     config, image ID and spatial shape, serialized with ``torch.save`` and gzip.
 

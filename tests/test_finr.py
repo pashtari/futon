@@ -5,7 +5,7 @@ import math
 import pytest
 import torch
 
-import neurofield as nf
+import inro
 
 
 def parameters(model: torch.nn.Module) -> int:
@@ -19,7 +19,7 @@ def parameters(model: torch.nn.Module) -> int:
 def test_parameter_count(in_features, out_features, rank, width, layers, mode):
     """Each axis network: a sine layer from one coordinate, layers - 1 more,
     and a head of C R outputs, or C R^2 for the tensor train's core."""
-    model = nf.FINR(in_features, out_features, rank, width, layers, mode)
+    model = inro.FINR(in_features, out_features, rank, width, layers, mode)
     body = 2 * width + (layers - 1) * width * (width + 1)
     heads = [out_features * rank] * in_features
     if mode == "tt":
@@ -28,7 +28,7 @@ def test_parameter_count(in_features, out_features, rank, width, layers, mode):
 
 
 def test_initialization_follows_the_authors_image_code():
-    model = nf.FINR(2, 3, rank=8, hidden_features=64, hidden_layers=3)
+    model = inro.FINR(2, 3, rank=8, hidden_features=64, hidden_layers=3)
     for network in model.axes:
         first, *hidden, head = network
         assert first.omega == 100.0 and all(layer.omega == 30.0 for layer in hidden)
@@ -44,7 +44,7 @@ def test_initialization_follows_the_authors_image_code():
 @pytest.mark.parametrize(("mode", "inputs"), [("cp", 2), ("cp", 3), ("tt", 3)])
 def test_combination_matches_its_formula(mode, inputs):
     torch.manual_seed(0)
-    model = nf.FINR(inputs, 2, rank=4, hidden_features=16, mode=mode).double()
+    model = inro.FINR(inputs, 2, rank=4, hidden_features=16, mode=mode).double()
     x = torch.rand(10, inputs, dtype=torch.float64) * 2 - 1
     factors = [net(x[:, [i]]) for i, net in enumerate(model.axes)]
     if mode == "cp":
@@ -65,7 +65,7 @@ def test_grid_evaluation_matches_per_point(mode, inputs, encoding):
     """On a grid each network runs once per distinct coordinate; the output
     and the gradients are those of running it per point."""
     torch.manual_seed(0)
-    model = nf.FINR(
+    model = inro.FINR(
         inputs, 3, rank=8, hidden_features=32, mode=mode, positional_encoding=encoding
     ).double()
     axis = torch.linspace(-1, 1, 7, dtype=torch.float64)
@@ -88,7 +88,7 @@ def test_grid_evaluation_matches_per_point(mode, inputs, encoding):
 def test_positional_encoding_as_the_authors_compute_it(size):
     """Their notebook_positional_encoding: sin then cos of x times 2^k, k from
     int(-(n - 1) / 2) up to int((n + 1) / 2), so 10 gives nine bands."""
-    model = nf.FINR(2, 3, rank=4, hidden_features=8, positional_encoding=size)
+    model = inro.FINR(2, 3, rank=4, hidden_features=8, positional_encoding=size)
     bands = 2.0 ** torch.arange(int(-(size - 1) / 2), int((size + 1) / 2))
     torch.testing.assert_close(model.bands, bands)
     x = torch.rand(6) * 2 - 1
@@ -105,7 +105,7 @@ def test_positional_encoding_as_the_authors_compute_it(size):
 
 
 def test_output_keeps_leading_shape_and_activation():
-    model = nf.FINR(2, 3, rank=4, hidden_features=8, output_activation=torch.tanh)
+    model = inro.FINR(2, 3, rank=4, hidden_features=8, output_activation=torch.tanh)
     out = model(torch.rand(5, 6, 2))
     assert out.shape == (5, 6, 3) and out.abs().max() < 1
 
@@ -116,4 +116,4 @@ def test_output_keeps_leading_shape_and_activation():
 )
 def test_invalid_settings(kwargs):
     with pytest.raises(ValueError):
-        nf.FINR(2, 3, rank=4, **kwargs)
+        inro.FINR(2, 3, rank=4, **kwargs)

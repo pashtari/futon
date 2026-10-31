@@ -139,8 +139,8 @@ def super_resolution_metrics(
     PSNR and SSIM of the :func:`luma` channel and LPIPS of RGB, each scoring
     two uint8 ``(3, H, W)`` images without a border of ``border`` pixels, by
     convention the scale factor, on ``device`` (``None`` keeps the images
-    where they are), as :func:`~neurofield.train` and
-    :func:`~neurofield.evaluate` call them: ``fn(reconstruction, original)``.
+    where they are), as :func:`~inro.train` and
+    :func:`~inro.evaluate` call them: ``fn(reconstruction, original)``.
     """
 
     def shave(image: Tensor) -> Tensor:

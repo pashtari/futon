@@ -1,7 +1,7 @@
 """Image codecs, rate-distortion evaluation, and integer arithmetic coding.
 
 PIL and FUTON codecs map image tensors to bytes and back. Benchmark either
-with :func:`evaluate_compression`. These APIs live under ``nf.compression``
+with :func:`evaluate_compression`. These APIs live under ``inro.compression``
 rather than the top-level package namespace.
 """
 

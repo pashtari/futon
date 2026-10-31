@@ -7,8 +7,8 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-import neurofield as nf
-from neurofield.models.futon_solvers import LeastSquares, MultiplicativeUpdate
+import inro
+from inro.models.futon_solvers import LeastSquares, MultiplicativeUpdate
 
 DOUBLE = torch.float64
 
@@ -55,7 +55,7 @@ def futon(
     **options,
 ):
     """The paper's model, a CP combiner and a linear decoder without bias, in double precision."""
-    return nf.FUTON(
+    return inro.FUTON(
         in_features,
         out_features,
         basis=(basis, {"num_components": num_components, **options}),
@@ -110,7 +110,7 @@ class TestSolver:
             (("tr", {"rank": 2}), linear),
         ]:
             with pytest.raises(ValueError):
-                LeastSquares(nf.FUTON(2, 1, basis, combiner, decoder))
+                LeastSquares(inro.FUTON(2, 1, basis, combiner, decoder))
         with pytest.raises(ValueError):
             MultiplicativeUpdate(futon(2, 1, 8, 2, "triangle", signed), momentum=1.0)
         with pytest.raises(ValueError):
@@ -438,9 +438,9 @@ class TestTraining:
     def test_train_takes_a_solver_in_place_of_adam(self, tmp_path, solver):
         torch.manual_seed(0)
         image = torch.arange(3 * 16 * 16, dtype=torch.uint8).reshape(3, 16, 16)
-        dataset = nf.ImageCoordinateDataset(image, item_id="image", subsample=0.5)
+        dataset = inro.ImageCoordinateDataset(image, item_id="image", subsample=0.5)
         nonnegative = solver is MultiplicativeUpdate
-        model = nf.FUTON(
+        model = inro.FUTON(
             2,
             3,
             basis=(
@@ -451,15 +451,15 @@ class TestTraining:
             decoder=("linear", {"bias": False}),
             output_activation=signed if nonnegative else torch.tanh,
         )
-        results = nf.train(
+        results = inro.train(
             model,
             dataset,
-            nf.ImageCoordinateDataset(image, item_id="image"),
+            inro.ImageCoordinateDataset(image, item_id="image"),
             optimizer=solver(model, momentum=0.5),
             num_steps=20,
             eval_interval=20,
             log_interval=1,
-            metrics={"psnr": nf.psnr},
+            metrics={"psnr": inro.psnr},
             log_dir=tmp_path,
             device="cpu",
         )

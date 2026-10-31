@@ -1,6 +1,6 @@
 """Neural field architectures, encodings, and tensor factorizations.
 
-Public names are also available at the package top level, e.g. ``nf.FUTON``.
+Public names are also available at the package top level, e.g. ``inro.FUTON``.
 """
 
 from .dip import DIPSkip, DIPUNet

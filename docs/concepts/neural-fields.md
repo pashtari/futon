@@ -1,4 +1,4 @@
-# Neural fields in NeuroField
+# Neural fields in Inro
 
 A neural field, or implicit neural representation (INR), represents a signal $s$ as a parametric function of its coordinates,
 
@@ -13,7 +13,7 @@ fitted to samples of $s$ by minimizing a reconstruction loss. An image is a fiel
 Every model maps a tensor of coordinates `(..., in_features)` in $[-1, 1]$ to values `(..., out_features)`, so it can be called on a single point, a batch, or a whole grid:
 
 ```python
-model = nf.FUTON(
+model = inro.FUTON(
     2, 3, basis=("cosine", {"num_components": 64}), combiner=("cp", {"rank": 32}), decoder="linear"
 )
 model(torch.rand(10, 2) * 2 - 1).shape      # (10, 3)
@@ -39,13 +39,13 @@ Datasets also provide `preprocess` (native values to targets), `postprocess` (mo
 
 ## Training
 
-`nf.train(model, train_dataset, eval_dataset, **options)` fits a model in place:
+`inro.train(model, train_dataset, eval_dataset, **options)` fits a model in place:
 
 - **Optimizer.** Adam with `lr`, `weight_decay`, `adam_betas` and `adam_eps`. Every benchmark, radiance fields included, trains every model with PyTorch's defaults, `(0.9, 0.999)` and `1e-8`, Instant-NGP included, so that the optimizer favours none of them.
 - **Schedule.** `num_steps` steps of one batch each, the loader starting over whenever it runs out, with `CosineAnnealingLR` over them down to `lr / 100`. The datasets above hold one item, the whole signal or a fresh random subset of it, so that every step draws a new batch.
-- **Solvers.** A FUTON with a CP combiner and a linear decoder, both without bias, can be fitted by block coordinate descent instead of a gradient step: pass `optimizer=nf.LeastSquares(model, momentum=...)` or `nf.MultiplicativeUpdate(model, momentum=...)`. Each batch is swept once, whole or subsampled by the dataset. A sweep costs about the same either way, so a whole grid with `momentum=0` is the fast setting; on subsamples, `momentum` averages the blocks' problems over the batches. The newest batch's weight, `1 - momentum`, is the solver's learning rate, and the cosine schedule anneals it as it does Adam's. `optimizer.compile(batch)` compiles the sweep with `torch.compile`. The solvers are documented with [FUTON](../api/futon.md#solvers).
-- **Loss.** `loss_fn(batch, model) -> (loss, metrics)`. The default is the mean squared error, logging the PSNR for targets in $[-1, 1]$. `nf.rate_distortion_loss`, `nf.sdf_loss` and `nf.super_resolution_loss` have the same signature, and so can yours; see [custom components](../tutorials/custom-components.md).
-- **Evaluation.** Every `eval_interval` steps (and at the last) the model is evaluated on `eval_dataset` with `nf.evaluate`, which reconstructs each item in chunks of `chunk_size` coordinates, maps the output through `postprocess`, and computes each function in `metrics` as `fn(reconstruction, original)`. Rate metrics, `fn(encoded_bytes, original)`, see the model's parameters serialized with `nf.encode_dict`.
+- **Solvers.** A FUTON with a CP combiner and a linear decoder, both without bias, can be fitted by block coordinate descent instead of a gradient step: pass `optimizer=inro.LeastSquares(model, momentum=...)` or `inro.MultiplicativeUpdate(model, momentum=...)`. Each batch is swept once, whole or subsampled by the dataset. A sweep costs about the same either way, so a whole grid with `momentum=0` is the fast setting; on subsamples, `momentum` averages the blocks' problems over the batches. The newest batch's weight, `1 - momentum`, is the solver's learning rate, and the cosine schedule anneals it as it does Adam's. `optimizer.compile(batch)` compiles the sweep with `torch.compile`. The solvers are documented with [FUTON](../api/futon.md#solvers).
+- **Loss.** `loss_fn(batch, model) -> (loss, metrics)`. The default is the mean squared error, logging the PSNR for targets in $[-1, 1]$. `inro.rate_distortion_loss`, `inro.sdf_loss` and `inro.super_resolution_loss` have the same signature, and so can yours; see [custom components](../tutorials/custom-components.md).
+- **Evaluation.** Every `eval_interval` steps (and at the last) the model is evaluated on `eval_dataset` with `inro.evaluate`, which reconstructs each item in chunks of `chunk_size` coordinates, maps the output through `postprocess`, and computes each function in `metrics` as `fn(reconstruction, original)`. Rate metrics, `fn(encoded_bytes, original)`, see the model's parameters serialized with `inro.encode_dict`.
 - **Quantization.** With `quantize=True`, evaluation uses a uniformly quantized copy of the model (`quant_max` levels), optional fake quantizations run every `quant_interval` steps, and the final model is quantized in place. See the [compression tutorial](../tutorials/compression.md).
 - **Logging.** Every `log_interval` steps (100 by default), and at every evaluation, the training metrics of the step's batch are recorded and printed as a line above a progress bar, with the evaluation's metrics beside them when the step evaluates; at the end the console shows the training time and the final metrics. `log_dir` receives `log.txt`, with a line per record, `log.json`, with the records, the reconstructions of each evaluation, and `checkpoint.pt`; `ckpt_path` loads a state dict before training.
 
@@ -53,11 +53,11 @@ The return value is `{"config", "model_dict", "history"}`: the run's settings, t
 
 ## Evaluation and inference
 
-`nf.evaluate(model, dataset, metrics=...)` runs the evaluation half of the loop on its own, for example on a checkpoint (`ckpt_path`) or on another grid than the one trained on. `nf.chunked_inference(model, coordinates, chunk_size=...)` evaluates a model on any coordinate tensor under `torch.no_grad()`, flattening the leading dimensions for chunking and restoring them afterwards.
+`inro.evaluate(model, dataset, metrics=...)` runs the evaluation half of the loop on its own, for example on a checkpoint (`ckpt_path`) or on another grid than the one trained on. `inro.chunked_inference(model, coordinates, chunk_size=...)` evaluates a model on any coordinate tensor under `torch.no_grad()`, flattening the leading dimensions for chunking and restoring them afterwards.
 
 ## Radiance fields
 
-Novel view synthesis does not fit samples of the signal directly: the supervision is posed images, and the field is queried along rays. `nf.nerf` therefore has its own dataset (`BlenderDataset`), field (`RadianceField`, which wraps any model from the zoo as its density network), renderers, and `train` and `evaluate` functions with the same shape of return value. The [radiance field tutorial](../tutorials/nerf.md) covers them.
+Novel view synthesis does not fit samples of the signal directly: the supervision is posed images, and the field is queried along rays. `inro.nerf` therefore has its own dataset (`BlenderDataset`), field (`RadianceField`, which wraps any model from the zoo as its density network), renderers, and `train` and `evaluate` functions with the same shape of return value. The [radiance field tutorial](../tutorials/nerf.md) covers them.
 
 ## How the modules fit together
 

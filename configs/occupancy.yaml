@@ -1,6 +1,6 @@
 # Occupancy volume representation: fit each model to one Stanford shape.
 #
-# Each model gives a neurofield class, its constructor arguments, and training
+# Each model gives an inro class, its constructor arguments, and training
 # arguments that override the shared ones. "deviation" marks a departure from
 # the authors' published settings. Every learning rate is the best of the grid
 # {1e-4, 3e-4, ..., 3e-1} on two shapes, and every model trains with PyTorch's

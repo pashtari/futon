@@ -1,10 +1,10 @@
 """Per-scene NeRF training with random ray batches and mean squared error.
 
-Adam keeps PyTorch's defaults, as :func:`neurofield.train` does, so the
+Adam keeps PyTorch's defaults, as :func:`inro.train` does, so the
 learning rate is the one setting to tune. As in torch-ngp, the learning rate
 decays exponentially to ``0.1 * lr`` and each step composites onto a fresh
 per-pixel random background. The dataset background is used for evaluation.
-Results and logging follow the package-level :func:`neurofield.train` API.
+Results and logging follow the package-level :func:`inro.train` API.
 """
 
 import math

@@ -1,8 +1,8 @@
-site_name: NeuroField
-site_description: NeuroField, neural fields in PyTorch, with FUTON, a Fourier tensor network for implicit neural representations.
-site_url: https://pashtari.github.io/neurofield/
-repo_url: https://github.com/pashtari/neurofield
-repo_name: pashtari/neurofield
+site_name: Inro
+site_description: Inro, neural fields in PyTorch, with FUTON, a Fourier tensor network for implicit neural representations.
+site_url: https://pashtari.github.io/inro/
+repo_url: https://github.com/pashtari/inro
+repo_name: pashtari/inro
 edit_uri: edit/main/docs/
 copyright: Copyright &copy; 2026 Pooya Ashtari. MIT License.
 
@@ -114,7 +114,7 @@ nav:
       - Your first neural field: getting-started/quickstart.md
   - Concepts:
       - concepts/index.md
-      - Neural fields in NeuroField: concepts/neural-fields.md
+      - Neural fields in Inro: concepts/neural-fields.md
       - FUTON: concepts/futon.md
       - Error bound of FUTON: concepts/error-bound.md
       - The model zoo: concepts/models.md
@@ -134,7 +134,7 @@ nav:
       - Reproducing the paper: experiments/reproduce.md
   - API reference:
       - api/index.md
-      - neurofield.models: api/models.md
+      - inro.models: api/models.md
       - FUTON, bases and combiners: api/futon.md
       - Datasets: api/datasets.md
       - Training and evaluation: api/training.md

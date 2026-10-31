@@ -107,7 +107,7 @@ def train(
         optimizer: Steps once per batch, its learning rate under the cosine
             schedule; ``None`` builds Adam from ``lr``, ``weight_decay``,
             ``adam_betas`` and ``adam_eps``. A block coordinate descent solver
-            for FUTON, :class:`~neurofield.models.futon_solvers.BCD`, fits
+            for FUTON, :class:`~inro.models.futon_solvers.BCD`, fits
             each batch itself, without ``loss_fn``; its learning rate is the
             weight of the newest batch in its statistics.
         lr: Initial learning rate.

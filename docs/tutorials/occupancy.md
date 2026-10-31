@@ -8,11 +8,11 @@ A shape is represented as an occupancy field $[-1, 1]^3 \to \{-1, 1\}$, fitted t
 
 ```python
 import torch
-import neurofield as nf
+import inro
 
 path = "data/occupancy/lucy.ply"
-train_set = nf.OccupancyCoordinateDataset(path, resolution=256, max_samples=2**18)
-eval_set = nf.OccupancyCoordinateDataset(path, resolution=256)
+train_set = inro.OccupancyCoordinateDataset(path, resolution=256, max_samples=2**18)
+eval_set = inro.OccupancyCoordinateDataset(path, resolution=256)
 
 eval_set.input.shape, eval_set.target.shape   # (D, H, W, 3) coordinates, (D, H, W, 1) targets in {-1, 1}
 eval_set.original.shape                        # (1, D, H, W) float occupancy in {0, 1}
@@ -27,7 +27,7 @@ The benchmark FUTON uses half the voxels along each axis of the cropped grid, a 
 ```python
 components = [size // 2 for size in eval_set.grid_size]
 rank = (131_456 - 129) // (sum(components) + 64) // 5 * 5
-model = nf.FUTON(
+model = inro.FUTON(
     3, 1,
     basis=("sinc", {"num_components": components, "grid_size": eval_set.grid_size}),
     combiner=("cp", {"rank": rank}),
@@ -41,13 +41,13 @@ The cosine variant replaces the basis with `("cosine", {"num_components": compon
 ## Training and evaluation
 
 ```python
-result = nf.train(
+result = inro.train(
     model,
     train_set,
     eval_set,
     num_steps=1000,
     lr=3e-2,
-    metrics={"iou": nf.iou},
+    metrics={"iou": inro.iou},
     chunk_size=262144,
     log_interval=50,
     eval_interval=50,
@@ -57,19 +57,19 @@ result = nf.train(
 print(result["history"][-1]["eval"]["iou"])
 ```
 
-`chunk_size=262144` bounds the memory of evaluating the whole volume. `nf.iou` thresholds the model's output at zero and compares it with the `{0, 1}` original. Every model's IoU after the 1000 steps, and FUTON's convergence, are on the [benchmarks page](../experiments/benchmarks.md#occupancy).
+`chunk_size=262144` bounds the memory of evaluating the whole volume. `inro.iou` thresholds the model's output at zero and compares it with the `{0, 1}` original. Every model's IoU after the 1000 steps, and FUTON's convergence, are on the [benchmarks page](../experiments/benchmarks.md#occupancy).
 
 ## Exporting a mesh
 
 With the `3d` extra, `eval_set.save(volume, path)` smooths the occupancy, runs marching cubes, writes a `.dae` mesh and renders it offscreen to a `.png` with Open3D, drawing the grid's axis `up` upwards: Lucy stands along the last, the other four shapes along the second, the default:
 
 ```python
-volume = nf.chunked_inference(model, eval_set.input, chunk_size=262144)
+volume = inro.chunked_inference(model, eval_set.input, chunk_size=262144)
 occupancy = eval_set.postprocess(volume.cpu())  # (1, D, H, W) in {0, 1}
 eval_set.save(occupancy, "lucy_futon", up=2)    # lucy_futon.dae and .png
 ```
 
-The render runs offscreen with Open3D and needs EGL and a GPU driver, which not every machine has; that is why the call above and the benchmark script pass `save_reconstruction=False` and rebuild meshes from `checkpoint.pt` afterwards (`nf.evaluate(model, eval_set, ckpt_path=..., log_dir=...)` on a workstation).
+The render runs offscreen with Open3D and needs EGL and a GPU driver, which not every machine has; that is why the call above and the benchmark script pass `save_reconstruction=False` and rebuild meshes from `checkpoint.pt` afterwards (`inro.evaluate(model, eval_set, ckpt_path=..., log_dir=...)` on a workstation).
 
 ## The benchmark script
 

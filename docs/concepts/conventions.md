@@ -4,7 +4,7 @@ The rules that let datasets, models, losses and metrics be combined freely.
 
 ## Coordinates
 
-Coordinates live in $[-1, 1]$ on every axis, with both endpoints included: `nf.create_coordinates((H, W))` returns an `(H, W, 2)` grid whose column $c$ spans axis $c$ (`indexing="ij"`), and the datasets build their inputs with it. FUTON's bases, the hash and feature grids, and `GridINR` patches are defined on this domain, so do not pre-normalize to $[0, 1]$. Models accept any leading shape; FUTON's sparse bases need a flat `(N, C)` batch, which `FUTON.forward` produces internally.
+Coordinates live in $[-1, 1]$ on every axis, with both endpoints included: `inro.create_coordinates((H, W))` returns an `(H, W, 2)` grid whose column $c$ spans axis $c$ (`indexing="ij"`), and the datasets build their inputs with it. FUTON's bases, the hash and feature grids, and `GridINR` patches are defined on this domain, so do not pre-normalize to $[0, 1]$. Models accept any leading shape; FUTON's sparse bases need a flat `(N, C)` batch, which `FUTON.forward` produces internally.
 
 ## Values
 
@@ -24,19 +24,19 @@ Subsampling (`subsample`, `max_samples`) flattens `input` and `target` to `(N, .
 
 ## Metrics
 
-`nf.psnr`, `nf.ssim`, `nf.ms_ssim` and `nf.lpips` take two `(C, H, W)` images and infer `data_range` from the target: 255 for `uint8`, 1 for floating point. `nf.lpips` needs three channels and uses the VGG backbone by default (`net="alex"` selects AlexNet); its weights are downloaded once. `nf.iou` thresholds both inputs at zero, so it works on the `{0, 1}` original and on raw model output alike. `nf.nmse` is fastMRI's normalized MSE, and `nf.bits_per_pixel(encoded, image)` divides a byte string's size by the spatial size of a `(C, *spatial)` image. `nf.super_resolution_metrics(border)` gives super-resolution's protocol: PSNR and SSIM on `nf.luma`, BT.601's Y as MATLAB's `rgb2ycbcr` computes it, and LPIPS on RGB, all without a border of `border` pixels. In `nf.train` and `nf.evaluate`, metrics are called as `fn(reconstruction, original)` after `postprocess`, so they see `uint8` images and `{0, 1}` volumes.
+`inro.psnr`, `inro.ssim`, `inro.ms_ssim` and `inro.lpips` take two `(C, H, W)` images and infer `data_range` from the target: 255 for `uint8`, 1 for floating point. `inro.lpips` needs three channels and uses the VGG backbone by default (`net="alex"` selects AlexNet); its weights are downloaded once. `inro.iou` thresholds both inputs at zero, so it works on the `{0, 1}` original and on raw model output alike. `inro.nmse` is fastMRI's normalized MSE, and `inro.bits_per_pixel(encoded, image)` divides a byte string's size by the spatial size of a `(C, *spatial)` image. `inro.super_resolution_metrics(border)` gives super-resolution's protocol: PSNR and SSIM on `inro.luma`, BT.601's Y as MATLAB's `rgb2ycbcr` computes it, and LPIPS on RGB, all without a border of `border` pixels. In `inro.train` and `inro.evaluate`, metrics are called as `fn(reconstruction, original)` after `postprocess`, so they see `uint8` images and `{0, 1}` volumes.
 
 ## Widths, depths and activations
 
-`hidden_layers=h` means `h` hidden layers and `h + 1` weight layers. `output_activation` is applied after the last layer of every model; inside `nf.nerf.RadianceField` the density network must have none, because the field applies `trunc_exp` to the density and a sigmoid to the colour.
+`hidden_layers=h` means `h` hidden layers and `h + 1` weight layers. `output_activation` is applied after the last layer of every model; inside `inro.nerf.RadianceField` the density network must have none, because the field applies `trunc_exp` to the density and a sigmoid to the colour.
 
 ## Checkpoints
 
-`nf.train` saves the model's state dict as `checkpoint.pt` in `log_dir` and returns it as `model_dict`. With `quantize=True`, the checkpoint holds the quantized weights and `model_dict` instead holds a dictionary of integer codes and per-tensor scales, which `nf.uniform_dequantize` loads back. `nf.nerf.train` saves the field's state dict, including the `aabb` buffer. `MLP.layers` holds only weight layers (`layers.0` to `layers.h`), and grid models keep their decoder under `decoder.layers.*`.
+`inro.train` saves the model's state dict as `checkpoint.pt` in `log_dir` and returns it as `model_dict`. With `quantize=True`, the checkpoint holds the quantized weights and `model_dict` instead holds a dictionary of integer codes and per-tensor scales, which `inro.uniform_dequantize` loads back. `inro.nerf.train` saves the field's state dict, including the `aabb` buffer. `MLP.layers` holds only weight layers (`layers.0` to `layers.h`), and grid models keep their decoder under `decoder.layers.*`.
 
 ## Seeds and devices
 
-`seed` in `nf.train` and `nf.nerf.train` seeds PyTorch's global RNG before training, after the model has been built; construct the model after `torch.manual_seed` to also fix its initialization, as the scripts do. A dataset's `seed` reseeds Python's RNG only; subsampling draws from PyTorch's RNG. `device=None` selects CUDA when available. The training loop moves the model and, through their `to` method, the datasets to that device, and `_original` stays on the CPU.
+`seed` in `inro.train` and `inro.nerf.train` seeds PyTorch's global RNG before training, after the model has been built; construct the model after `torch.manual_seed` to also fix its initialization, as the scripts do. A dataset's `seed` reseeds Python's RNG only; subsampling draws from PyTorch's RNG. `device=None` selects CUDA when available. The training loop moves the model and, through their `to` method, the datasets to that device, and `_original` stays on the CPU.
 
 ## Experiment files
 

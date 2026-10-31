@@ -2,8 +2,8 @@
 
 These scripts run `scripts/train_<task>.py` as Slurm jobs on the HPC-UGent GPU
 clusters. They connect through the SSH host `hpc-ugent` (override with
-`HPC_HOST`) and use the repository at `$VSC_DATA/projects/neurofield` and the
-venv at `$VSC_DATA/venvs/neurofield-env`.
+`HPC_HOST`) and use the repository at `$VSC_DATA/projects/inro` and the
+venv at `$VSC_DATA/venvs/inro-env`.
 
 | File | Run from | Purpose |
 | --- | --- | --- |
@@ -56,10 +56,10 @@ scripts/hpc/setup.sh
 The script connects to `hpc-ugent` and runs on a login node. It takes about 10
 minutes and does the following:
 
-1. **Repository.** Clones the repository to `$VSC_DATA/projects/neurofield`
+1. **Repository.** Clones the repository to `$VSC_DATA/projects/inro`
    if needed, and checks out the local branch and commit.
-2. **Environment.** Creates the Python 3.12 venv `neurofield-env` in
-   `$VSC_DATA/venvs/` with `uv`, and installs neurofield in editable mode with
+2. **Environment.** Creates the Python 3.12 venv `inro-env` in
+   `$VSC_DATA/venvs/` with `uv`, and installs inro in editable mode with
    the `3d` and `dev` extras, with PyTorch pinned to 2.14.1, the release of the
    local runs, since `torch.compile` turns the same code into different graphs
    from one release to the next. The PyPI PyTorch wheels include their own CUDA
@@ -78,16 +78,16 @@ minutes and does the following:
 The script is safe to rerun: existing files are kept. Rerun it after changing
 dependencies in `pyproject.toml`. The venv takes about 7 GB of the 25 GB
 `$VSC_DATA` quota. The data (about 4 GB) and the logs live in
-`$VSC_SCRATCH/neurofield/` instead, linked from the repository as `data/` and
+`$VSC_SCRATCH/inro/` instead, linked from the repository as `data/` and
 `logs/`; to set up a new clone that way:
 
 ```bash
-mkdir -p $VSC_SCRATCH/neurofield/{data,logs}
-ln -s $VSC_SCRATCH/neurofield/data $VSC_SCRATCH/neurofield/logs $VSC_DATA/projects/neurofield/
+mkdir -p $VSC_SCRATCH/inro/{data,logs}
+ln -s $VSC_SCRATCH/inro/data $VSC_SCRATCH/inro/logs $VSC_DATA/projects/inro/
 ```
 
 For an interactive shell on the cluster, run
-`source $VSC_DATA/venvs/neurofield-env/bin/activate`. Login nodes limit each
+`source $VSC_DATA/venvs/inro-env/bin/activate`. Login nodes limit each
 process to 2 GB of virtual memory, which is not enough to import PyTorch, so
 test the environment in a job (step 3).
 
@@ -104,7 +104,7 @@ reruns itself there. On the login node, it updates the repository (to the local
 commit when called from the local machine, otherwise with a fast-forward pull)
 and submits itself with `sbatch`. The job then trains the models and records
 the commit in its output, e.g. `commit: 1a2b3c4`. Jobs are named
-`nf-<task>[-<signal>][-<model>]`, naming whatever the job runs only one of, so
+`inro-<task>[-<signal>][-<model>]`, naming whatever the job runs only one of, so
 `squeue` and the log files say what is running. Pass `--job-name=` to override.
 A job array runs one signal per task: pass `--array=801-900`, and every `%a` in
 the arguments becomes the task id, `%4a` the id zero-padded to four digits and
@@ -113,7 +113,7 @@ the arguments becomes the task id, `%4a` the id zero-padded to four digits and
 It also prints the scheduler's estimated start time, e.g.
 
 ```
-Submitting nf-image-kodim19-FUTON-sinc at commit 1a2b3c4
+Submitting inro-image-kodim19-FUTON-sinc at commit 1a2b3c4
 Submitted batch job 15754794 on cluster accelgor
 Estimated start: 2026-09-17T21:33:00
 ```
@@ -241,7 +241,7 @@ On the cluster:
 
 ```bash
 squeue --clusters=accelgor -u $USER -o "%.10i %.30j %.2t %.9M %.9l"  # jobs
-tail -f logs/slurm/nf-image-kodim19-FUTON-sinc-<jobid>.out           # output
+tail -f logs/slurm/inro-image-kodim19-FUTON-sinc-<jobid>.out         # output
 scancel --clusters=accelgor <jobid>                                  # cancel
 squeue --clusters=accelgor -u $USER --start          # estimated start times
 ```

@@ -16,7 +16,7 @@ A local basis (`triangle`, `lanczos`) needs at least `2 * radius` components per
 ## Memory
 
 **CUDA out of memory during evaluation.**
-Pass `chunk_size` to `nf.train`, `nf.evaluate` or `nf.chunked_inference`; the occupancy benchmark evaluates $256^3$ volumes with `chunk_size=262144`. In `nf.nerf.train`, lower `num_rays` or `max_samples_per_ray`; in `nf.nerf.evaluate` and `render_image`, pass `chunk_size` (rays per pass).
+Pass `chunk_size` to `inro.train`, `inro.evaluate` or `inro.chunked_inference`; the occupancy benchmark evaluates $256^3$ volumes with `chunk_size=262144`. In `inro.nerf.train`, lower `num_rays` or `max_samples_per_ray`; in `inro.nerf.evaluate` and `render_image`, pass `chunk_size` (rays per pass).
 
 **CUDA out of memory during training.**
 Draw fewer coordinates per step with `subsample` (a fraction) or `max_samples` (a count); the benchmarks train on the whole image and on 262,144 voxels per step.
@@ -24,7 +24,7 @@ Draw fewer coordinates per step with `subsample` (a fraction) or `max_samples` (
 ## Backends
 
 **`NerfAcc: No CUDA toolkit found. NerfAcc will be disabled.`**
-nerfacc builds its CUDA extension on first use and needs `nvcc` for that. Without it, `nf.nerf.create_renderer()` selects the PyTorch renderer, which produces the same renders more slowly; training still works. Install a CUDA toolkit matching your PyTorch build to use nerfacc.
+nerfacc builds its CUDA extension on first use and needs `nvcc` for that. Without it, `inro.nerf.create_renderer()` selects the PyTorch renderer, which produces the same renders more slowly; training still works. Install a CUDA toolkit matching your PyTorch build to use nerfacc.
 
 ## Data and extras
 
@@ -35,7 +35,7 @@ Meshes as occupancy volumes, mesh export and offscreen rendering need the `3d` e
 It renders offscreen with Open3D, which needs EGL and a GPU driver but no display. Where the renderer cannot start, `save` warns and writes the mesh alone.
 
 **LPIPS downloads weights on first use.**
-`nf.lpips` loads the VGG (or AlexNet) backbone through torchmetrics, which fetches the weights once. On a machine without internet access, run one evaluation on a connected one first, with the same cache directory.
+`inro.lpips` loads the VGG (or AlexNet) backbone through torchmetrics, which fetches the weights once. On a machine without internet access, run one evaluation on a connected one first, with the same cache directory.
 
 ## Experiments
 
@@ -57,4 +57,4 @@ A network with `hidden_layers=h` has `h + 1` weight layers (MFN: `h` Gabor filte
 `MLP.layers` contains only weight layers, so a network with `hidden_layers=h` has keys `layers.0` to `layers.h`; a shared activation with parameters (for example `nn.PReLU`) lives under `activation.*`.
 
 **Quantized checkpoints.**
-With `nf.train(..., quantize=True)`, `checkpoint.pt` holds the quantized weights as an ordinary state dict, while the returned `model_dict` holds integer codes with per-tensor scales; restore those with `nf.uniform_dequantize(model, model_dict)`.
+With `inro.train(..., quantize=True)`, `checkpoint.pt` holds the quantized weights as an ordinary state dict, while the returned `model_dict` holds integer codes with per-tensor scales; restore those with `inro.uniform_dequantize(model, model_dict)`.

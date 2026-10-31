@@ -406,7 +406,7 @@ class SuperResolutionDataset(ImageCoordinateDataset):
     kernel rows of each block on its footprint, of shape ``(B, S, L)``; and
     ``target``, the LR pixels in ``[-1, 1]``, of shape ``(B, S, S, C)``,
     besides ``id`` and the uint8 LR image as ``_original``.
-    :func:`~neurofield.super_resolution_loss` renders the footprints,
+    :func:`~inro.super_resolution_loss` renders the footprints,
     downsamples them with the weights and matches the targets. The blocks are
     drawn with the global PyTorch RNG.
 

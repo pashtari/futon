@@ -21,7 +21,7 @@ from train_common import (
     warm_up,
 )
 
-import neurofield as nf
+import inro
 
 DATA = sorted((ROOT / "data" / "occupancy").glob("*.ply"))
 
@@ -32,7 +32,7 @@ def fit(
     data_kwargs = {**config["data"], "item_id": path.stem}
     # The whole volume, whatever share or cap of it each training step draws.
     whole = {**data_kwargs, "subsample": 1.0, "max_samples": None}
-    volume = nf.OccupancyCoordinateDataset(path, **whole)
+    volume = inro.OccupancyCoordinateDataset(path, **whole)
     # Sizes such as a basis's grid_size, [D, H, W], follow the cropped volume,
     # and so does the rank that fills FUTON's budget.
     sized = resolve(model, **dict(zip("DHW", volume.grid_size)))
@@ -45,13 +45,13 @@ def fit(
         config["train"]["seed"],
     )
     net = model_class(in_features=3, out_features=1, **kwargs)
-    train_dataset = nf.OccupancyCoordinateDataset(path, **data_kwargs)
+    train_dataset = inro.OccupancyCoordinateDataset(path, **data_kwargs)
     warm_up(net, train_dataset, device, config["compile"])
-    res = nf.train(
+    res = inro.train(
         net,
         train_dataset,
         volume,
-        metrics={"iou": nf.iou},
+        metrics={"iou": inro.iou},
         # Rendering a mesh needs a display, which compute nodes lack; recreate
         # reconstructions from checkpoint.pt instead.
         save_reconstruction=False,

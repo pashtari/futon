@@ -38,7 +38,7 @@ The four scripts share one command line:
 | `--compile` | Compile each model with `torch.compile` before its warm-up pass, as every run of the paper was. |
 | `--device DEV` | `cuda` when available, else `cpu`. |
 
-A config holds the shared `data` and `train` settings and, per model, its NeuroField class, constructor `kwargs` and training overrides (the learning rate). Image configs may use expressions in the image height `H` and width `W`, such as `[H // 2, W // 2]`; the super-resolution config sizes its models from the high-resolution image, and FUTON's entry names a parameter `budget` whose largest CP rank the script fills in. Each config's header says how its learning rates were chosen, and `# deviation` marks a setting that departs from the authors' published ones.
+A config holds the shared `data` and `train` settings and, per model, its Inro class, constructor `kwargs` and training overrides (the learning rate). Image configs may use expressions in the image height `H` and width `W`, such as `[H // 2, W // 2]`; the super-resolution config sizes its models from the high-resolution image, and FUTON's entry names a parameter `budget` whose largest CP rank the script fills in. Each config's header says how its learning rates were chosen, and `# deviation` marks a setting that departs from the authors' published ones.
 
 Finished runs are skipped, so an interrupted sweep restarts where it stopped, and a failed run writes `error.txt` and lets the sweep continue. Runs are keyed by model name, so a variant needs its own name or its own `--log-dir`:
 

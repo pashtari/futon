@@ -10,17 +10,17 @@
 The package is installed from the repository, in editable mode so that the scripts, configs and notebooks find it:
 
 ```bash
-git clone https://github.com/pashtari/neurofield.git
-cd neurofield
+git clone https://github.com/pashtari/inro.git
+cd inro
 pip install -e .
 ```
 
 Check the install:
 
 ```python
-import torch, neurofield as nf
+import torch, inro
 
-print(nf.__version__, torch.cuda.is_available())
+print(inro.__version__, torch.cuda.is_available())
 ```
 
 ## Extras
@@ -39,7 +39,7 @@ pip install -e ".[3d,nerf,dev]"
 ```
 
 !!! note "nerfacc"
-    nerfacc compiles a CUDA extension the first time it is used and needs a CUDA toolkit for that. Without one, `nf.nerf.is_nerfacc_available()` is `False` and `nf.nerf.create_renderer()` falls back to the PyTorch renderer, which produces the same images more slowly.
+    nerfacc compiles a CUDA extension the first time it is used and needs a CUDA toolkit for that. Without one, `inro.nerf.is_nerfacc_available()` is `False` and `inro.nerf.create_renderer()` falls back to the PyTorch renderer, which produces the same images more slowly.
 
 ## Benchmark data
 
@@ -68,6 +68,6 @@ Occupancy volumes are voxelized on first use and cached beside the mesh in `data
 
 ```bash
 pip install -e ".[dev]"
-black --check neurofield tests scripts   # formatting, line length 88
+black --check inro tests scripts   # formatting, line length 88
 pytest -q                                 # tests that need CUDA or local data skip themselves
 ```

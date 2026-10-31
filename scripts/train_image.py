@@ -12,7 +12,7 @@ import torch
 from PIL import Image
 from train_common import ROOT, build, fresh, on_grid, record, resolve, run, warm_up
 
-import neurofield as nf
+import inro
 
 DATA = sorted((ROOT / "data" / "Kodak").glob("kodim*.png"))
 
@@ -27,7 +27,7 @@ def fit(
     config: dict, model: dict, path: Path, out: Path, device: torch.device
 ) -> dict[str, Any]:
     model_class, kwargs = build(model)
-    image = nf.ImageCoordinateDataset(path)
+    image = inro.ImageCoordinateDataset(path)
     search = fresh(
         model,
         kwargs,
@@ -36,17 +36,17 @@ def fit(
         config["train"]["seed"],
     )
     net = model_class(in_features=2, out_features=3, **kwargs)
-    train_dataset = nf.ImageCoordinateDataset(path, **config["data"])
+    train_dataset = inro.ImageCoordinateDataset(path, **config["data"])
     warm_up(net, train_dataset, device, config["compile"])
-    res = nf.train(
+    res = inro.train(
         net,
         train_dataset,
         image,
         metrics={
-            "psnr": nf.psnr,
-            "ssim": nf.ssim,
-            "ms_ssim": nf.ms_ssim,
-            "lpips": nf.lpips,
+            "psnr": inro.psnr,
+            "ssim": inro.ssim,
+            "ms_ssim": inro.ms_ssim,
+            "lpips": inro.lpips,
         },
         device=device,
         log_dir=out,

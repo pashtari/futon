@@ -35,7 +35,7 @@ class FUTONBound:
     """Bounds on the best mean squared error of a FUTON with a linear decoder.
 
     Errors are means over the grid's points and the signal's channels, as
-    :func:`neurofield.train` reports them, and are in float64.
+    :func:`inro.train` reports them, and are in float64.
 
     Attributes:
         ranks: The CP ranks, ascending.
@@ -220,7 +220,7 @@ def futon_bound(
         signal: Samples of shape ``(N_1, ..., N_C, D)`` on a grid.
         features: Per axis ``c``, the basis at that axis's grid coordinates,
             of shape ``(N_c, K_c)``: any functions, orthonormal or not. For a
-            FUTON's basis on a neurofield dataset's grid, it is
+            FUTON's basis on a coordinate dataset's grid, it is
             ``basis.axis_features(torch.linspace(-1, 1, N_c), c)``.
         ranks: The CP ranks ``R`` to bound.
         sweeps: Most alternating least-squares sweeps that refine each upper
@@ -234,14 +234,14 @@ def futon_bound(
 
     Example::
 
-        data = nf.ImageCoordinateDataset("kodim19.png")
+        data = inro.ImageCoordinateDataset("kodim19.png")
         H, W, _ = data.target.shape
-        basis = nf.SincBasis(2, num_components=[H // 2, W // 2])
+        basis = inro.SincBasis(2, num_components=[H // 2, W // 2])
         features = [
             basis.axis_features(torch.linspace(-1, 1, n), c)
             for c, n in enumerate((H, W))
         ]
-        bound = nf.futon_bound(data.target, features, ranks=[64, 256])
+        bound = inro.futon_bound(data.target, features, ranks=[64, 256])
         psnr = 10 * torch.log10(4 / bound.upper)  # guaranteed, in dB
     """
     ranks = sorted({ranks} if isinstance(ranks, int) else set(ranks))

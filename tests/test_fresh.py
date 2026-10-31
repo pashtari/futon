@@ -5,7 +5,7 @@ import math
 import pytest
 import torch
 
-import neurofield as nf
+import inro
 
 
 def cosine(frequency: float, side: int = 64) -> torch.Tensor:
@@ -16,7 +16,7 @@ def cosine(frequency: float, side: int = 64) -> torch.Tensor:
 
 def test_a_cosine_is_one_shell():
     """A cosine of k cycles puts its every amplitude in shell d = k."""
-    spectrum = nf.fresh_spectrum(cosine(5), size=16)
+    spectrum = inro.fresh_spectrum(cosine(5), size=16)
     assert spectrum.shape == (16,) and float(spectrum.sum()) == pytest.approx(1.0)
     assert float(spectrum[4]) == pytest.approx(1.0, abs=1e-5)  # float32 leakage
 
@@ -34,35 +34,35 @@ def test_shells_sum_nonnegative_frequencies(shape):
         d = int(index.sum())
         if 1 <= d <= size:
             shells[d - 1] += amplitude[tuple(index)]
-    torch.testing.assert_close(nf.fresh_spectrum(signal, size), shells / shells.sum())
+    torch.testing.assert_close(inro.fresh_spectrum(signal, size), shells / shells.sum())
 
 
 def test_spectrum_ignores_transposition_and_resizes_to_the_smaller_side():
     torch.manual_seed(0)
     image = torch.rand(48, 48, 3)
     torch.testing.assert_close(
-        nf.fresh_spectrum(image, 16), nf.fresh_spectrum(image.transpose(0, 1), 16)
+        inro.fresh_spectrum(image, 16), inro.fresh_spectrum(image.transpose(0, 1), 16)
     )
-    assert nf.fresh_spectrum(torch.rand(96, 64, 3), 32).shape == (32,)
+    assert inro.fresh_spectrum(torch.rand(96, 64, 3), 32).shape == (32,)
     with pytest.raises(ValueError):
-        nf.fresh_spectrum(torch.rand(96, 64, 3), 33)  # past half of 64
+        inro.fresh_spectrum(torch.rand(96, 64, 3), 33)  # past half of 64
 
 
 def test_distance_is_the_one_dimensional_wasserstein_distance():
     p = torch.tensor([1.0, 0.0, 0.0, 0.0])
     q = torch.tensor([0.0, 0.0, 0.0, 1.0])
-    assert nf.fresh_distance(p, q) == pytest.approx(3.0)  # all mass moves 3 steps
-    assert nf.fresh_distance(p, p) == 0.0
+    assert inro.fresh_distance(p, q) == pytest.approx(3.0)  # all mass moves 3 steps
+    assert inro.fresh_distance(p, p) == 0.0
 
 
 def test_select_picks_the_matching_frequency_and_the_smaller_on_a_tie():
     """A render whose cosine has omega / 10 cycles matches a 5-cycle target at 50."""
-    omega, scores = nf.fresh_select(
+    omega, scores = inro.fresh_select(
         [cosine(5)], lambda omega: cosine(omega / 10), omegas=range(10, 101, 10),
         size=16, inits=2,
     )  # fmt: skip
     assert omega == 50 and scores[50] == pytest.approx(0.0)
-    tied, _ = nf.fresh_select(
+    tied, _ = inro.fresh_select(
         [cosine(5)], lambda omega: cosine(5), omegas=(30, 20), size=16, inits=1
     )
     assert tied == 20
@@ -75,21 +75,21 @@ def test_select_starts_every_candidate_from_the_same_random_state():
         draws.setdefault(omega, []).append(float(torch.rand(())))
         return torch.rand(32, 32, 1)
 
-    nf.fresh_select([torch.rand(32, 32, 1)], render, omegas=(10, 20), size=8, inits=3)
+    inro.fresh_select([torch.rand(32, 32, 1)], render, omegas=(10, 20), size=8, inits=3)
     assert draws[10] == draws[20]
 
 
 def test_siren_first_omega_changes_the_first_layer_alone():
     torch.manual_seed(0)
-    plain = nf.SIREN(2, 3, hidden_features=16, hidden_layers=3, omega=30.0)
+    plain = inro.SIREN(2, 3, hidden_features=16, hidden_layers=3, omega=30.0)
     torch.manual_seed(0)
-    same = nf.SIREN(
+    same = inro.SIREN(
         2, 3, hidden_features=16, hidden_layers=3, omega=30.0, first_omega=None
     )
     for a, b in zip(plain.parameters(), same.parameters()):
         torch.testing.assert_close(a, b)
     torch.manual_seed(0)
-    model = nf.SIREN(
+    model = inro.SIREN(
         2, 3, hidden_features=16, hidden_layers=3, omega=30.0, first_omega=90.0
     )
     assert model.layers[0].omega == 90.0

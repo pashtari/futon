@@ -8,11 +8,11 @@ Two pages take you from an empty environment to a trained neural field.
 Everything is importable from the top-level package:
 
 ```python
-import neurofield as nf
+import inro
 
-nf.FUTON, nf.SIREN, nf.InstantNGP        # models
-nf.ImageCoordinateDataset                # datasets
-nf.train, nf.evaluate, nf.chunked_inference
-nf.psnr, nf.ssim, nf.lpips, nf.iou       # metrics
-nf.compression, nf.nerf                  # image compression and radiance fields
+inro.FUTON, inro.SIREN, inro.InstantNGP     # models
+inro.ImageCoordinateDataset                 # datasets
+inro.train, inro.evaluate, inro.chunked_inference
+inro.psnr, inro.ssim, inro.lpips, inro.iou  # metrics
+inro.compression, inro.nerf                 # image compression and radiance fields
 ```

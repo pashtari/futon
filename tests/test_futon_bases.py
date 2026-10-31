@@ -4,8 +4,8 @@ import pytest
 import torch
 from torch import nn
 
-from neurofield.models import SharedRows, Taps
-from neurofield.models.futon import (
+from inro.models import SharedRows, Taps
+from inro.models.futon import (
     FUTON,
     ChebyshevBasis,
     CPCombiner,
@@ -553,7 +553,7 @@ class TestGridEvaluation:
 )
 class TestNumComponents:
     def test_int_and_per_axis(self, name):
-        from neurofield.models.futon import BASES
+        from inro.models.futon import BASES
 
         def dense(feature):
             return feature if isinstance(feature, torch.Tensor) else feature.dense()
@@ -570,13 +570,13 @@ class TestNumComponents:
         assert torch.allclose(dense(shared(x)[1]), features[1])
 
     def test_wrong_length(self, name):
-        from neurofield.models.futon import BASES
+        from inro.models.futon import BASES
 
         with pytest.raises(ValueError):
             BASES[name](3, [8, 8])
 
     def test_grid_size(self, name):
-        from neurofield.models.futon import BASES
+        from inro.models.futon import BASES
 
         assert BASES[name](3, 8).grid_size is None
         assert BASES[name](3, 8, grid_size=16).grid_size == [16] * 3
@@ -603,7 +603,7 @@ class TestValidation:
             basis(torch.rand(8, 2))
 
     def test_registry(self):
-        from neurofield.models.futon import BASES
+        from inro.models.futon import BASES
 
         assert BASES["lanczos"] is LanczosBasis
         assert BASES["triangle"] is TriangleBasis

@@ -98,7 +98,7 @@ def _shared(x: Tensor) -> list[tuple[Tensor, Tensor]] | None:
     For a flat batch ``(N, C)`` whose axes repeat their coordinates; ``None``
     for other shapes, for coordinates that need gradients, which shared rows do
     not carry, and when an axis has more distinct coordinates than half the
-    points, the rule of :class:`~neurofield.models.finr.FINR`.
+    points, the rule of :class:`~inro.models.finr.FINR`.
     """
     if x.ndim != 2 or _differentiated(x):
         return None
@@ -765,7 +765,7 @@ class FUTONEncoding(nn.Module):
         pixels of an image or a batch drawn from them, share it. When every
         axis repeats its coordinates, the basis evaluates each distinct
         coordinate once and the combiner projects that table, each point
-        gathering its rows, as :class:`~neurofield.models.finr.FINR` does with
+        gathering its rows, as :class:`~inro.models.finr.FINR` does with
         its networks. This computes the same function and gradients in
         :math:`O(R \sum_c S_c K_c + NCR)` for :math:`N` points with
         :math:`S_c` distinct coordinates on axis :math:`c`, instead of

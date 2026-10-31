@@ -7,7 +7,7 @@ least-squares problem. :class:`BCD` sweeps the blocks once per batch and
 leaves each block's update to a subclass: :class:`LeastSquares` solves the
 block's problem, for any basis, and :class:`MultiplicativeUpdate` takes Lee
 and Seung's step, which keeps a nonnegative model nonnegative. Both are
-optimizers that :func:`neurofield.train` takes in place of Adam, on the same
+optimizers that :func:`inro.train` takes in place of Adam, on the same
 datasets.
 
 References:
@@ -99,7 +99,7 @@ class BCD(Optimizer):
     matrix factorization does, with weights that sum to one from the first
     batch on. The newest batch's weight, ``1 - momentum``, is the solver's
     ``lr``, which a scheduler anneals as it would a gradient step's:
-    :func:`neurofield.train` takes it down to a hundredth, so that the
+    :func:`inro.train` takes it down to a hundredth, so that the
     average reaches further back as the model settles.
 
     Args:

@@ -45,7 +45,7 @@ class SIREN(MLP):
         hidden_layers: Number of sine layers; must be at least one.
         omega: Frequency multiplier in every sine layer.
         first_omega: Frequency of the first sine layer alone, the one
-            :func:`neurofield.fresh_select` chooses; ``None`` keeps ``omega``.
+            :func:`inro.fresh_select` chooses; ``None`` keeps ``omega``.
             The later layers' initialization follows ``omega``.
         output_activation: Optional callable applied to the output.
     """

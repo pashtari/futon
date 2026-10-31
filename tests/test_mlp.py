@@ -8,12 +8,12 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-import neurofield as nf
+import inro
 
 
 @pytest.mark.parametrize("activation", [None, nn.PReLU(init=0.25)])
 def test_hidden_activation_is_shared(activation):
-    model = nf.MLP(1, 1, 1, 2, activation)
+    model = inro.MLP(1, 1, 1, 2, activation)
     with torch.no_grad():
         for layer in model.modules():
             if isinstance(layer, nn.Linear):
@@ -36,8 +36,8 @@ def test_hidden_activation_is_shared(activation):
 
 @pytest.mark.parametrize("activation", [None, torch.tanh])
 def test_omitted_hidden_width_defaults_to_input_width(activation):
-    model = nf.MLP(2, 3, activation=activation)
-    reference = nf.MLP(2, 3, hidden_features=2, activation=activation)
+    model = inro.MLP(2, 3, activation=activation)
+    reference = inro.MLP(2, 3, hidden_features=2, activation=activation)
     reference.load_state_dict(model.state_dict())
     x = torch.tensor([[-2.0, 1.0], [0.5, -1.0]])
 
@@ -46,7 +46,7 @@ def test_omitted_hidden_width_defaults_to_input_width(activation):
 
 
 def test_hidden_activation_leaves_linear_output_signed():
-    model = nf.MLP(1, 1, 1, 1, activation=torch.relu)
+    model = inro.MLP(1, 1, 1, 1, activation=torch.relu)
     model.load_state_dict(
         {
             "layers.0.weight": torch.ones(1, 1),
@@ -60,7 +60,7 @@ def test_hidden_activation_leaves_linear_output_signed():
 
 
 def test_hidden_layer_kwargs_do_not_affect_output_layer():
-    model = nf.MLP(2, 1, 3, 2, bias=False)
+    model = inro.MLP(2, 1, 3, 2, bias=False)
 
     assert all(layer.bias is None for layer in model.layers[:-1])
     assert model.layers[-1].bias is not None
@@ -78,8 +78,8 @@ def test_hidden_layer_kwargs_do_not_affect_output_layer():
     ids=["torch", "functional", "partial", "lambda"],
 )
 def test_callable_hidden_activations_match_modules(activation, module_activation):
-    model = nf.MLP(2, 3, 4, 2, activation=activation).double()
-    reference = nf.MLP(2, 3, 4, 2, activation=module_activation).double()
+    model = inro.MLP(2, 3, 4, 2, activation=activation).double()
+    reference = inro.MLP(2, 3, 4, 2, activation=module_activation).double()
     assert model.state_dict().keys() == reference.state_dict().keys()
     reference.load_state_dict(model.state_dict())
     x = torch.tensor(
@@ -103,7 +103,7 @@ def test_callable_hidden_activations_match_modules(activation, module_activation
 
 @pytest.mark.parametrize("output_activation", [torch.sigmoid, nn.PReLU(init=0.25)])
 def test_output_activation_accepts_callable_or_module(output_activation):
-    model = nf.MLP(
+    model = inro.MLP(
         1,
         1,
         hidden_layers=1,
@@ -126,7 +126,7 @@ def test_output_activation_accepts_callable_or_module(output_activation):
 
 
 def test_custom_layers_own_their_activation_and_receive_kwargs():
-    model = nf.MLP(1, 1, 1, 2, layer_class=nf.SineLayer, omega=2.0)
+    model = inro.MLP(1, 1, 1, 2, layer_class=inro.SineLayer, omega=2.0)
     with torch.no_grad():
         for layer in model.modules():
             if isinstance(layer, nn.Linear):
@@ -140,19 +140,19 @@ def test_custom_layers_own_their_activation_and_receive_kwargs():
 @pytest.mark.parametrize("activation", [nn.ReLU(), torch.relu])
 def test_custom_layers_reject_an_additional_hidden_activation(activation):
     with pytest.raises(ValueError, match="activation"):
-        nf.MLP(2, 1, activation=activation, layer_class=nf.SineLayer)
+        inro.MLP(2, 1, activation=activation, layer_class=inro.SineLayer)
 
 
-@pytest.mark.parametrize("layer_class", [None, nf.SineLayer])
+@pytest.mark.parametrize("layer_class", [None, inro.SineLayer])
 @pytest.mark.parametrize("hidden_layers", [0, -1])
 def test_invalid_hidden_layer_counts(hidden_layers, layer_class):
     with pytest.raises(ValueError, match="hidden_layers must be >= 1"):
-        nf.MLP(2, 1, hidden_layers=hidden_layers, layer_class=layer_class)
+        inro.MLP(2, 1, hidden_layers=hidden_layers, layer_class=layer_class)
 
 
 @pytest.mark.parametrize(
     ("layer_class", "hidden_prefix", "output_prefix"),
-    [(None, "layers.0", "layers.1"), (nf.ReLULayer, "layers.0.linear", "layers.1")],
+    [(None, "layers.0", "layers.1"), (inro.ReLULayer, "layers.0.linear", "layers.1")],
 )
 def test_plain_and_custom_checkpoint_layouts(layer_class, hidden_prefix, output_prefix):
     checkpoint = {
@@ -161,14 +161,14 @@ def test_plain_and_custom_checkpoint_layouts(layer_class, hidden_prefix, output_
         f"{output_prefix}.weight": torch.tensor([[1.0, 2.0, 3.0]]),
         f"{output_prefix}.bias": torch.tensor([0.5]),
     }
-    model = nf.MLP(2, 1, 3, 1, layer_class=layer_class)
+    model = inro.MLP(2, 1, 3, 1, layer_class=layer_class)
     model.load_state_dict(checkpoint)
 
     x = torch.tensor([[1.0, 2.0], [-2.0, 1.0]])
     torch.testing.assert_close(model(x), torch.tensor([[14.5], [2.5]]))
 
 
-@pytest.mark.parametrize("model_class", [nf.SIREN, nf.FINER])
+@pytest.mark.parametrize("model_class", [inro.SIREN, inro.FINER])
 @pytest.mark.parametrize("reset", [False, True])
 def test_sine_models_initialize_and_reset_weights_without_changing_biases(
     model_class, reset

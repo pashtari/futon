@@ -1,14 +1,14 @@
-"""NeuroField: neural fields in PyTorch.
+"""Inro: neural fields in PyTorch.
 
 Models, datasets, training, evaluation and utilities are available directly
-as ``nf.FUTON``, ``nf.train``, etc. Compression and novel view synthesis live
-in ``nf.compression`` and ``nf.nerf``.
+as ``inro.FUTON``, ``inro.train``, etc. Compression and novel view synthesis live
+in ``inro.compression`` and ``inro.nerf``.
 
 Example::
 
-    import neurofield as nf
+    import inro
 
-    model = nf.FUTON(
+    model = inro.FUTON(
         in_features=2,
         out_features=3,
         basis=("cosine", {"num_components": 64}),

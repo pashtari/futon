@@ -187,10 +187,10 @@ def render_views(
     Args:
         field: Radiance field.
         renderer: Volume renderer, e.g. from
-            :func:`~neurofield.nerf.create_renderer`.
+            :func:`~inro.nerf.create_renderer`.
         dataset: Supplies the camera intrinsics and background color.
         poses: Camera-to-world matrices ``(4, 4)`` (e.g. from
-            :func:`neurofield.nerf.pose_spherical`).
+            :func:`inro.nerf.pose_spherical`).
         chunk_size: Rays per forward pass; see :func:`render_image`.
 
     Returns:

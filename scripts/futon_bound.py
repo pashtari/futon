@@ -7,7 +7,7 @@ Usage:
 
 For every signal, spectral resolution K = (kappa N_1, ..., kappa N_C) and CP
 rank R, the script bounds the best grid error of the paper's FUTON, a cosine
-basis, a CP combiner and a linear decoder without bias (``nf.futon_bound``);
+basis, a CP combiner and a linear decoder without bias (``inro.futon_bound``);
 evaluates the certified FUTON, which attains the upper bound and is built
 from the bound's factors without training, in its ALS form, the default, and
 times its SVD form, the same terms before alternating least squares refines
@@ -31,7 +31,7 @@ import json
 import os
 import time
 
-# nf.train's progress bar, off when the study runs, but not where it is imported
+# inro.train's progress bar, off when the study runs, but not where it is imported
 if __name__ == "__main__":
     os.environ.setdefault("TQDM_DISABLE", "1")
 
@@ -39,7 +39,7 @@ import numpy as np
 import torch
 import yaml
 
-import neurofield as nf
+import inro
 from train_common import ROOT, fill_rank, resolve
 
 # Each task's "kappas" are relative bandwidths, K = kappa N on every axis.
@@ -82,9 +82,9 @@ def psnr(mse: float | np.ndarray) -> float | np.ndarray:
 def dataset(task: str, name: str, **data):
     """The signal, whole or, with ``data``, as each training step draws it."""
     if task == "image":
-        return nf.ImageCoordinateDataset(ROOT / f"data/Kodak/{name}.png", **data)
+        return inro.ImageCoordinateDataset(ROOT / f"data/Kodak/{name}.png", **data)
     path = ROOT / f"data/occupancy/{name}.ply"
-    return nf.OccupancyCoordinateDataset(path, resolution=256, **data)
+    return inro.OccupancyCoordinateDataset(path, resolution=256, **data)
 
 
 def benchmark_rank(task: str, sizes: list[int], channels: int) -> int:
@@ -96,26 +96,26 @@ def benchmark_rank(task: str, sizes: list[int], channels: int) -> int:
     return fill_rank(entry, outputs=channels)["kwargs"]["combiner"][1]["rank"]
 
 
-def futon(sizes: list[int], channels: int, kappa: float, rank: int) -> nf.FUTON:
+def futon(sizes: list[int], channels: int, kappa: float, rank: int) -> inro.FUTON:
     """The paper's FUTON: the cosine basis, a CP combiner and a linear decoder,
     no bias."""
     components = [max(2, int(kappa * size)) for size in sizes]
     basis = (BASIS, {"num_components": components, "grid_size": sizes})
-    return nf.FUTON(len(sizes), channels, basis, ("cp", {"rank": rank}),
-                    ("linear", {"bias": False}))  # fmt: skip
+    return inro.FUTON(len(sizes), channels, basis, ("cp", {"rank": rank}),
+                      ("linear", {"bias": False}))  # fmt: skip
 
 
-def features_of(model: nf.FUTON, sizes: list[int], device) -> list[torch.Tensor]:
-    """The model's basis on each axis's grid, as ``nf.futon_bound`` takes it."""
+def features_of(model: inro.FUTON, sizes: list[int], device) -> list[torch.Tensor]:
+    """The model's basis on each axis's grid, as ``inro.futon_bound`` takes it."""
     return [
         model.encoding.basis.axis_features(torch.linspace(-1, 1, n), c).to(device)
         for c, n in enumerate(sizes)
     ]
 
 
-def evaluate(model: nf.FUTON, data, device) -> tuple[float, float | None]:
+def evaluate(model: inro.FUTON, data, device) -> tuple[float, float | None]:
     """Grid MSE, and IoU (%) at the zero level for occupancy."""
-    output = nf.chunked_inference(model, data.input, chunk_size=2**20, device=device)
+    output = inro.chunked_inference(model, data.input, chunk_size=2**20, device=device)
     target = data.target.to(device)
     mse = float((output.double() - target.double()).square().mean())
     if target.shape[-1] != 1 or not torch.all(target.abs() == 1):
@@ -124,15 +124,15 @@ def evaluate(model: nf.FUTON, data, device) -> tuple[float, float | None]:
     return mse, 100 * float((inside & truth).sum() / (inside | truth).sum())
 
 
-def train(model: nf.FUTON, data, device, lr: float, steps: int = STEPS,
+def train(model: inro.FUTON, data, device, lr: float, steps: int = STEPS,
           seed: int = 0) -> float:  # fmt: skip
     """Train in place with Adam as the benchmark does; returns the seconds taken."""
     torch.manual_seed(seed)
     model.encoding.combiner.reset_parameters()
     model.decoder.reset_parameters()
     start = time.perf_counter()
-    nf.train(model, data, num_steps=steps, lr=lr, log_interval=0,
-             save_reconstruction=False, device=device, seed=seed)  # fmt: skip
+    inro.train(model, data, num_steps=steps, lr=lr, log_interval=0,
+               save_reconstruction=False, device=device, seed=seed)  # fmt: skip
     return time.perf_counter() - start
 
 
@@ -143,7 +143,7 @@ def warm_up(task: str, device: torch.device) -> None:
     full = dataset(task, name)
     sizes, channels = list(full.target.shape[:-1]), full.target.shape[-1]
     features = features_of(futon(sizes, channels, 0.125, 1), sizes, device)
-    nf.futon_bound(full.target.to(device), features, [8], sweeps=5)
+    inro.futon_bound(full.target.to(device), features, [8], sweeps=5)
     train_data = dataset(task, name, **TASKS[task]["data"])
     train(
         futon(sizes, channels, 0.125, 8),
@@ -184,10 +184,10 @@ def run(task: str, name: str, device: torch.device) -> None:
     for kappa in kappas:
         features = features_of(futon(sizes, channels, kappa, 1), sizes, device)
         start = time.perf_counter()
-        bound = nf.futon_bound(target, features, settings["ranks"])
+        bound = inro.futon_bound(target, features, settings["ranks"])
         seconds = time.perf_counter() - start
         start = time.perf_counter()  # the SVD form, before any refinement
-        closed = nf.futon_bound(target, features, settings["ranks"], sweeps=0)
+        closed = inro.futon_bound(target, features, settings["ranks"], sweeps=0)
         closed_seconds = time.perf_counter() - start
         for i, (rank, lower, upper) in enumerate(
             zip(bound.ranks, bound.lower, bound.upper)
@@ -206,7 +206,7 @@ def run(task: str, name: str, device: torch.device) -> None:
                     "kappa": kappa,
                     "K": [max(2, int(kappa * n)) for n in sizes],
                     "R": rank,
-                    "parameters": nf.count_parameters(model),
+                    "parameters": inro.count_parameters(model),
                     "adam": adam_mse,
                     "adam_iou": adam_iou,
                     "adam_seconds": adam_seconds,
@@ -236,7 +236,7 @@ def checks(task: str, device: torch.device) -> None:
     """Whether training, not the bound, is the limit, on every signal at
     K = N/2 and the benchmark's rank: Adam for the benchmark's steps and for
     LONGER times them, and alternating least squares on the whole grid from a
-    random start (``nf.LeastSquares`` without momentum), against the bound."""
+    random start (``inro.LeastSquares`` without momentum), against the bound."""
     path = LOGS / f"{task}_checks.json"
     rows = json.loads(path.read_text()) if path.exists() else []
     for name in TASKS[task]["signals"]:
@@ -247,7 +247,9 @@ def checks(task: str, device: torch.device) -> None:
         rank = benchmark_rank(task, sizes, channels)
         batch = {"input": full.input.to(device), "target": full.target.to(device)}
         model = futon(sizes, channels, 0.5, rank)
-        bound = nf.futon_bound(batch["target"], features_of(model, sizes, device), rank)
+        bound = inro.futon_bound(
+            batch["target"], features_of(model, sizes, device), rank
+        )
         row = {"signal": name, "basis": BASIS, "lr": TASKS[task]["lr"], "R": rank,
                "upper": float(bound.upper[0]), "lower": float(bound.lower[0])}  # fmt: skip
         train_data = dataset(task, name, **TASKS[task]["data"])
@@ -255,7 +257,7 @@ def checks(task: str, device: torch.device) -> None:
             train(model, train_data, device, TASKS[task]["lr"], steps=steps)
             row[key] = evaluate(model, full, device)[0]
         torch.manual_seed(0)
-        solver = nf.LeastSquares(model.to(device), momentum=0.0)
+        solver = inro.LeastSquares(model.to(device), momentum=0.0)
         for sweep in range(1, max(SWEEPS) + 1):
             solver.step(batch)
             if sweep in SWEEPS:
